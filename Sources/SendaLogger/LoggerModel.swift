@@ -51,6 +51,10 @@ public final class LoggerModel {
     }
     public var comparison: EntryComparison? { recorded.flatMap { journal.comparison(for: $0.id) } }
     public var today: Date { now() }
+    public var recordSetCount: Int {
+        if selectedField == .sets, numberInputDirty, let count = selectedField.parse(numberInputText) { return count }
+        return values.count
+    }
     public var numberInputIsValid: Bool { !numberInputDirty || selectedField.parse(numberInputText) != nil }
     public func selectField(_ field: NumericField) {
         guard field != selectedField, applyNumberInput() else { return }
@@ -70,6 +74,24 @@ public final class LoggerModel {
         return setValue(value, for: selectedField)
     }
     public func cancelNumberInput() { resetNumberInput() }
+
+    @discardableResult public func stepNumber(increasing: Bool) -> Bool {
+        guard draft != nil, editor == nil else { return false }
+        let current: Int
+        if numberInputDirty {
+            guard let parsed = selectedField.parse(numberInputText) else { return false }
+            current = parsed
+        } else {
+            current = switch selectedField {
+        case .weight: values.first?.weight ?? 0
+        case .reps: values.first?.reps ?? 10
+        case .sets: values.count
+            }
+        }
+        // Resolve buffered input and the step as one intent, then resize exactly once.
+        let proposed = current + (increasing ? selectedField.step : -selectedField.step)
+        return setValue(min(selectedField.range.upperBound, max(selectedField.range.lowerBound, proposed)), for: selectedField)
+    }
 
     private func resetNumberInput() {
         let value = switch selectedField {

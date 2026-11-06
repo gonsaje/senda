@@ -31,9 +31,9 @@ struct NumericDock: View {
                 Spacer()
                 if typing || !model.numberInputIsValid {
                     Button("Cancel") { model.cancelNumberInput(); typing = false }
-                        .font(.caption).frame(minHeight: 30)
+                        .font(.caption).frame(minHeight: 30).accessibilityIdentifier("cancel-number-input")
                     Button("Done") { if model.applyNumberInput() { typing = false } }
-                        .font(.caption.weight(.semibold)).frame(minHeight: 30)
+                        .font(.caption.weight(.semibold)).frame(minHeight: 30).accessibilityIdentifier("apply-number-input")
                 } else {
                     Text(field == .sets ? "Batch size" : "Applies to every set").font(.caption)
                 }
@@ -49,7 +49,7 @@ struct NumericDock: View {
                 }
             }
             HStack(spacing: 18) {
-                changeButton(symbol: "minus", label: "Decrease \(field.title)", delta: -field.step)
+                changeButton(symbol: "minus", label: "Decrease \(field.title)", increasing: false)
                 TextField(field.title, text: Binding(get: { model.numberInputText }, set: { model.typeNumber($0) }))
                     .font(.system(size: 31, weight: .medium).monospacedDigit())
                     .multilineTextAlignment(.center).textFieldStyle(.plain)
@@ -59,13 +59,13 @@ struct NumericDock: View {
                     }
                     .accessibilityLabel("\(field.title) in \(field.label)")
                     .accessibilityIdentifier("dock-number")
-                changeButton(symbol: "plus", label: "Increase \(field.title)", delta: field.step)
+                changeButton(symbol: "plus", label: "Increase \(field.title)", increasing: true)
             }
             if !model.numberInputIsValid {
                 Text("Enter \(field.text(field.range.lowerBound))–\(field.text(field.range.upperBound)) \(field.label)")
                     .font(.caption).foregroundStyle(NotebookStyle.clay)
             }
-            RecordButton(title: "Record \(model.values.count) \(model.values.count == 1 ? "set" : "sets")") {
+            RecordButton(title: "Record \(model.recordSetCount) \(model.recordSetCount == 1 ? "set" : "sets")") {
                 typing = false
                 model.record()
             }
@@ -80,13 +80,14 @@ struct NumericDock: View {
         .onChange(of: model.selectedExerciseID) { _, _ in typing = false }
     }
 
-    private func changeButton(symbol: String, label: String, delta: Int) -> some View {
-        Button { apply(min(field.range.upperBound, max(field.range.lowerBound, value + delta))) } label: {
+    private func changeButton(symbol: String, label: String, increasing: Bool) -> some View {
+        Button { if model.stepNumber(increasing: increasing) { typing = false } } label: {
             Image(systemName: symbol).font(.system(size: 22, weight: .light))
                 .frame(width: 55, height: 50)
                 .background(NotebookStyle.ink.opacity(0.035), in: RoundedRectangle(cornerRadius: 6))
         }
         .buttonStyle(.plain).accessibilityLabel(label)
+        .accessibilityIdentifier(increasing ? "dock-increase" : "dock-decrease")
     }
 
     private func apply(_ value: Int) {

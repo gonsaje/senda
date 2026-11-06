@@ -9,13 +9,6 @@ struct SetEditorView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
-                HStack {
-                    Button("Cancel") { model.cancelSetEdits() }
-                        .frame(minHeight: 44).accessibilityIdentifier("cancel-set-edits")
-                    Spacer()
-                    Text(model.draft != nil ? "DRAFT · NOT RECORDED" : "EDITING RECORDED SETS")
-                        .font(.system(size: 10, weight: .semibold)).tracking(1)
-                }
                 Text(model.exercise.name).font(.system(size: 41, weight: .regular, design: .serif).italic())
                 HStack {
                     Text("SET").frame(width: 28, alignment: .leading)
@@ -41,7 +34,18 @@ struct SetEditorView: View {
                 }
             }.padding(.horizontal, 24).padding(.top, 15).padding(.bottom, 24)
         }
+        .accessibilityIdentifier("set-editor-scroll")
         .background(NotebookStyle.ivory).foregroundStyle(NotebookStyle.ink)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            HStack {
+                Button("Cancel") { model.cancelSetEdits() }
+                    .frame(minHeight: 44).accessibilityIdentifier("cancel-set-edits")
+                Spacer()
+                Text(model.draft != nil ? "DRAFT · NOT RECORDED" : "EDITING RECORDED SETS")
+                    .font(.system(size: 10, weight: .semibold)).tracking(1)
+            }
+            .padding(.horizontal, 24).padding(.top, 8).background(NotebookStyle.ivory)
+        }
         .safeAreaInset(edge: .bottom) {
             VStack(spacing: 10) {
                 Text(model.draft != nil ? "These sets are still unrecorded." : "Save changes to this recorded entry.")
@@ -112,6 +116,7 @@ private struct SetEditorRow: View {
         }
         .buttonStyle(.plain).foregroundStyle(NotebookStyle.clay)
         .accessibilityLabel("\(delta < 0 ? "Decrease" : "Increase") set \(index + 1) \(field.title)")
+        .accessibilityIdentifier("set-\(index + 1)-\(field.rawValue)-\(delta < 0 ? "decrease" : "increase")")
     }
 
     private func applyText() {

@@ -48,7 +48,15 @@ private struct JournalRootView: View {
             } else {
                 let support = try FileManager.default.url(for: .applicationSupportDirectory,
                     in: .userDomainMask, appropriateFor: nil, create: true)
-                repository = FileJournalRepository(url: support.appendingPathComponent("Senda/journal-v1.json"))
+                var journalPath = "Senda/journal-v1.json"
+                #if DEBUG
+                // A unique test journal uses the real file adapter without touching a person's journal.
+                if let rawID = ProcessInfo.processInfo.environment["SENDA_UI_TEST_JOURNAL_ID"],
+                   let id = UUID(uuidString: rawID) {
+                    journalPath = "Senda/UITests/\(id.uuidString)/journal-v1.json"
+                }
+                #endif
+                repository = FileJournalRepository(url: support.appendingPathComponent(journalPath))
             }
             model = try LoggerModel(repository: repository, isSample: sample)
             openingError = nil

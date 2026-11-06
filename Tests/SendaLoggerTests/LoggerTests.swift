@@ -200,6 +200,67 @@ struct LoggerTests {
         #expect(model.recorded?.sets.count == 15)
         #expect(model.recorded?.values.first?.weight == 13_750)
     }
+
+    @Test func steppingUsesTheCompleteTypedWeight() throws {
+        let model = try LoggerModel(repository: MemoryJournalRepository())
+        model.typeNumber("150")
+        #expect(model.stepNumber(increasing: true))
+        #expect(model.draft?.sets.first?.weight == 15_250)
+        #expect(model.numberInputText == "152.5")
+        #expect(model.stepNumber(increasing: false))
+        #expect(model.draft?.sets.first?.weight == 15_000)
+    }
+
+    @Test func steppingTypedSetCountKeepsExistingExceptions() throws {
+        let model = try LoggerModel(repository: MemoryJournalRepository())
+        _ = model.setValue(12, for: .sets)
+        model.beginEditingSets()
+        _ = model.updateEditedSet(at: 11, values: SetValues(weight: 13_750, reps: 8))
+        _ = model.confirmSetEdits()
+        model.selectField(.sets)
+        model.typeNumber("15")
+        #expect(model.recordSetCount == 15)
+        #expect(model.stepNumber(increasing: true))
+        #expect(model.draft?.sets.count == 16)
+        #expect(model.draft?.sets[11] == SetValues(weight: 13_750, reps: 8))
+    }
+
+    @Test func steppingInvalidTextDoesNotChangeDraftOrClearInput() throws {
+        let model = try LoggerModel(repository: MemoryJournalRepository())
+        model.typeNumber("-1")
+        let before = model.draft
+        #expect(!model.stepNumber(increasing: true))
+        #expect(model.draft == before)
+        #expect(model.numberInputText == "-1")
+        #expect(!model.numberInputIsValid)
+    }
+
+    @Test func steppingClampsAtFieldLimitsAndCannotChangeRecordedSets() throws {
+        let model = try LoggerModel(repository: MemoryJournalRepository())
+        _ = model.setValue(0, for: .weight)
+        #expect(model.stepNumber(increasing: false))
+        #expect(model.draft?.sets.first?.weight == 0)
+        model.selectField(.sets)
+        _ = model.setValue(30, for: .sets)
+        #expect(model.stepNumber(increasing: true))
+        #expect(model.draft?.sets.count == 30)
+        _ = model.record()
+        let recorded = model.recorded
+        #expect(!model.stepNumber(increasing: false))
+        #expect(model.recorded == recorded)
+    }
+
+    @Test func steppingAPendingSmallerCountResizesOnlyOnceAndKeepsTheLastException() throws {
+        let model = try LoggerModel(repository: MemoryJournalRepository())
+        model.beginEditingSets()
+        _ = model.updateEditedSet(at: 3, values: SetValues(weight: 13_500, reps: 8))
+        _ = model.confirmSetEdits()
+        model.selectField(.sets)
+        model.typeNumber("3")
+        #expect(model.stepNumber(increasing: true))
+        #expect(model.draft?.sets.map(\.reps) == [10, 10, 10, 8])
+        #expect(model.numberInputText == "4")
+    }
 }
 
 @MainActor

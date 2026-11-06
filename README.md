@@ -28,9 +28,21 @@ bash scripts/test.sh
 swift run senda-sample
 ```
 
-The test script uses Swift Testing and also supports this machine's standalone Command Line Tools installation. When running inside a restricted build environment, pass writable cache locations and `--disable-sandbox` as needed. In Xcode, open `Package.swift` to run the package tests; the application schemes launch the app and do not contain separate test targets.
+The unit test script uses Swift Testing and also supports this machine's standalone Command Line Tools installation. When running inside a restricted build environment, pass writable cache locations and `--disable-sandbox` as needed. In Xcode, open `Package.swift` to run the package unit tests. Both application schemes include the `SendaUITests` interaction tests, which run with ⌘U on an iPhone simulator.
 
-The suite covers complete-batch validation, individual ordered sets, fractional loads, duplicate actions versus intentional identical batches, revisions, targeted undo, retained action receipts after reopening, file-write failures, corrupt/future journal formats, draft isolation, per-set confirm/cancel, lift switching, buffered keyboard edits, and committed-only comparisons.
+With full Xcode installed, run the app build and six iPhone interaction tests from Terminal:
+
+```sh
+bash scripts/test-ios.sh
+# Optional compact phone:
+SENDA_SIMULATOR_NAME='iPhone 13 mini' bash scripts/test-ios.sh
+```
+
+The script chooses an installed iOS runtime supported by the selected Xcode, creates a temporary simulator, and deletes only that simulator afterward. Set `SENDA_SIMULATOR_ID` to use an existing simulator instead. Results and screenshots go in the ignored `TestResults/` directory; `SENDA_TEST_RESULTS` overrides that location. The debug-only persistence test uses its own UUID-named journal rather than resetting or using the real journal.
+
+The `iPhone validation` GitHub workflow runs unit tests plus iPhone 16 and iPhone 13 mini UI checks on Xcode 16.4. Test result bundles are retained for seven days. It does not deploy or add any service to the app.
+
+The unit suite covers complete-batch validation, individual ordered sets, fractional loads, duplicate actions versus intentional identical batches, revisions, targeted undo, retained action receipts after reopening, file-write failures, corrupt/future journal formats, draft isolation, per-set confirm/cancel, lift switching, buffered keyboard edits and stepping, and committed-only comparisons. UI tests cover the actual logging controls, keyboard-visible saving, correction/undo, identical batches, file persistence across relaunch, and primary-action reachability with large text.
 
 ## Structure
 
@@ -58,7 +70,7 @@ swift run senda-preview "$PWD/docs/previews"
 
 ## Validation limits and deliberate scope
 
-Swift package builds, the domain sample, unit tests, and host SwiftUI renders can run without Xcode. This development machine lacks full Xcode and the iOS SDK, so iPhone build/signing, keyboard-open layout, VoiceOver, large Dynamic Type, app relaunch persistence, and touch interactions still require simulator/device validation. The app entry is typechecked against the available macOS SDK; that is not an iOS build.
+Swift package builds, the domain sample, unit tests, and host SwiftUI renders can run without Xcode. This development machine lacks full Xcode and the iOS SDK, so it cannot execute the iPhone tests locally. Use the GitHub workflow or a local Xcode installation for iPhone build and simulator evidence. A host app-entry typecheck is not an iOS build. Physical-device signing, VoiceOver, real keyboard ergonomics, and a full accessibility review still need device testing, even after the simulator checks pass.
 
 Recorded data persists in the normal scheme. In-session drafts, typed buffers, the selected recorded line, and undo availability do not recover across app restarts. A fresh session suggests the latest performed values in a new unrecorded draft. There is no full history browser, custom exercise catalog, kg conversion, sync, backend, or global undo stack in this focused MVP.
 

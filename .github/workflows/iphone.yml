@@ -1,0 +1,55 @@
+name: iPhone validation
+
+on:
+  push:
+    branches: [main, 'codex/**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: iphone-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit-tests:
+    name: Domain, storage, and logger tests
+    runs-on: macos-15
+    timeout-minutes: 15
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - run: bash scripts/test.sh
+
+  iphone:
+    name: ${{ matrix.device }} interactions
+    runs-on: macos-15
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        device: ['iPhone 16', 'iPhone 13 mini']
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+      SENDA_SIMULATOR_NAME: ${{ matrix.device }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build and run iPhone UI tests
+        env:
+          SENDA_TEST_RESULTS: ${{ runner.temp }}/senda-results
+        run: bash scripts/test-ios.sh
+      - name: Preserve simulator results and screenshots
+        if: always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: ui-results-${{ matrix.device }}
+          path: ${{ runner.temp }}/senda-results/Senda.xcresult
+          if-no-files-found: ignore
+          retention-days: 7

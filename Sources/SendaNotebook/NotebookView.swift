@@ -30,6 +30,7 @@ public struct NotebookView: View {
         }
         .background(NotebookStyle.ivory)
         .foregroundStyle(NotebookStyle.ink)
+        .accessibilityIdentifier("notebook-scroll")
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if model.draft != nil {
                 NumericDock(model: model)
