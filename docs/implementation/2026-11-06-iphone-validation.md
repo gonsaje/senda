@@ -25,3 +25,5 @@ The numeric stepper currently reads committed draft values while valid typed tex
 - Reproduced and fixed the full-Xcode path in `test.sh`: the stock macOS Bash 3.2 rejects an empty array expansion under `set -u`. Both developer-tool paths now invoke Swift directly.
 - Pinned the set editor's Cancel action above scrolling rows, preserving access on compact phones.
 - Read-only review caught the two-step resize truncation, a weak identical-batch fixture assertion, and a Release-build storage-isolation risk. Added a failing atomic-step regression, used a unique weight in the UI fixture, and skip the persistence test before launch in Release.
+
+- First actual iOS run: unit checks passed. The compact-phone build failed before tests because the app built arm64 and x86_64 while Swift package dependencies built only the active simulator architecture. Set Debug `ONLY_ACTIVE_ARCH = YES`, matching the standard Xcode Debug configuration and the dependencies; keep Release architecture settings unchanged.
