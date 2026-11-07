@@ -11,9 +11,9 @@ public struct NotebookView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 header
-                recentLifts.padding(.top, 22)
-                priorLine.padding(.top, 15)
-                entry.padding(.top, 24)
+                recentLifts.padding(.top, 18)
+                priorLine.padding(.top, 8)
+                entry.padding(.top, 12)
                 if let comparison = model.comparison {
                     ComparisonView(comparison: comparison).padding(.top, 24)
                 }
@@ -30,6 +30,9 @@ public struct NotebookView: View {
             }
             .padding(.horizontal, 26).padding(.top, 22).padding(.bottom, 30)
             .frame(maxWidth: 560).frame(maxWidth: .infinity)
+            .background(GeometryReader { geometry in
+                Color.clear.preference(key: NotebookContentHeight.self, value: geometry.size.height)
+            })
         }
         .background(NotebookStyle.ivory).foregroundStyle(NotebookStyle.ink)
         .accessibilityIdentifier("notebook-scroll")
@@ -42,6 +45,11 @@ public struct NotebookView: View {
             SetEditorView(model: model)
         }
         .tint(NotebookStyle.clay).buttonStyle(.plain)
+        .onPreferenceChange(NotebookContentHeight.self) { _ in
+            if model.showsNumberEditor, let index = model.selectedSetIndex {
+                scroll.scrollTo("set-row-\(index)", anchor: .center)
+            }
+        }
         .task(id: model.showsNumberEditor ? model.selectedSetIndex : nil) {
             await Task.yield()
             if model.showsNumberEditor, let index = model.selectedSetIndex {
@@ -79,9 +87,9 @@ public struct NotebookView: View {
         }.scrollIndicators(.hidden)
     }
     @ViewBuilder private var priorLine: some View {
-        if let previous = model.priorReference {
+        if let previous = model.priorReference, let top = previous.topSet {
             Button { model.beginEditingSets(batchID: previous.id) } label: {
-                Text("Last · \(EntryText.date(previous.recordedAt))  \(EntryText.summary(previous.values))")
+                Text("\(EntryText.date(previous.recordedAt)) · \(EntryText.set(top.values))")
                     .font(.system(.caption, design: .monospaced)).foregroundStyle(NotebookStyle.quiet)
                     .fixedSize(horizontal: false, vertical: true).frame(minHeight: 36, alignment: .leading)
             }
@@ -90,9 +98,10 @@ public struct NotebookView: View {
         }
     }
     private var entry: some View {
-        VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: 14) {
             Text(model.exercise.name).font(.system(size: 43, weight: .regular, design: .serif).italic())
                 .lineLimit(1).minimumScaleFactor(0.7).accessibilityIdentifier("entry-exercise")
+            if model.exerciseHistory.personalBest != nil { LiftReferencesView(model: model) }
             SetRowsView(model: model)
         }
     }
@@ -115,4 +124,9 @@ public struct NotebookView: View {
         .padding(.horizontal, 26).padding(.bottom, 12)
         .frame(maxWidth: 560).frame(maxWidth: .infinity).background(NotebookStyle.ivory)
     }
+}
+
+private struct NotebookContentHeight: PreferenceKey {
+    static var defaultValue: CGFloat { 0 }
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
 }

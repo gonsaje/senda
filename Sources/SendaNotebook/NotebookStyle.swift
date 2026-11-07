@@ -26,6 +26,18 @@ struct RecordButton: View {
 }
 
 enum EntryText {
+    static func load(_ weight: Int) -> String {
+        "\(WeightUnit.pounds.text(for: weight)) lb / \(WeightUnit.kilograms.text(for: weight)) kg"
+    }
+
+    static func set(_ values: SetValues) -> String { "\(load(values.weight)) × \(values.reps)" }
+
+    static func working(_ common: CommonWorkingSet) -> String {
+        let reps = common.reps.lowerBound == common.reps.upperBound ? String(common.reps.lowerBound)
+            : "\(common.reps.lowerBound)–\(common.reps.upperBound)"
+        return "\(load(common.weight)) × \(reps)"
+    }
+
     static func summary(_ values: [SetValues]) -> String {
         guard let first = values.first else { return "No sets" }
         if values.allSatisfy({ $0 == first }) {

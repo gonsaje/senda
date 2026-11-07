@@ -103,6 +103,8 @@ final class LoggerUITests: XCTestCase {
     @MainActor
     func testRecordedRowsSurviveRelaunchAndRemainEditable() throws {
         let app = try launchPersistent()
+        XCTAssertFalse(app.buttons["personal-best-reference"].exists)
+        XCTAssertFalse(app.descendants(matching: .any)["common-working-reference"].exists)
         setRow(4, field: "reps", to: "8", in: app)
         tap("record-batch", in: app)
         app.terminate()
@@ -167,18 +169,53 @@ final class LoggerUITests: XCTestCase {
         tap("confirm-set-edits", in: app)
         XCTAssertTrue(element("record-batch", in: app).exists)
         XCTAssertTrue(element("row-4-reps", in: app).label.contains("10 reps"))
-        XCTAssertTrue(element("prior-performed-reference", in: app).label.contains("8"))
+        XCTAssertTrue(element("prior-performed-reference", in: app).label.contains("× 10"), "The reference shows its top set, not every rep count")
+        tap("prior-performed-reference", in: app)
+        XCTAssertEqual(element("set-4-reps", in: app).value as? String, "8")
+        tap("cancel-set-edits", in: app)
     }
 
     @MainActor
     func testPrimaryActionsAndUnitsRemainReachableAtLargeTextSize() throws {
         let app = launchSample(extraArguments: ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
         XCTAssertTrue(element("record-batch", in: app).isHittable)
-        XCTAssertTrue(element("row-1-lb", in: app).isHittable)
-        XCTAssertTrue(element("row-1-kg", in: app).isHittable)
+        tap("row-1-lb", in: app)
+        tap("apply-number-input", in: app)
+        tap("row-1-kg", in: app)
+        tap("apply-number-input", in: app)
         tap("record-batch", in: app)
         XCTAssertTrue(element("another-batch", in: app).isHittable)
         attachScreenshot("Large text logged entry", app: app)
+    }
+
+    @MainActor
+    func testTopSetPrAndCommonReferencesUseOnlySavedHistory() throws {
+        let app = launchSample()
+        let prior = element("prior-performed-reference", in: app).label
+        XCTAssertFalse(prior.contains("Last"))
+        XCTAssertFalse(prior.contains("× 4"))
+        XCTAssertTrue(prior.contains("135 lb"))
+        XCTAssertTrue(element("personal-best-reference", in: app).label.contains("135 lb"))
+        XCTAssertTrue(element("common-working-reference", in: app).label.contains("135 lb"))
+        setRow(1, field: "lb", to: "200", in: app)
+        tap("apply-number-input", in: app)
+        XCTAssertTrue(element("personal-best-reference", in: app).label.contains("135 lb"))
+        tap("record-batch", in: app)
+        XCTAssertTrue(element("personal-best-reference", in: app).label.contains("200 lb"))
+        setRow(1, field: "lb", to: "225", in: app)
+        XCTAssertTrue(element("personal-best-reference", in: app).label.contains("200 lb"))
+        tap("save-entry-changes", in: app)
+        XCTAssertTrue(element("personal-best-reference", in: app).label.contains("225 lb"))
+        tap("undo-batch", in: app)
+        tap("apply-number-input", in: app)
+        XCTAssertTrue(element("personal-best-reference", in: app).label.contains("135 lb"))
+        tap("personal-best-reference", in: app)
+        replaceNumber(element("set-1-weight", in: app), with: "140")
+        tap("confirm-set-edits", in: app)
+        XCTAssertTrue(element("personal-best-reference", in: app).label.contains("140 lb"))
+        XCTAssertTrue(element("common-working-reference", in: app).label.contains("135 lb"))
+        XCTAssertTrue(element("record-batch", in: app).exists)
+        attachScreenshot("PR and common working set from performed history", app: app)
     }
 
     private var languageArguments: [String] { ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"] }
