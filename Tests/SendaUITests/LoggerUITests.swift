@@ -23,6 +23,19 @@ final class LoggerUITests: XCTestCase {
     }
 
     @MainActor
+    func testRepeatedDecimalTypingKeepsEveryDigit() throws {
+        let app = launchSample()
+        for row in 1...4 {
+            tap("row-\(row)-lb", in: app)
+            for value in ["152.5", "127.25", "135", "152.5"] {
+                replaceNumber(element("dock-number", in: app), with: value)
+                XCTAssertEqual(element("dock-number", in: app).value as? String, value)
+            }
+            tap("apply-number-input", in: app)
+        }
+    }
+
+    @MainActor
     func testIdenticalNewEntryCanRecordAndUndo() throws {
         let app = launchSample()
         for row in 1...4 {
@@ -283,6 +296,7 @@ final class LoggerUITests: XCTestCase {
         continueAfterFailure = false
         let app = XCUIApplication()
         app.launchArguments = ["--sample-data"] + languageArguments + extraArguments
+        app.launchEnvironment["SENDA_TRACE_INPUT"] = "1"
         app.launch()
         _ = element("entry-exercise", in: app)
         return app

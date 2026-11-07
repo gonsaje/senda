@@ -1,6 +1,9 @@
 import SwiftUI
 import SendaDomain
 import SendaLogger
+#if canImport(UIKit)
+import UIKit
+#endif
 
 struct NumericDock: View {
     @Bindable var model: LoggerModel
@@ -36,7 +39,7 @@ struct NumericDock: View {
             }
             HStack(spacing: 18) {
                 step(increasing: false)
-                TextField(field.title, text: Binding(get: { model.numberInputText }, set: { model.typeNumber($0) }))
+                TextField(field.title, text: Binding(get: { model.numberInputText }, set: { trace("binding incoming=\($0.debugDescription) old=\(model.numberInputText.debugDescription)"); model.typeNumber($0) }))
                     .font(.system(size: 31, weight: .medium).monospacedDigit()).multilineTextAlignment(.center)
                     .textFieldStyle(.plain).numericKeyboard(decimal: field == .weight).focused($typing)
                     .submitLabel(.done).onSubmit { finish() }
@@ -60,10 +63,20 @@ struct NumericDock: View {
         }
         .padding(.horizontal, 26).padding(.bottom, 12)
         .frame(maxWidth: 560).frame(maxWidth: .infinity).background(NotebookStyle.ivory).foregroundStyle(NotebookStyle.ink)
-        .onChange(of: typing) { _, focused in if !focused { model.applyNumberInput() } }
+        .onChange(of: typing) { _, focused in trace("focus=\(focused) raw=\(model.numberInputText.debugDescription)"); if !focused { model.applyNumberInput() } }
+        #if canImport(UIKit)
+        .onReceive(NotificationCenter.default.publisher(for: UITextField.textDidChangeNotification)) { notification in
+            if let input = notification.object as? UITextField { trace("native text=\((input.text ?? "").debugDescription) raw=\(model.numberInputText.debugDescription)") }
+        }
+        #endif
         .onChange(of: field) { _, _ in typing = false }
         .onChange(of: model.selectedSetIndex) { _, _ in typing = false }
         .onChange(of: model.selectedExerciseID) { _, _ in typing = false }
+    }
+    private func trace(_ message: String) {
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["SENDA_TRACE_INPUT"] == "1" { print("SENDA_INPUT \(Date().timeIntervalSince1970) \(message)") }
+        #endif
     }
     private func step(increasing: Bool) -> some View {
         Button { if model.stepNumber(increasing: increasing) { typing = false } } label: {
