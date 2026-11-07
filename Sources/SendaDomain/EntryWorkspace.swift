@@ -60,19 +60,24 @@ public struct EntryWorkspace: Codable, Equatable, Sendable {
     public var editor: SetEditSession?
     public var selectedSetIndex: Int?
     public var weightUnit: WeightUnit?
+    public var workoutExerciseIDs: [String]?
     public init(selectedExerciseID: String = "bench", selectedField: NumericField = .weight,
                 sessions: [String: LoggerPhase], numberInputText: String = "135",
                 numberInputDirty: Bool = false, editor: SetEditSession? = nil,
-                selectedSetIndex: Int? = nil, weightUnit: WeightUnit? = nil) {
+                selectedSetIndex: Int? = nil, weightUnit: WeightUnit? = nil, workoutExerciseIDs: [String]? = nil) {
         self.selectedExerciseID = selectedExerciseID; self.selectedField = selectedField
         self.sessions = sessions; self.numberInputText = numberInputText
         self.numberInputDirty = numberInputDirty; self.editor = editor
         self.selectedSetIndex = selectedSetIndex; self.weightUnit = weightUnit
+        self.workoutExerciseIDs = workoutExerciseIDs
     }
-    public func validated(against journal: Journal) throws -> EntryWorkspace {
-        let known = Set(Exercise.catalog.map(\.id))
+    public func validated(against journal: Journal, exercises: [Exercise] = Exercise.catalog) throws -> EntryWorkspace {
+        let known = Set(exercises.map(\.id))
+        let order = workoutExerciseIDs ?? ExerciseLibrary.initialWorkoutIDs
         guard known.contains(selectedExerciseID), sessions[selectedExerciseID] != nil,
-              !sessions.isEmpty, sessions.count <= known.count, numberInputText.count <= 64 else {
+              !sessions.isEmpty, sessions.count <= known.count, numberInputText.count <= 64,
+              !order.isEmpty, Set(order).count == order.count, order.allSatisfy(known.contains),
+              order.contains(selectedExerciseID) else {
             throw RecoveryError.invalidWorkspace
         }
         var actions = Set<UUID>()
@@ -167,13 +172,18 @@ public struct EntryWorkspace: Codable, Equatable, Sendable {
 public struct JournalSnapshot: Codable, Equatable, Sendable {
     public var journal: Journal
     public var workspace: EntryWorkspace?
-    public init(journal: Journal = Journal(), workspace: EntryWorkspace? = nil) {
+    public var customExercises: [Exercise]?
+    public init(journal: Journal = Journal(), workspace: EntryWorkspace? = nil, customExercises: [Exercise]? = nil) {
         self.journal = journal; self.workspace = workspace
+        self.customExercises = customExercises?.isEmpty == false ? customExercises : nil
     }
     public func validated() throws -> JournalSnapshot {
         _ = try journal.validated()
-        _ = try workspace?.validated(against: journal)
-        return self
+        let exercises = try ExerciseLibrary.validated(custom: customExercises ?? [])
+        _ = try workspace?.validated(against: journal, exercises: exercises)
+        var result = self
+        if result.customExercises?.isEmpty == true { result.customExercises = nil }
+        return result
     }
 }
 

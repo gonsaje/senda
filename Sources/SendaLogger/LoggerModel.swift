@@ -6,6 +6,8 @@ import SendaPersistence
 @Observable @MainActor
 public final class LoggerModel {
     public private(set) var journal: Journal
+    public private(set) var customExercises: [Exercise] = []
+    public private(set) var workoutExerciseIDs = ExerciseLibrary.initialWorkoutIDs
     public private(set) var selectedExerciseID = "bench"
     public private(set) var selectedField = NumericField.weight
     public private(set) var selectedSetIndex: Int?
@@ -25,6 +27,7 @@ public final class LoggerModel {
         self.repository = repository; self.isSample = isSample; self.now = now
         let saved = try repository.loadSnapshot().validated()
         journal = saved.journal
+        customExercises = saved.customExercises ?? []
         lastPersisted = saved
         if let workspace = saved.workspace { restore(workspace) }
         else {
@@ -33,7 +36,63 @@ public final class LoggerModel {
         }
     }
 
-    public var exercise: Exercise { Exercise.catalog.first { $0.id == selectedExerciseID }! }
+    public var exercise: Exercise { availableExercises.first { $0.id == selectedExerciseID }! }
+    public var availableExercises: [Exercise] { Exercise.catalog + customExercises }
+    public var workoutExercises: [Exercise] {
+        let library = Dictionary(uniqueKeysWithValues: availableExercises.map { ($0.id, $0) })
+        return workoutExerciseIDs.compactMap { library[$0] }
+    }
+
+    @discardableResult public func addExercise(_ id: String) -> Bool {
+        guard let exercise = availableExercises.first(where: { $0.id == id }), prepareWorkoutChange() else { return false }
+        return addToWorkout(exercise, custom: customExercises)
+    }
+    @discardableResult public func createAndAddExercise(named name: String) -> Bool {
+        do {
+            let exercise = try ExerciseLibrary.custom(named: name, existing: availableExercises)
+            guard prepareWorkoutChange() else { return false }
+            return addToWorkout(exercise, custom: customExercises + [exercise])
+        } catch { errorMessage = error.localizedDescription; return false }
+    }
+    @discardableResult public func removeExercise(_ id: String) -> Bool {
+        guard workoutExerciseIDs.count > 1, let index = workoutExerciseIDs.firstIndex(of: id), prepareWorkoutChange() else { return false }
+        var workspace = currentWorkspace()
+        var order = workoutExerciseIDs
+        order.remove(at: index)
+        workspace.workoutExerciseIDs = order
+        if selectedExerciseID == id, let next = availableExercises.first(where: { $0.id == order[min(index, order.count - 1)] }) {
+            select(next, in: &workspace)
+        }
+        return commit(makeSnapshot(journal: journal, workspace: workspace))
+    }
+    private func prepareWorkoutChange() -> Bool {
+        guard editor == nil else { return false }
+        guard applyInput() else {
+            errorMessage = "Finish or clear the current number before changing exercises."
+            return false
+        }
+        return true
+    }
+    private func addToWorkout(_ exercise: Exercise, custom: [Exercise]) -> Bool {
+        var workspace = currentWorkspace()
+        var order = workoutExerciseIDs
+        if !order.contains(exercise.id) { order.append(exercise.id) }
+        workspace.workoutExerciseIDs = order
+        select(exercise, in: &workspace)
+        return commit(makeSnapshot(journal: journal, workspace: workspace, custom: custom))
+    }
+    private func select(_ exercise: Exercise, in workspace: inout EntryWorkspace) {
+        if workspace.sessions[exercise.id] == nil { workspace.sessions[exercise.id] = .draft(makeDraft(for: exercise)) }
+        workspace.selectedExerciseID = exercise.id
+        workspace.selectedField = .weight; workspace.selectedSetIndex = nil
+        let values: [SetValues]
+        switch workspace.sessions[exercise.id]! {
+        case .draft(let entry): values = entry.sets
+        case .editing(let edit): values = edit.sets
+        case .recorded(let id): values = journal.batches.first { $0.id == id }?.values ?? []
+        }
+        resetInput(in: &workspace, values: values)
+    }
     public var phase: LoggerPhase { sessions[selectedExerciseID]! }
     public var draft: DraftBatch? { if case .draft(let entry) = phase { entry } else { nil } }
     public var isEditingRecorded: Bool { if case .editing = phase { true } else { false } }
@@ -70,11 +129,7 @@ public final class LoggerModel {
     public var numberInputIsValid: Bool { !numberInputDirty || parseInput(numberInputText, field: selectedField) != nil }
     public var canConfirmSetEdits: Bool { editor?.isValid == true }
     public var recentExercises: [Exercise] {
-        Exercise.catalog.enumerated().sorted {
-            let left = journal.entries(for: $0.element.id).last?.recordedAt ?? .distantPast
-            let right = journal.entries(for: $1.element.id).last?.recordedAt ?? .distantPast
-            return left == right ? $0.offset < $1.offset : left > right
-        }.map(\.element)
+        workoutExercises
     }
 
     public func selectField(_ field: NumericField) {
@@ -115,7 +170,7 @@ public final class LoggerModel {
         return setValue(min(selectedField.range.upperBound, max(selectedField.range.lowerBound, proposed)), for: selectedField)
     }
     public func selectExercise(_ id: String) {
-        guard editor == nil, let exercise = Exercise.catalog.first(where: { $0.id == id }), applyInput() else { return }
+        guard editor == nil, workoutExerciseIDs.contains(id), let exercise = availableExercises.first(where: { $0.id == id }), applyInput() else { return }
         if sessions[id] == nil { sessions[id] = .draft(makeDraft(for: exercise)) }
         selectedExerciseID = id
         selectedSetIndex = nil
@@ -131,7 +186,7 @@ public final class LoggerModel {
             var workspace = currentWorkspace()
             workspace.sessions[selectedExerciseID] = .recorded(batch.id)
             resetInput(in: &workspace, values: batch.values)
-            return commit(JournalSnapshot(journal: candidate, workspace: workspace))
+            return commit(makeSnapshot(journal: candidate, workspace: workspace))
         } catch { errorMessage = error.localizedDescription; return false }
     }
     @discardableResult public func finishEditing() -> Bool {
@@ -145,7 +200,7 @@ public final class LoggerModel {
             var workspace = currentWorkspace()
             workspace.sessions[selectedExerciseID] = .recorded(original.id)
             resetInput(in: &workspace, values: edit.sets)
-            return commit(JournalSnapshot(journal: candidate, workspace: workspace))
+            return commit(makeSnapshot(journal: candidate, workspace: workspace))
         } catch { errorMessage = error.localizedDescription; return false }
     }
     public func cancelEditing() {
@@ -163,7 +218,7 @@ public final class LoggerModel {
             var workspace = currentWorkspace()
             workspace.sessions[selectedExerciseID] = .draft(entry)
             resetInput(in: &workspace, values: entry.sets)
-            return commit(JournalSnapshot(journal: candidate, workspace: workspace))
+            return commit(makeSnapshot(journal: candidate, workspace: workspace))
         } catch { errorMessage = error.localizedDescription; return false }
     }
     public func anotherBatch() {
@@ -256,12 +311,12 @@ public final class LoggerModel {
                     resetInput(in: &workspace, values: edit.sets)
                 }
             }
-            return commit(JournalSnapshot(journal: candidate, workspace: workspace))
+            return commit(makeSnapshot(journal: candidate, workspace: workspace))
         } catch { errorMessage = error.localizedDescription; return false }
     }
 
     @discardableResult public func flushRecovery() -> Bool {
-        let snapshot = JournalSnapshot(journal: journal, workspace: currentWorkspace())
+        let snapshot = makeSnapshot(journal: journal, workspace: currentWorkspace())
         if snapshot == lastPersisted { recoveryErrorMessage = nil; return true }
         do {
             try repository.saveSnapshot(snapshot)
@@ -398,13 +453,14 @@ public final class LoggerModel {
     private func currentWorkspace() -> EntryWorkspace {
         EntryWorkspace(selectedExerciseID: selectedExerciseID, selectedField: selectedField, sessions: sessions,
                        numberInputText: numberInputText, numberInputDirty: numberInputDirty, editor: editor,
-                       selectedSetIndex: selectedSetIndex, weightUnit: selectedWeightUnit)
+                       selectedSetIndex: selectedSetIndex, weightUnit: selectedWeightUnit, workoutExerciseIDs: workoutExerciseIDs)
     }
     private func restore(_ workspace: EntryWorkspace) {
         selectedExerciseID = workspace.selectedExerciseID; selectedField = workspace.selectedField
         sessions = workspace.sessions; numberInputText = workspace.numberInputText
         numberInputDirty = workspace.numberInputDirty; editor = workspace.editor
         selectedSetIndex = workspace.selectedSetIndex; selectedWeightUnit = workspace.weightUnit ?? .pounds
+        workoutExerciseIDs = workspace.workoutExerciseIDs ?? ExerciseLibrary.initialWorkoutIDs
     }
     private func resetNumberInput() {
         let value = numericValue(selectedField, values: values, index: selectedSetIndex)
@@ -438,9 +494,13 @@ public final class LoggerModel {
         do {
             try repository.saveSnapshot(snapshot)
             journal = snapshot.journal
+            customExercises = snapshot.customExercises ?? []
             if let workspace = snapshot.workspace { restore(workspace) }
             lastPersisted = snapshot; errorMessage = nil; recoveryErrorMessage = nil
             return true
         } catch { errorMessage = error.localizedDescription; return false }
+    }
+    private func makeSnapshot(journal: Journal, workspace: EntryWorkspace, custom: [Exercise]? = nil) -> JournalSnapshot {
+        JournalSnapshot(journal: journal, workspace: workspace, customExercises: custom ?? customExercises)
     }
 }

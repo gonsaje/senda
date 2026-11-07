@@ -1,6 +1,6 @@
 import Foundation
 
-public struct Exercise: Identifiable, Equatable, Sendable {
+public struct Exercise: Codable, Identifiable, Equatable, Sendable {
     public let id: String
     public let name: String
     public let shortName: String
@@ -9,7 +9,24 @@ public struct Exercise: Identifiable, Equatable, Sendable {
     public static let catalog: [Exercise] = [
         Exercise(id: "bench", name: "Bench", shortName: "Bench", startingWeight: 13_500),
         Exercise(id: "deadlift", name: "Deadlift", shortName: "DL", startingWeight: 22_500),
-        Exercise(id: "squat", name: "Squat", shortName: "Squat", startingWeight: 18_500)
+        Exercise(id: "squat", name: "Squat", shortName: "Squat", startingWeight: 18_500),
+        Exercise(id: "row", name: "Barbell row", shortName: "Row", startingWeight: 0),
+        Exercise(id: "overhead-press", name: "Overhead press", shortName: "Press", startingWeight: 0),
+        Exercise(id: "lat-pulldown", name: "Lat pulldown", shortName: "Pulldown", startingWeight: 0),
+        Exercise(id: "romanian-deadlift", name: "Romanian deadlift", shortName: "RDL", startingWeight: 0),
+        Exercise(id: "dumbbell-bench", name: "Dumbbell bench", shortName: "DB bench", startingWeight: 0),
+        Exercise(id: "pull-up", name: "Pull-up", shortName: "Pull-up", startingWeight: 0),
+        Exercise(id: "leg-press", name: "Leg press", shortName: "Leg press", startingWeight: 0),
+        Exercise(id: "leg-curl", name: "Leg curl", shortName: "Leg curl", startingWeight: 0),
+        Exercise(id: "leg-extension", name: "Leg extension", shortName: "Leg extension", startingWeight: 0),
+        Exercise(id: "lunge", name: "Lunge", shortName: "Lunge", startingWeight: 0),
+        Exercise(id: "biceps-curl", name: "Biceps curl", shortName: "Curl", startingWeight: 0),
+        Exercise(id: "triceps-extension", name: "Triceps extension", shortName: "Triceps", startingWeight: 0),
+        Exercise(id: "lateral-raise", name: "Lateral raise", shortName: "Lateral raise", startingWeight: 0),
+        Exercise(id: "calf-raise", name: "Calf raise", shortName: "Calf raise", startingWeight: 0),
+        Exercise(id: "hip-thrust", name: "Hip thrust", shortName: "Hip thrust", startingWeight: 0),
+        Exercise(id: "cable-row", name: "Cable row", shortName: "Cable row", startingWeight: 0),
+        Exercise(id: "push-up", name: "Push-up", shortName: "Push-up", startingWeight: 0)
     ]
 }
 

@@ -4,6 +4,7 @@ import SendaLogger
 
 public struct NotebookView: View {
     @Bindable private var model: LoggerModel
+    @State private var choosingExercise = false
     public init(model: LoggerModel) { self.model = model }
 
     public var body: some View {
@@ -11,7 +12,7 @@ public struct NotebookView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 header
-                recentLifts.padding(.top, 18)
+                WorkoutExerciseTabs(model: model, add: { choosingExercise = true }).padding(.top, 18)
                 priorLine.padding(.top, 8)
                 entry.padding(.top, 12)
                 if let comparison = model.comparison {
@@ -48,6 +49,7 @@ public struct NotebookView: View {
         .sheet(isPresented: Binding(get: { model.editor != nil }, set: { if !$0 { model.cancelSetEdits() } })) {
             SetEditorView(model: model)
         }
+        .sheet(isPresented: $choosingExercise) { ExercisePickerView(model: model) }
         .tint(NotebookStyle.clay).buttonStyle(.plain)
         .onPreferenceChange(NotebookContentHeight.self) { _ in
             if model.showsNumberEditor, let index = model.selectedSetIndex {
@@ -72,24 +74,6 @@ public struct NotebookView: View {
                 .font(.subheadline).foregroundStyle(NotebookStyle.quiet)
         }
     }
-    private var recentLifts: some View {
-        ScrollView(.horizontal) {
-            HStack(spacing: 27) {
-                ForEach(model.recentExercises) { exercise in
-                    Button { model.selectExercise(exercise.id) } label: {
-                        VStack(spacing: 4) {
-                            Text(exercise.shortName).font(.body.weight(exercise.id == model.selectedExerciseID ? .semibold : .regular))
-                                .foregroundStyle(exercise.id == model.selectedExerciseID ? NotebookStyle.ink : NotebookStyle.quiet)
-                            Rectangle().fill(exercise.id == model.selectedExerciseID ? NotebookStyle.clay : .clear).frame(height: 2)
-                        }.frame(minHeight: 44)
-                    }
-                    .accessibilityLabel(exercise.name)
-                    .accessibilityAddTraits(exercise.id == model.selectedExerciseID ? .isSelected : [])
-                    .accessibilityIdentifier("lift-\(exercise.id)")
-                }
-            }
-        }.scrollIndicators(.hidden)
-    }
     @ViewBuilder private var priorLine: some View {
         if let previous = model.priorReference, let top = previous.topSet {
             Button { model.beginEditingSets(batchID: previous.id) } label: {
@@ -105,7 +89,7 @@ public struct NotebookView: View {
     private var entry: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text(model.exercise.name).font(.system(size: 43, weight: .regular, design: .serif).italic())
-                .lineLimit(1).minimumScaleFactor(0.7).accessibilityIdentifier("entry-exercise")
+                .lineLimit(2).minimumScaleFactor(0.7).accessibilityIdentifier("entry-exercise")
             if model.exerciseHistory.personalBest != nil { LiftReferencesView(model: model) }
             SetRowsView(model: model)
         }

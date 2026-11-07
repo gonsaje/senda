@@ -12,7 +12,8 @@ Minimum device version: iOS 17. No third-party dependencies or project-generatio
 
 ## Try the central flow
 
-- Choose Bench, DL, or Squat from the lift index. The quiet date-and-top-set line references the previous performed entry; tapping it opens that entry for correction.
+- Choose an exercise tab in the workout. Use **+** to search the 20 preset exercises or create a named custom exercise; each addition becomes another tab. Tabs keep their chosen order when you record. The quiet date-and-top-set line references the previous performed entry; tapping it opens that entry for correction.
+- Hold a tab and choose **Remove from workout** to hide it. Its history and entered sets remain available when you add it back. Custom exercises and the workout’s tabs recover after reopening.
 - Beneath the exercise name, **PR** shows the heaviest performed set, with reps breaking ties. Tap it to correct its source entry. **Common** shows the most frequently recorded weight and its typical rep range. Both references use recorded history and update after save, correction or undo; they do not change while editing unfinished numbers.
 - Every set shows **lb**, **kg**, and **reps**. Tap either weight value to edit in that unit. The low dock has both unit choices, a scrolling ruler dial, minus/plus, and direct number entry. Drag the ruler horizontally with a finger (or mouse in the Mac preview); a faster release carries it farther. The dial spans zero through the full supported range (10,000 lb / 4,535.9237 kg), with 2.5 lb / 1.25 kg tick steps; typing accepts finer amounts. Switching units alone preserves the exact stored weight.
 - Edit one row without changing the others. **Add set** copies the last row; the minus beside a row removes it. For example, change set 4 from 10 reps to 8 before recording.
@@ -42,7 +43,7 @@ The script chooses an installed iOS runtime supported by the selected Xcode, cre
 
 The `iPhone validation` GitHub workflow runs unit tests plus iPhone 16 and iPhone 13 mini UI checks on Xcode 16.4. Test result bundles are retained for seven days. It does not deploy or add a service to the app.
 
-Unit coverage includes atomic batches and snapshots, duplicate actions versus intentional identical entries, ordered set identities through add/remove/correction, targeted undo, version-1 migration, corrupt/future files, failed writes, raw input recovery, per-lift state, Done/Cancel corrections, independent previous-entry editing, row-specific edits, lb/kg conversion and rounding, full-range dial values, top-set/PR ordering, common-load frequency and typical rep ranges, and committed-only references/comparisons. UI coverage includes row editing, simultaneous units and switching, scrolling weights, keyboard-visible recording, correction/undo, intentional identical entries, relaunch recovery, PR/source-entry editing, and action reachability with large text.
+Unit coverage includes atomic batches and snapshots, duplicate actions versus intentional identical entries, ordered set identities through add/remove/correction, targeted undo, version-1 migration, corrupt/future files, failed writes, raw input recovery, per-lift state, Done/Cancel corrections, independent previous-entry editing, expandable workout tabs, custom-name validation and identity, catalog/workout migration and atomic writes, removed-tab recovery, row-specific edits, lb/kg conversion and rounding, full-range dial values, top-set/PR ordering, common-load frequency and typical rep ranges, and committed-only references/comparisons. UI coverage includes row editing, simultaneous units and switching, scrolling weights, keyboard-visible recording, correction/undo, intentional identical entries, relaunch recovery, PR/source-entry editing, preset/custom exercise creation and reopening, and action reachability with large text.
 
 ## Structure
 
@@ -54,7 +55,7 @@ Unit coverage includes atomic batches and snapshots, duplicate actions versus in
 | `SendaNotebook` | SwiftUI set rows, thumb dock, weight dial, previous-entry editor, comparison |
 | `App` | iPhone entry point, lifecycle recovery flush, local/sample composition |
 
-The real journal remains at Application Support `Senda/journal-v1.json` so existing installations retain their data. The version-2 file contains the performed journal and optional recoverable workspace in one snapshot. Version-1 journals load without rewriting and upgrade on the next write. Recovery writes follow each accepted interaction. Record, correction, and undo write their candidate history and matching workspace together, then publish the result. A failed history write leaves committed history unchanged; a recovery-write error retains open edits and offers retry. Unreadable files remain untouched and fail visibly.
+The real journal remains at Application Support `Senda/journal-v1.json` so existing installations retain their data. The version-3 file contains the performed journal, recoverable workspace, ordered workout tabs, and custom exercise library in one snapshot. Version-1 and version-2 journals load without rewriting and upgrade on the next write. The original three-tab selection is retained for existing journals. Recovery writes follow each accepted interaction. Record, correction, and undo write their candidate history and matching workspace together, then publish the result. A failed history write leaves committed history unchanged; a recovery-write error retains open edits and offers retry. Unreadable files remain untouched and fail visibly.
 
 Weights remain integer hundredths of a pound; kg uses the exact conversion factor 0.45359237. Only explicit weight edits round back to that canonical precision. Display conversion and unit switching never rewrite untouched weights. Performed sets have stable IDs and 1-based positions; removing a row preserves surviving IDs, and new rows receive new IDs. Action receipts remain consumed after undo. Revision checks reject stale corrections/undo. The app has one main-actor writer; multi-process writers are outside this MVP.
 
@@ -80,6 +81,6 @@ swift run senda-preview "$PWD/docs/previews"
 
 Swift package builds, the domain sample, unit tests, and host SwiftUI renders run without Xcode. This machine lacks full Xcode and the iOS SDK, so iPhone builds and interaction tests require the GitHub workflow or another Xcode installation. Host typechecking does not establish an iOS build. Physical-device signing, VoiceOver, and keyboard ergonomics still need device testing.
 
-The normal scheme persists performed entries and recoverable unfinished work. The sample scheme remains memory-only. There is no cloud, sync, backend, full history browser, custom exercise catalog, or global undo stack.
+The normal scheme persists performed entries and recoverable unfinished work. The sample scheme remains memory-only. There is no cloud, sync, backend, full history browser, workout-template library, scheduling, or global undo stack. Custom exercises are stored locally.
 
 Prior planning and architecture documents remain untouched. Implementation notes record the changes without replacing the approved report.

@@ -12,7 +12,7 @@ public extension JournalRepository {
     /// Legacy journal-only callers preserve recovery, and fail if their change makes it inconsistent.
     func save(_ journal: Journal) throws {
         let previous = try loadSnapshot()
-        try saveSnapshot(JournalSnapshot(journal: journal, workspace: previous.workspace))
+        try saveSnapshot(JournalSnapshot(journal: journal, workspace: previous.workspace, customExercises: previous.customExercises))
     }
 }
 

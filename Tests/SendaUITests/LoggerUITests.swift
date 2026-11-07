@@ -223,6 +223,62 @@ final class LoggerUITests: XCTestCase {
     private var languageArguments: [String] { ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"] }
 
     @MainActor
+    func testWorkoutAddsPresetsAndCustomTabsAndRestoresTheirRecordedSets() throws {
+        let app = try launchPersistent()
+        tap("add-exercise", in: app)
+        findExercise("Overhead", in: app)
+        tap("picker-exercise-overhead-press", in: app)
+        XCTAssertEqual(element("entry-exercise", in: app).label, "Overhead press")
+        XCTAssertTrue(element("lift-overhead-press", in: app).isHittable)
+        tap("add-exercise", in: app)
+        findExercise("Barbell", in: app)
+        tap("picker-exercise-row", in: app)
+        XCTAssertEqual(element("entry-exercise", in: app).label, "Barbell row")
+        tap("add-exercise", in: app)
+        tap("create-exercise", in: app)
+        let name = element("custom-exercise-name", in: app)
+        name.tap()
+        name.typeText("Travel row")
+        tap("add-custom-exercise", in: app)
+        XCTAssertEqual(element("entry-exercise", in: app).label, "Travel row")
+        setRow(4, field: "reps", to: "8", in: app)
+        tap("record-batch", in: app)
+        app.terminate()
+        app.launch()
+        XCTAssertEqual(element("entry-exercise", in: app).label, "Travel row")
+        XCTAssertTrue(element("another-batch", in: app).exists)
+        XCTAssertTrue(element("row-4-reps", in: app).label.contains("8 reps"))
+        let customTab = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "lift-custom-")).firstMatch
+        XCTAssertTrue(customTab.waitForExistence(timeout: 5))
+        XCTAssertTrue(customTab.isHittable)
+        let id = String(customTab.identifier.dropFirst("lift-".count))
+        customTab.press(forDuration: 1)
+        let remove = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Remove from workout")).firstMatch
+        XCTAssertTrue(remove.waitForExistence(timeout: 5))
+        remove.tap()
+        XCTAssertNotEqual(element("entry-exercise", in: app).label, "Travel row")
+        XCTAssertFalse(app.buttons["personal-best-reference"].exists, "Another exercise must not inherit this exercise’s PR")
+        tap("add-exercise", in: app)
+        findExercise("Travel row", in: app)
+        let previous = element("picker-exercise-\(id)", in: app)
+        XCTAssertFalse(previous.label.contains(", in workout"))
+        tap("picker-exercise-\(id)", in: app)
+        XCTAssertEqual(element("entry-exercise", in: app).label, "Travel row")
+        XCTAssertTrue(element("another-batch", in: app).exists)
+        XCTAssertTrue(element("row-4-reps", in: app).label.contains("8 reps"))
+        attachScreenshot("Workout with preset and custom exercises", app: app)
+    }
+
+    @MainActor
+    private func findExercise(_ query: String, in app: XCUIApplication) {
+        let search = app.searchFields.firstMatch
+        if !search.exists { element("exercise-picker", in: app).swipeDown() }
+        XCTAssertTrue(search.waitForExistence(timeout: 5))
+        search.tap()
+        search.typeText(query)
+    }
+
+    @MainActor
     private func launchSample(extraArguments: [String] = []) -> XCUIApplication {
         continueAfterFailure = false
         let app = XCUIApplication()
