@@ -56,6 +56,9 @@ struct ExercisePickerView: View {
             }
         }
         .tint(NotebookStyle.clay).background(NotebookStyle.ivory)
+        #if os(macOS)
+        .frame(minWidth: 420, idealWidth: 470, minHeight: 560, idealHeight: 640)
+        #endif
         .onAppear { model.errorMessage = nil }
     }
 }
