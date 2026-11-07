@@ -28,12 +28,14 @@ final class LoggerUITests: XCTestCase {
         for row in 1...4 {
             setRow(row, field: "lb", to: "152.5", in: app)
             tap("apply-number-input", in: app)
+            XCTAssertTrue(element("row-\(row)-lb", in: app).label.contains("152.5 lb"))
         }
         tap("record-batch", in: app)
         tap("another-batch", in: app)
         tap("record-batch", in: app)
         XCTAssertTrue(element("another-batch", in: app).exists)
-        XCTAssertTrue(element("prior-performed-reference", in: app).label.contains("152.5 lb"))
+        let previous = element("prior-performed-reference", in: app).label
+        XCTAssertTrue(previous.contains("152.5 lb"), "Previous top set: \(previous)")
         tap("undo-batch", in: app)
         XCTAssertTrue(element("prior-performed-reference", in: app).label.contains("152.5 lb"), "Undo keeps the first intentional identical entry")
         XCTAssertTrue(element("record-batch", in: app).exists)
@@ -249,6 +251,7 @@ final class LoggerUITests: XCTestCase {
     private func setRow(_ row: Int, field: String, to value: String, in app: XCUIApplication) {
         tap("row-\(row)-\(field)", in: app)
         replaceNumber(element("dock-number", in: app), with: value)
+        XCTAssertEqual(element("dock-number", in: app).value as? String, value)
     }
 
     @MainActor
@@ -261,6 +264,29 @@ final class LoggerUITests: XCTestCase {
     @MainActor
     private func tap(_ identifier: String, in app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
         let target = element(identifier, in: app, file: file, line: line)
+        let notebook = app.scrollViews["notebook-scroll"]
+        let controls = app.descendants(matching: .any).matching(identifier: "entry-controls").firstMatch
+        let belongsToNotebook = notebook.descendants(matching: .any).matching(identifier: identifier).firstMatch.exists
+        let belongsToControls = controls.descendants(matching: .any).matching(identifier: identifier).firstMatch.exists
+        if belongsToNotebook && !belongsToControls && controls.exists {
+            // SwiftUI reports covered scroll content as hittable. Keep the entire
+            // target above the pinned controls before synthesizing a finger tap.
+            for _ in 0..<6 {
+                let top = max(app.frame.minY + 65, notebook.frame.minY)
+                let bottom = controls.frame.minY - 8
+                let frame = target.frame
+                if target.isHittable && frame.minY >= top && frame.maxY <= bottom { break }
+                guard bottom - top > 50 else { break }
+                let upward = frame.maxY > bottom
+                let startY = upward ? bottom - 12 : top + 12
+                let endY = upward ? top + 12 : bottom - 12
+                let origin = app.coordinate(withNormalizedOffset: .zero)
+                origin.withOffset(CGVector(dx: app.frame.width / 2, dy: startY - app.frame.minY))
+                    .press(forDuration: 0.05, thenDragTo: origin.withOffset(CGVector(dx: app.frame.width / 2, dy: endY - app.frame.minY)))
+            }
+            XCTAssertGreaterThanOrEqual(target.frame.minY, max(app.frame.minY + 65, notebook.frame.minY), file: file, line: line)
+            XCTAssertLessThanOrEqual(target.frame.maxY, controls.frame.minY - 8, file: file, line: line)
+        }
         if !target.isHittable {
             let editor = app.scrollViews["set-editor-scroll"]
             let scroll = editor.exists ? editor : app.scrollViews["notebook-scroll"]

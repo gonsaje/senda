@@ -37,9 +37,13 @@ public struct NotebookView: View {
         .background(NotebookStyle.ivory).foregroundStyle(NotebookStyle.ink)
         .accessibilityIdentifier("notebook-scroll")
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            if model.showsNumberEditor { NumericDock(model: model) }
-            else if model.draft != nil { recordDock }
-            else { loggedDock }
+            VStack(spacing: 0) {
+                if model.showsNumberEditor { NumericDock(model: model) }
+                else if model.draft != nil { recordDock }
+                else { loggedDock }
+            }
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("entry-controls")
         }
         .sheet(isPresented: Binding(get: { model.editor != nil }, set: { if !$0 { model.cancelSetEdits() } })) {
             SetEditorView(model: model)
@@ -93,6 +97,7 @@ public struct NotebookView: View {
                     .font(.system(.caption, design: .monospaced)).foregroundStyle(NotebookStyle.quiet)
                     .fixedSize(horizontal: false, vertical: true).frame(minHeight: 36, alignment: .leading)
             }
+            .accessibilityLabel("\(EntryText.date(previous.recordedAt)) · \(EntryText.set(top.values))")
             .accessibilityHint("Edit this previous entry")
             .accessibilityIdentifier("prior-performed-reference")
         }
