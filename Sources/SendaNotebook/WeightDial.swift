@@ -5,11 +5,10 @@ import SendaLogger
 /// A lazy ruler spans the full weight range without recentering as it moves.
 struct WeightDial: View {
     @Bindable var model: LoggerModel
-    var prepareInput: () -> Void
     @State private var position: Int?
     @State private var dragStart: Int?
-    init(model: LoggerModel, prepareInput: @escaping () -> Void = {}) {
-        self.model = model; self.prepareInput = prepareInput
+    init(model: LoggerModel) {
+        self.model = model
         _position = State(initialValue: Self.tick(for: model.weightAmount, unit: model.selectedWeightUnit))
     }
     private var unit: WeightUnit { model.selectedWeightUnit }
@@ -44,7 +43,6 @@ struct WeightDial: View {
         .accessibilityLabel("Weight dial in \(unit.symbol)")
         .accessibilityValue("\(model.numberInputText) \(unit.symbol)")
         .accessibilityAdjustableAction { direction in
-            prepareInput()
             switch direction {
             case .increment: model.stepNumber(increasing: true)
             case .decrement: model.stepNumber(increasing: false)
@@ -56,7 +54,7 @@ struct WeightDial: View {
         // during layout/reopening and must never overwrite a typed input buffer.
         .gesture(DragGesture(minimumDistance: 2)
             .onChanged { value in
-                if dragStart == nil { prepareInput(); dragStart = nearestTick }
+                if dragStart == nil { dragStart = nearestTick }
                 move(from: dragStart ?? nearestTick, translation: value.translation.width)
             }
             .onEnded { value in

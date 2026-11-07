@@ -29,9 +29,12 @@ final class LoggerUITests: XCTestCase {
             tap("row-\(row)-lb", in: app)
             for value in ["152.5", "127.25", "135", "152.5"] {
                 replaceNumber(element("dock-number", in: app), with: value)
+                XCTAssertTrue(app.keyboards.firstMatch.exists)
+                XCTAssertFalse(app.descendants(matching: .any).matching(identifier: "weight-dial").firstMatch.exists)
                 XCTAssertEqual(element("dock-number", in: app).value as? String, value)
             }
             tap("apply-number-input", in: app)
+            XCTAssertTrue(element("row-\(row)-lb", in: app).label.contains("152.5 lb"))
         }
     }
 

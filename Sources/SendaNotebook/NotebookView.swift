@@ -39,10 +39,7 @@ public struct NotebookView: View {
         .accessibilityIdentifier("notebook-scroll")
         .safeAreaInset(edge: .bottom, spacing: 0) {
             VStack(spacing: 0) {
-                if model.showsNumberEditor {
-                    NumericDock(model: model)
-                        .id("\(model.selectedExerciseID)-\(model.selectedSetIndex ?? -1)-\(model.selectedField.rawValue)-\(model.selectedWeightUnit.rawValue)")
-                }
+                if model.showsNumberEditor { NumericDock(model: model) }
                 else if model.draft != nil { recordDock }
                 else { loggedDock }
             }
