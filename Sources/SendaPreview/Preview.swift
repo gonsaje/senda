@@ -75,6 +75,12 @@ struct SendaPreview {
         let host = NSHostingView(rootView: view)
         let window = NSWindow(contentRect: NSRect(x: -10_000, y: -10_000, width: width, height: height),
                               styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer {
+            window.orderOut(nil)
+            window.contentView = nil
+            window.close()
+        }
         window.contentView = host
         window.orderFrontRegardless()
         host.layoutSubtreeIfNeeded()
@@ -83,7 +89,6 @@ struct SendaPreview {
             throw CocoaError(.fileWriteUnknown)
         }
         host.cacheDisplay(in: host.bounds, to: bitmap)
-        window.orderOut(nil)
         guard let data = bitmap.representation(using: .png, properties: [:]) else { throw CocoaError(.fileWriteUnknown) }
         try data.write(to: url, options: .atomic)
     }

@@ -6,6 +6,7 @@ import SendaLogger
 struct WeightDial: View {
     @Bindable var model: LoggerModel
     @State private var position: Int?
+    @State private var dragStart: Int?
     init(model: LoggerModel) {
         self.model = model
         _position = State(initialValue: Self.tick(for: model.weightAmount, unit: model.selectedWeightUnit))
@@ -28,7 +29,7 @@ struct WeightDial: View {
                 }
                 .contentMargins(.horizontal, max(0, (geometry.size.width - 12) / 2), for: .scrollContent)
                 .scrollIndicators(.hidden)
-                .scrollTargetBehavior(.viewAligned)
+                .scrollDisabled(true)
                 .scrollPosition(id: $position)
                 Rectangle().fill(NotebookStyle.clay).frame(width: 2, height: 26)
                     .allowsHitTesting(false)
@@ -37,11 +38,6 @@ struct WeightDial: View {
         .frame(height: 64).contentShape(Rectangle())
         .onChange(of: model.weightAmount) { _, _ in
             if position != nearestTick { position = nearestTick }
-        }
-        .onChange(of: position) { _, tick in
-            // Programmatic positioning must not round an untouched weight.
-            guard let tick, tick != nearestTick else { return }
-            model.setWeightAmount(min(maximum, Double(tick) * step))
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Weight dial in \(unit.symbol)")
@@ -54,6 +50,27 @@ struct WeightDial: View {
             }
         }
         .accessibilityIdentifier("weight-dial")
+        // Only an explicit drag writes weight. Scroll-position callbacks also fire
+        // during layout/reopening and must never overwrite a typed input buffer.
+        .gesture(DragGesture(minimumDistance: 2)
+            .onChanged { value in
+                if dragStart == nil { dragStart = nearestTick }
+                move(from: dragStart ?? nearestTick, translation: value.translation.width)
+            }
+            .onEnded { value in
+                let start = dragStart ?? nearestTick
+                withAnimation(.easeOut(duration: 0.25)) {
+                    move(from: start, translation: value.predictedEndTranslation.width)
+                }
+                dragStart = nil
+            })
+    }
+
+    private func move(from start: Int, translation: CGFloat) {
+        let proposed = CGFloat(start) - translation / 12
+        let tick = Int(min(CGFloat(lastTick), max(0, proposed)).rounded())
+        position = tick
+        if tick != nearestTick { model.setWeightAmount(min(maximum, Double(tick) * step)) }
     }
 
     private static func tick(for amount: Double, unit: WeightUnit) -> Int {

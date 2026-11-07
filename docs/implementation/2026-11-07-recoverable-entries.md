@@ -35,3 +35,5 @@ Write recovery through after each accepted interaction, plus an app-lifecycle fl
 - Done and Cancel distinguish local changes from performed history without status banners.
 - Editing an older reference does not discard the current entry; stale revisions are rejected.
 - Recovery write errors are visible and retryable; corrupted/version-1 files never silently reset.
+
+The first iPhone run caught a view-level recovery regression: automatic scroll-position updates on reopening could replace partial keyboard text with a nearby dial tick. The ruler now treats scroll position as display state only. An explicit drag (including its predicted release motion) or accessibility adjustment changes weight; layout never writes it. The same direct drag works in the Mac preview. Screenshot hosts are detached and closed after rendering so hidden examples do not remain subscribed to later state changes.

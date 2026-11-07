@@ -14,6 +14,7 @@ final class LoggerUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["2 fewer reps at the same weight"].waitForExistence(timeout: 3))
         setRow(4, field: "reps", to: "9", in: app)
         tap("save-entry-changes", in: app)
+        tap("compare-entries", in: app)
         XCTAssertTrue(app.staticTexts["1 fewer rep at the same weight"].waitForExistence(timeout: 3))
         tap("undo-batch", in: app)
         XCTAssertTrue(element("record-batch", in: app).exists)
@@ -26,6 +27,7 @@ final class LoggerUITests: XCTestCase {
         let app = launchSample()
         for row in 1...4 {
             setRow(row, field: "lb", to: "152.5", in: app)
+            tap("apply-number-input", in: app)
         }
         tap("record-batch", in: app)
         tap("another-batch", in: app)

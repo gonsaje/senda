@@ -13,7 +13,7 @@ Minimum device version: iOS 17. No third-party dependencies or project-generatio
 ## Try the central flow
 
 - Choose Bench, DL, or Squat from the lift index. The quiet **Last** line references performed history; tapping it opens that previous entry for correction.
-- Every set shows **lb**, **kg**, and **reps**. Tap either weight value to edit in that unit. The low dock has both unit choices, a scrolling ruler dial, minus/plus, and direct number entry. The dial spans zero through the full supported range (10,000 lb / 4,535.9237 kg), with 2.5 lb / 1.25 kg tick steps; typing accepts finer amounts. Switching units alone preserves the exact stored weight.
+- Every set shows **lb**, **kg**, and **reps**. Tap either weight value to edit in that unit. The low dock has both unit choices, a scrolling ruler dial, minus/plus, and direct number entry. Drag the ruler horizontally with a finger (or mouse in the Mac preview); a faster release carries it farther. The dial spans zero through the full supported range (10,000 lb / 4,535.9237 kg), with 2.5 lb / 1.25 kg tick steps; typing accepts finer amounts. Switching units alone preserves the exact stored weight.
 - Edit one row without changing the others. **Add set** copies the last row; the minus beside a row removes it. For example, change set 4 from 10 reps to 8 before recording.
 - **Record 4 sets** writes all four ordered sets together. Unfinished numbers recover automatically after reopening, including incomplete input, without being counted as performed work.
 - Logged rows remain directly editable. **Done** saves the correction; **Cancel** restores the recorded entry. Corrections and open previous-entry editors also recover after reopening.
