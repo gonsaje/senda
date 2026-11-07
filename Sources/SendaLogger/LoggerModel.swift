@@ -144,7 +144,11 @@ public final class LoggerModel {
     }
     public func typeNumber(_ text: String) {
         guard showsNumericDock, editor == nil else { return }
-        numberInputText = String(text.prefix(64)); numberInputDirty = true
+        let text = String(text.prefix(64))
+        // Native controls can echo the displayed value on focus. That must not
+        // reinterpret rounded kilograms or mark an untouched number as edited.
+        guard text != numberInputText else { _ = flushRecovery(); return }
+        numberInputText = text; numberInputDirty = true
         _ = flushRecovery()
     }
     @discardableResult public func applyNumberInput() -> Bool {
@@ -252,8 +256,11 @@ public final class LoggerModel {
     }
     public func typeEditedSet(at index: Int, field: NumericField, text: String) {
         guard var edit = editor, edit.sets.indices.contains(index), field != .sets else { return }
-        if field == .weight { edit.inputs[index].weight = String(text.prefix(64)); edit.inputs[index].weightIsDirty = true }
-        else { edit.inputs[index].reps = String(text.prefix(64)) }
+        let text = String(text.prefix(64))
+        let previous = field == .weight ? edit.inputs[index].weight : edit.inputs[index].reps
+        guard text != previous else { _ = flushRecovery(); return }
+        if field == .weight { edit.inputs[index].weight = text; edit.inputs[index].weightIsDirty = true }
+        else { edit.inputs[index].reps = text }
         if let parsed = edit.inputs[index].parsed {
             let weight = edit.inputs[index].weightIsDirty == true ? parsed.weight : edit.sets[index].weight
             edit.sets[index] = SetValues(weight: weight, reps: parsed.reps)

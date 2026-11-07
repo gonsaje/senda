@@ -98,10 +98,18 @@ final class LoggerUITests: XCTestCase {
         tap("save-entry-changes", in: app)
         tap("row-1-kg", in: app)
         XCTAssertEqual(element("dock-number", in: app).value as? String, "0.45")
+        tap("dock-number", in: app)
+        XCTAssertTrue(app.keyboards.firstMatch.exists)
         tap("weight-unit-lb", in: app)
         tap("weight-unit-kg", in: app)
         tap("save-entry-changes", in: app)
-        XCTAssertTrue(element("row-1-lb", in: app).label.contains(", 1 lb"), "Opening and switching the dial never rounds an untouched weight")
+        XCTAssertTrue(element("row-1-lb", in: app).label.contains(", 1 lb"), "Focusing and switching units never rounds an untouched weight")
+        tap("personal-best-reference", in: app)
+        tap("set-1-weight", in: app)
+        XCTAssertTrue(app.keyboards.firstMatch.exists)
+        XCTAssertEqual(element("set-1-weight", in: app).value as? String, "0.45")
+        tap("confirm-set-edits", in: app)
+        XCTAssertTrue(element("row-1-lb", in: app).label.contains(", 1 lb"), "Focusing a source-entry field does not silently correct its weight")
         attachScreenshot("Dual units and independent set weights", app: app)
     }
 
@@ -299,7 +307,6 @@ final class LoggerUITests: XCTestCase {
         continueAfterFailure = false
         let app = XCUIApplication()
         app.launchArguments = ["--sample-data"] + languageArguments + extraArguments
-        app.launchEnvironment["SENDA_TRACE_INPUT"] = "1"
         app.launch()
         _ = element("entry-exercise", in: app)
         return app
