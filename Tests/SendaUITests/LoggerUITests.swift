@@ -2,118 +2,181 @@ import XCTest
 
 final class LoggerUITests: XCTestCase {
     @MainActor
-    func testExceptionCancelConfirmRecordCorrectionAndUndo() throws {
+    func testRowExceptionRecordCorrectionAndUndo() throws {
         let app = launchSample()
-        let status = element("entry-status", in: app)
-        XCTAssertEqual(status.label, "DRAFT · NOT RECORDED")
-        tap("draft-edit-sets", in: app)
-        tap("set-4-reps-decrease", in: app)
-        tap("set-4-reps-decrease", in: app)
-        XCTAssertEqual(element("set-4-reps", in: app).value as? String, "8")
-        tap("cancel-set-edits", in: app)
-        tap("draft-edit-sets", in: app)
-        XCTAssertEqual(element("set-4-reps", in: app).value as? String, "10")
-        tap("set-4-reps-decrease", in: app)
-        tap("set-4-reps-decrease", in: app)
-        tap("confirm-set-edits", in: app)
-        XCTAssertEqual(status.label, "DRAFT · NOT RECORDED")
-        XCTAssertTrue(element("sentence-sets", in: app).exists, "Batch size stays editable with exceptions")
+        XCTAssertFalse(app.staticTexts["DRAFT · NOT RECORDED"].exists)
+        setRow(4, field: "reps", to: "8", in: app)
+        tap("apply-number-input", in: app)
+        XCTAssertTrue(element("row-4-reps", in: app).label.contains("8 reps"))
+        XCTAssertTrue(element("row-3-reps", in: app).label.contains("10 reps"))
         tap("record-batch", in: app)
-        XCTAssertEqual(status.label, "RECORDED")
         tap("compare-entries", in: app)
         XCTAssertTrue(app.staticTexts["2 fewer reps at the same weight"].waitForExistence(timeout: 3))
-        tap("recorded-edit-sets", in: app)
-        XCTAssertEqual(element("set-4-reps", in: app).value as? String, "8")
-        tap("set-4-reps-increase", in: app)
-        tap("confirm-set-edits", in: app)
+        setRow(4, field: "reps", to: "9", in: app)
+        tap("save-entry-changes", in: app)
         XCTAssertTrue(app.staticTexts["1 fewer rep at the same weight"].waitForExistence(timeout: 3))
         tap("undo-batch", in: app)
-        XCTAssertEqual(status.label, "DRAFT · NOT RECORDED")
-        tap("draft-edit-sets", in: app)
-        XCTAssertEqual(element("set-4-reps", in: app).value as? String, "9")
-        tap("cancel-set-edits", in: app)
-        attachScreenshot("Undo restores corrected unrecorded sets", app: app)
+        XCTAssertTrue(element("record-batch", in: app).exists)
+        XCTAssertTrue(element("row-4-reps", in: app).label.contains("9 reps"))
+        attachScreenshot("Undo restores corrected sets for entry", app: app)
     }
 
     @MainActor
-    func testIdenticalAnotherBatchCanRecordAndUndo() throws {
+    func testIdenticalNewEntryCanRecordAndUndo() throws {
         let app = launchSample()
-        replaceNumber(element("dock-number", in: app), with: "152.5")
-        tap("apply-number-input", in: app)
+        for row in 1...4 {
+            setRow(row, field: "lb", to: "152.5", in: app)
+        }
         tap("record-batch", in: app)
         tap("another-batch", in: app)
-        XCTAssertEqual(element("entry-status", in: app).label, "DRAFT · NOT RECORDED")
         tap("record-batch", in: app)
-        XCTAssertEqual(element("entry-status", in: app).label, "RECORDED")
+        XCTAssertTrue(element("another-batch", in: app).exists)
         XCTAssertTrue(element("prior-performed-reference", in: app).label.contains("152.5 lb"))
         tap("undo-batch", in: app)
-        XCTAssertTrue(element("prior-performed-reference", in: app).label.contains("152.5 lb"), "Undo keeps the first intentional identical batch")
-        XCTAssertEqual(element("entry-status", in: app).label, "DRAFT · NOT RECORDED")
+        XCTAssertTrue(element("prior-performed-reference", in: app).label.contains("152.5 lb"), "Undo keeps the first intentional identical entry")
+        XCTAssertTrue(element("record-batch", in: app).exists)
     }
 
     @MainActor
-    func testRecordIsReachableWithKeyboardAndUsesCompleteTypedSetCount() throws {
+    func testRecordIsReachableWithKeyboardAndUsesTypedReps() throws {
         let app = launchSample()
-        tap("sentence-sets", in: app)
-        replaceNumber(element("dock-number", in: app), with: "15")
+        setRow(4, field: "reps", to: "8", in: app)
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 3))
         let record = element("record-batch", in: app)
-        XCTAssertEqual(record.label, "Record 15 sets")
-        XCTAssertTrue(record.isHittable, "The Record action must remain above the keyboard")
+        XCTAssertEqual(record.label, "Record 4 sets")
+        XCTAssertTrue(record.isHittable, "Record stays above the keyboard")
         attachScreenshot("Record with keyboard open", app: app)
         record.tap()
-        XCTAssertEqual(element("entry-status", in: app).label, "RECORDED")
-        XCTAssertTrue(app.staticTexts["15 individual sets"].exists)
+        XCTAssertTrue(element("another-batch", in: app).exists)
+        XCTAssertTrue(element("row-4-reps", in: app).label.contains("8 reps"))
     }
 
     @MainActor
-    func testStepperUsesPendingTypedWeightAndInvalidInputCannotRecord() throws {
+    func testBothUnitsUnitSwitchAndScrollingDialEditOnlySelectedRow() throws {
         let app = launchSample()
-        replaceNumber(element("dock-number", in: app), with: "150")
+        XCTAssertTrue(element("row-1-lb", in: app).label.contains("135 lb"))
+        XCTAssertTrue(element("row-1-kg", in: app).label.contains("61.23 kg"))
+        tap("row-1-kg", in: app)
+        XCTAssertEqual(element("dock-number", in: app).value as? String, "61.23")
+        tap("weight-unit-lb", in: app)
+        XCTAssertEqual(element("dock-number", in: app).value as? String, "135")
+        tap("weight-unit-kg", in: app)
+        XCTAssertEqual(element("dock-number", in: app).value as? String, "61.23")
+        XCTAssertTrue(element("row-1-lb", in: app).label.contains("135 lb"), "Unit switches preserve the original weight")
+        let dial = element("weight-dial", in: app)
+        dial.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.4))
+            .press(forDuration: 0.1, thenDragTo: dial.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.4)))
+        XCTAssertFalse(element("row-1-lb", in: app).label.contains("135 lb"))
+        XCTAssertTrue(element("row-2-lb", in: app).label.contains("135 lb"))
+        XCTAssertTrue(element("row-2-kg", in: app).label.contains("61.23 kg"))
+        tap("record-batch", in: app)
+        setRow(1, field: "kg", to: "60", in: app)
+        tap("save-entry-changes", in: app)
+        XCTAssertTrue(element("row-1-lb", in: app).label.contains("132.28 lb"))
+        XCTAssertTrue(element("row-1-kg", in: app).label.contains("60 kg"))
+        setRow(1, field: "lb", to: "1", in: app)
+        tap("save-entry-changes", in: app)
+        tap("row-1-kg", in: app)
+        XCTAssertEqual(element("dock-number", in: app).value as? String, "0.45")
+        tap("weight-unit-lb", in: app)
+        tap("weight-unit-kg", in: app)
+        tap("save-entry-changes", in: app)
+        XCTAssertTrue(element("row-1-lb", in: app).label.contains(", 1 lb"), "Opening and switching the dial never rounds an untouched weight")
+        attachScreenshot("Dual units and independent set weights", app: app)
+    }
+
+    @MainActor
+    func testInvalidInputCannotRecordAndStepperUsesTypedWeight() throws {
+        let app = launchSample()
+        setRow(1, field: "lb", to: "150", in: app)
         tap("dock-increase", in: app)
         XCTAssertEqual(element("dock-number", in: app).value as? String, "152.5")
-        tap("sentence-sets", in: app)
-        replaceNumber(element("dock-number", in: app), with: "31")
+        replaceNumber(element("dock-number", in: app), with: "31.")
         XCTAssertFalse(element("record-batch", in: app).isEnabled)
         tap("cancel-number-input", in: app)
-        XCTAssertEqual(element("dock-number", in: app).value as? String, "4")
         XCTAssertTrue(element("record-batch", in: app).isEnabled)
+        XCTAssertTrue(element("row-1-lb", in: app).label.contains("152.5 lb"))
     }
 
     @MainActor
-    func testRecordedSetsSurviveRelaunchAsHistoryAndANewDraft() throws {
-        #if !DEBUG
-        throw XCTSkip("Persistence-test isolation requires a Debug app and test build.")
-        #else
-        continueAfterFailure = false
-        let app = XCUIApplication()
-        app.launchArguments = languageArguments
-        app.launchEnvironment["SENDA_UI_TEST_JOURNAL_ID"] = UUID().uuidString
-        app.launch()
-        tap("draft-edit-sets", in: app)
-        tap("set-4-reps-decrease", in: app)
-        tap("set-4-reps-decrease", in: app)
-        tap("confirm-set-edits", in: app)
+    func testRecordedRowsSurviveRelaunchAndRemainEditable() throws {
+        let app = try launchPersistent()
+        setRow(4, field: "reps", to: "8", in: app)
         tap("record-batch", in: app)
-        XCTAssertEqual(element("entry-status", in: app).label, "RECORDED")
         app.terminate()
         app.launch()
-        XCTAssertEqual(element("entry-status", in: app).label, "DRAFT · NOT RECORDED")
-        XCTAssertTrue(element("prior-performed-reference", in: app).label.contains("Last ·"))
-        tap("draft-edit-sets", in: app)
-        XCTAssertEqual(element("set-4-reps", in: app).value as? String, "8")
-        tap("cancel-set-edits", in: app)
-        attachScreenshot("Reopened journal preserves performed history", app: app)
-        #endif
+        XCTAssertTrue(element("another-batch", in: app).exists)
+        XCTAssertTrue(element("row-4-reps", in: app).label.contains("8 reps"))
+        setRow(4, field: "reps", to: "9", in: app)
+        tap("cancel-entry-changes", in: app)
+        XCTAssertTrue(element("row-4-reps", in: app).label.contains("8 reps"))
+        attachScreenshot("Reopened logged entry", app: app)
     }
 
     @MainActor
-    func testRecordAndAnotherBatchRemainReachableAtLargeTextSize() throws {
+    func testUnfinishedRowsUnitAndPartialInputSurviveRelaunch() throws {
+        let app = try launchPersistent()
+        tap("lift-deadlift", in: app)
+        setRow(3, field: "reps", to: "5", in: app)
+        tap("apply-number-input", in: app)
+        setRow(4, field: "kg", to: "61.", in: app)
+        app.terminate()
+        app.launch()
+        XCTAssertEqual(element("entry-exercise", in: app).label, "Deadlift")
+        XCTAssertEqual(element("dock-number", in: app).value as? String, "61.")
+        XCTAssertFalse(element("record-batch", in: app).isEnabled)
+        XCTAssertFalse(app.buttons["another-batch"].exists)
+        tap("cancel-number-input", in: app)
+        XCTAssertTrue(element("row-3-reps", in: app).label.contains("5 reps"))
+        XCTAssertTrue(element("record-batch", in: app).isEnabled)
+        attachScreenshot("Unfinished entry recovered outside history", app: app)
+    }
+
+    @MainActor
+    func testPendingCorrectionRecoversAndSavesOnlyOnDone() throws {
+        let app = try launchPersistent()
+        tap("record-batch", in: app)
+        setRow(1, field: "kg", to: "60", in: app)
+        app.terminate()
+        app.launch()
+        XCTAssertEqual(element("dock-number", in: app).value as? String, "60")
+        XCTAssertTrue(element("save-entry-changes", in: app).exists)
+        tap("save-entry-changes", in: app)
+        XCTAssertTrue(element("row-1-lb", in: app).label.contains("132.28 lb"))
+        setRow(1, field: "kg", to: "65", in: app)
+        tap("cancel-entry-changes", in: app)
+        XCTAssertTrue(element("row-1-lb", in: app).label.contains("132.28 lb"))
+    }
+
+    @MainActor
+    func testOlderEntryEditorRecoversInvalidTextWithoutRecordingCurrentEntry() throws {
+        let app = try launchPersistent()
+        tap("record-batch", in: app)
+        tap("another-batch", in: app)
+        tap("prior-performed-reference", in: app)
+        tap("editor-unit-kg", in: app)
+        replaceNumber(element("set-4-reps", in: app), with: "")
+        XCTAssertFalse(element("confirm-set-edits", in: app).isEnabled)
+        app.terminate()
+        app.launch()
+        XCTAssertFalse(element("confirm-set-edits", in: app).isEnabled)
+        XCTAssertTrue(element("set-4-alternate-weight", in: app).label.contains("135 lb"))
+        replaceNumber(element("set-4-reps", in: app), with: "8")
+        tap("confirm-set-edits", in: app)
+        XCTAssertTrue(element("record-batch", in: app).exists)
+        XCTAssertTrue(element("row-4-reps", in: app).label.contains("10 reps"))
+        XCTAssertTrue(element("prior-performed-reference", in: app).label.contains("8"))
+    }
+
+    @MainActor
+    func testPrimaryActionsAndUnitsRemainReachableAtLargeTextSize() throws {
         let app = launchSample(extraArguments: ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
         XCTAssertTrue(element("record-batch", in: app).isHittable)
+        XCTAssertTrue(element("row-1-lb", in: app).isHittable)
+        XCTAssertTrue(element("row-1-kg", in: app).isHittable)
         tap("record-batch", in: app)
         XCTAssertTrue(element("another-batch", in: app).isHittable)
-        attachScreenshot("Large text recorded state", app: app)
+        attachScreenshot("Large text logged entry", app: app)
     }
 
     private var languageArguments: [String] { ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"] }
@@ -124,8 +187,29 @@ final class LoggerUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["--sample-data"] + languageArguments + extraArguments
         app.launch()
-        _ = element("entry-status", in: app)
+        _ = element("entry-exercise", in: app)
         return app
+    }
+
+    @MainActor
+    private func launchPersistent() throws -> XCUIApplication {
+        #if !DEBUG
+        throw XCTSkip("Persistence-test isolation requires a Debug app and test build.")
+        #else
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = languageArguments
+        app.launchEnvironment["SENDA_UI_TEST_JOURNAL_ID"] = UUID().uuidString
+        app.launch()
+        _ = element("entry-exercise", in: app)
+        return app
+        #endif
+    }
+
+    @MainActor
+    private func setRow(_ row: Int, field: String, to value: String, in app: XCUIApplication) {
+        tap("row-\(row)-\(field)", in: app)
+        replaceNumber(element("dock-number", in: app), with: value)
     }
 
     @MainActor

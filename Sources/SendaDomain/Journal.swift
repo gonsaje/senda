@@ -33,15 +33,22 @@ public struct Journal: Codable, Equatable, Sendable {
         return batch
     }
 
-    public mutating func correct(batchID: UUID, revision: Int, sets: [SetValues]) throws -> RecordedBatch {
+    public mutating func correct(batchID: UUID, revision: Int, sets: [SetValues], retainedSetIDs: [UUID?]? = nil) throws -> RecordedBatch {
         guard let index = batches.firstIndex(where: { $0.id == batchID }) else { throw JournalError.missingBatch }
         let old = batches[index]
         guard old.revision == revision, revision < Int.max else { throw JournalError.staleRevision }
         try SetValidation.validate(sets)
+        if let retainedSetIDs {
+            let retained = retainedSetIDs.compactMap { $0 }
+            guard retainedSetIDs.count == sets.count, Set(retained).count == retained.count,
+                  Set(retained).isSubset(of: Set(old.sets.map(\.id))) else { throw JournalError.invalidSets }
+        }
         let corrected = RecordedBatch(id: old.id, actionID: old.actionID, exerciseID: old.exerciseID,
             recordedAt: old.recordedAt, revision: old.revision + 1, sets: sets.enumerated().map {
-                PerformedSet(id: $0.offset < old.sets.count ? old.sets[$0.offset].id : UUID(),
-                             position: $0.offset + 1, values: $0.element)
+                let id: UUID
+                if let retainedSetIDs { id = retainedSetIDs[$0.offset] ?? UUID() }
+                else { id = $0.offset < old.sets.count ? old.sets[$0.offset].id : UUID() }
+                return PerformedSet(id: id, position: $0.offset + 1, values: $0.element)
             })
         batches[index] = corrected
         return corrected
@@ -66,6 +73,8 @@ public struct Journal: Codable, Equatable, Sendable {
             return $0.element.recordedAt < $1.element.recordedAt
         }.map(\.element)
     }
+
+    public func hasConsumedAction(_ actionID: UUID) -> Bool { receipts.contains { $0.request.actionID == actionID } }
 
     public func comparison(for batchID: UUID) -> EntryComparison? {
         guard let batch = batches.first(where: { $0.id == batchID }) else { return nil }

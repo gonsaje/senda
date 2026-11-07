@@ -14,6 +14,7 @@ struct SendaApp: App {
 }
 
 private struct JournalRootView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @State private var model: LoggerModel?
     @State private var openingError: String?
 
@@ -37,6 +38,9 @@ private struct JournalRootView: View {
             }
         }
         .task { if model == nil && openingError == nil { openJournal() } }
+        .onChange(of: scenePhase) { _, phase in
+            if phase != .active { model?.flushRecovery() }
+        }
     }
 
     private func openJournal() {

@@ -143,7 +143,7 @@ struct LoggerTests {
         #expect(NumericField.sets.parse("4.0") == nil)
     }
 
-    @Test func freshSessionLoadsOnlyCommittedEntries() throws {
+    @Test func freshSessionRestoresUnfinishedEntriesOutsideHistory() throws {
         let store = MemoryJournalRepository()
         let first = try LoggerModel(repository: store)
         _ = first.record()
@@ -151,7 +151,7 @@ struct LoggerTests {
         _ = first.setValue(8, for: .reps)
         let reopened = try LoggerModel(repository: store)
         #expect(reopened.journal.batches.count == 1)
-        #expect(reopened.draft?.sets.first?.reps == 10)
+        #expect(reopened.draft?.sets.first?.reps == 8)
         #expect(reopened.recorded == nil)
     }
 
@@ -267,6 +267,8 @@ struct LoggerTests {
 private final class SwitchableRepository: JournalRepository {
     var journal = Journal()
     var failWrites = false
+    func loadSnapshot() throws -> JournalSnapshot { JournalSnapshot(journal: journal) }
+    func saveSnapshot(_ snapshot: JournalSnapshot) throws { try save(snapshot.journal) }
     func load() throws -> Journal { journal }
     func save(_ journal: Journal) throws {
         if failWrites { throw CocoaError(.fileWriteOutOfSpace) }

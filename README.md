@@ -1,25 +1,24 @@
 # Senda
 
-A native iPhone training notebook for the moment between sets. One editable line becomes one recorded entry in place. No workout setup, account, network service, or cloud dependency.
+A native iPhone training notebook for the moment between sets. Each set has its own weight and reps row, with lb and kg visible together. No workout setup, account, network service, or cloud dependency.
 
 ## Run on iPhone
 
 1. Install full Xcode 16 or later with an iOS simulator runtime.
 2. Open **Senda.xcodeproj**, choose an iPhone simulator, and run the **Senda Sample** scheme to explore the notebook with prior performed entries. Sample changes stay in memory and disappear on relaunch.
-3. Use the **Senda** scheme for an empty real journal with local persistence. For a physical iPhone, select your development team in Signing & Capabilities and use a unique bundle identifier if needed.
+3. Use the **Senda** scheme for a real journal with local persistence and automatic recovery. For a physical iPhone, select your development team in Signing & Capabilities and use a unique bundle identifier if needed.
 
 Minimum device version: iOS 17. No third-party dependencies or project-generation step.
 
 ## Try the central flow
 
-- Choose Bench, DL, or Squat from the lift index. Each lift keeps its draft during the current session.
-- The small **Last** line is performed history. The large **DRAFT · NOT RECORDED** line is a suggestion until you record it.
-- Tap weight, reps, or sets to select the low numeric control. Use common values, minus/plus, or tap the dock number to type. Typed digits stay buffered until Done, a field change, or Record. Cancel discards the typed edit. Invalid input must be corrected or cancelled before leaving it.
-- **One set different?** opens a separate edit buffer. Change set 4 from 10 to 8 and choose **Keep draft changes**. The journal now shows the ordered reps; nothing has been written to history. Tap the small set-count control to change batch size even with exceptions.
-- **Record 4 sets** writes all four ordered sets together. The same journal line now says **RECORDED**.
-- **Edit sets** has an explicit Save corrections / Cancel boundary. **Undo** removes the visible batch, including its corrections, and returns those values to a fresh draft.
-- **Another batch** creates a new record action. Identical values are allowed. Repeated delivery of the same action is protected independently of content.
-- Expand **Compare last entry** after saving to see actual entries and a factual rep difference when every set uses the same load.
+- Choose Bench, DL, or Squat from the lift index. The quiet **Last** line references performed history; tapping it opens that previous entry for correction.
+- Every set shows **lb**, **kg**, and **reps**. Tap either weight value to edit in that unit. The low dock has both unit choices, a scrolling ruler dial, minus/plus, and direct number entry. The dial spans zero through the full supported range (10,000 lb / 4,535.9237 kg), with 2.5 lb / 1.25 kg tick steps; typing accepts finer amounts. Switching units alone preserves the exact stored weight.
+- Edit one row without changing the others. **Add set** copies the last row; the minus beside a row removes it. For example, change set 4 from 10 reps to 8 before recording.
+- **Record 4 sets** writes all four ordered sets together. Unfinished numbers recover automatically after reopening, including incomplete input, without being counted as performed work.
+- Logged rows remain directly editable. **Done** saves the correction; **Cancel** restores the recorded entry. Corrections and open previous-entry editors also recover after reopening.
+- **Undo** removes the visible entry, including corrections, and leaves its values ready to record again. **New entry** starts a fresh action; intentional identical entries are allowed, while repeated delivery of the same action is protected.
+- Expand **Compare last entry** after recording to see actual entries and a factual rep difference when every set uses the same load. Unfinished changes do not affect progress.
 
 ## Tests and sample
 
@@ -28,9 +27,9 @@ bash scripts/test.sh
 swift run senda-sample
 ```
 
-The unit test script uses Swift Testing and also supports this machine's standalone Command Line Tools installation. When running inside a restricted build environment, pass writable cache locations and `--disable-sandbox` as needed. In Xcode, open `Package.swift` to run the package unit tests. Both application schemes include the `SendaUITests` interaction tests, which run with ⌘U on an iPhone simulator.
+The unit test script uses Swift Testing and supports standalone Command Line Tools. In a restricted build environment, pass writable cache locations and `--disable-sandbox` as needed. In Xcode, open `Package.swift` to run package unit tests. Both application schemes include the `SendaUITests` interaction tests, which run with ⌘U on an iPhone simulator.
 
-With full Xcode installed, run the app build and six iPhone interaction tests from Terminal:
+With full Xcode installed, run the app build and iPhone interaction tests from Terminal:
 
 ```sh
 bash scripts/test-ios.sh
@@ -38,40 +37,46 @@ bash scripts/test-ios.sh
 SENDA_SIMULATOR_NAME='iPhone 13 mini' bash scripts/test-ios.sh
 ```
 
-The script chooses an installed iOS runtime supported by the selected Xcode, creates a temporary simulator, and deletes only that simulator afterward. Set `SENDA_SIMULATOR_ID` to use an existing simulator instead. Results and screenshots go in the ignored `TestResults/` directory; `SENDA_TEST_RESULTS` overrides that location. The debug-only persistence test uses its own UUID-named journal rather than resetting or using the real journal.
+The script chooses an installed iOS runtime supported by the selected Xcode, creates a temporary simulator, and deletes only that simulator afterward. Set `SENDA_SIMULATOR_ID` to use an existing simulator instead. Results and screenshots go in ignored `TestResults/`; `SENDA_TEST_RESULTS` overrides that location. Debug persistence tests use separate UUID-named journals without touching a person's journal.
 
-The `iPhone validation` GitHub workflow runs unit tests plus iPhone 16 and iPhone 13 mini UI checks on Xcode 16.4. Test result bundles are retained for seven days. It does not deploy or add any service to the app.
+The `iPhone validation` GitHub workflow runs unit tests plus iPhone 16 and iPhone 13 mini UI checks on Xcode 16.4. Test result bundles are retained for seven days. It does not deploy or add a service to the app.
 
-The unit suite covers complete-batch validation, individual ordered sets, fractional loads, duplicate actions versus intentional identical batches, revisions, targeted undo, retained action receipts after reopening, file-write failures, corrupt/future journal formats, draft isolation, per-set confirm/cancel, lift switching, buffered keyboard edits and stepping, and committed-only comparisons. UI tests cover the actual logging controls, keyboard-visible saving, correction/undo, identical batches, file persistence across relaunch, and primary-action reachability with large text.
+Unit coverage includes atomic batches and snapshots, duplicate actions versus intentional identical entries, ordered set identities through add/remove/correction, targeted undo, version-1 migration, corrupt/future files, failed writes, raw input recovery, per-lift state, Done/Cancel corrections, independent previous-entry editing, row-specific edits, lb/kg conversion and rounding, full-range dial values, and committed-only comparisons. UI coverage includes row editing, simultaneous units and switching, scrolling weights, keyboard-visible recording, correction/undo, intentional identical entries, relaunch recovery, and action reachability with large text.
 
 ## Structure
 
 | Module | Responsibility |
 | --- | --- |
-| `SendaDomain` | Pure value models, validated journal commands, action receipts, comparisons, sample entries |
-| `SendaPersistence` | Main-actor repository boundary; memory and versioned atomic JSON adapters |
-| `SendaLogger` | Observable screen state, per-lift sessions, numeric input buffer, edit boundaries |
-| `SendaNotebook` | SwiftUI notebook, thumb dock, set editor, comparison |
-| `App` | iPhone entry point and local/sample composition |
+| `SendaDomain` | Pure value models, journal commands, action receipts, weight conversion, recoverable workspace values, comparisons |
+| `SendaPersistence` | Main-actor snapshot repository; memory and versioned atomic JSON adapters |
+| `SendaLogger` | Observable screen state, per-lift sessions, row/unit selection, buffered input, editing and recovery |
+| `SendaNotebook` | SwiftUI set rows, thumb dock, weight dial, previous-entry editor, comparison |
+| `App` | iPhone entry point, lifecycle recovery flush, local/sample composition |
 
-The real journal lives in the app's Application Support directory at `Senda/journal-v1.json`. A command produces a complete candidate, the adapter writes it, then the model publishes it. A failed write does not publish the candidate. The file adapter uses Foundation's [atomic write option](https://developer.apple.com/documentation/foundation/nsdata/writingoptions/atomic) to replace the file as one operation. Unreadable files are preserved and opening fails visibly; there is no silent empty-store fallback.
+The real journal remains at Application Support `Senda/journal-v1.json` so existing installations retain their data. The version-2 file contains the performed journal and optional recoverable workspace in one snapshot. Version-1 journals load without rewriting and upgrade on the next write. Recovery writes follow each accepted interaction. Record, correction, and undo write their candidate history and matching workspace together, then publish the result. A failed history write leaves committed history unchanged; a recovery-write error retains open edits and offers retry. Unreadable files remain untouched and fail visibly.
 
-Weights are integer hundredths of a pound. Individual performed sets have stable IDs and 1-based positions; corrections retain existing IDs. Action receipts remain consumed after undo and persist with history. Revision checks reject stale corrections/undo. The app has one main-actor writer; multi-process or concurrent writers are outside this MVP.
+Weights remain integer hundredths of a pound; kg uses the exact conversion factor 0.45359237. Only explicit weight edits round back to that canonical precision. Display conversion and unit switching never rewrite untouched weights. Performed sets have stable IDs and 1-based positions; removing a row preserves surviving IDs, and new rows receive new IDs. Action receipts remain consumed after undo. Revision checks reject stale corrections/undo. The app has one main-actor writer; multi-process writers are outside this MVP.
 
-## Visual review
+## Local preview
 
-Ivory `#F7F3EB`, terracotta `#A94E32`, charcoal `#302720`, system serif headings, and tabular numerals. The original canonical logo attachment is not available in this workspace, so the small typographic wordmark is temporary.
+Ivory `#F7F3EB`, terracotta `#A94E32`, charcoal `#302720`, expressive serif headings, and tabular numerals. The original canonical logo attachment is unavailable in this workspace, so the small typographic wordmark is temporary.
 
-`docs/previews/` contains actual SwiftUI **macOS-hosted renders at phone dimensions**, not iPhone simulator screenshots. Regenerate on macOS with:
+```sh
+python3 scripts/preview.py
+```
+
+Open **http://127.0.0.1:8765** for actual SwiftUI renders that refresh as source changes. Interact with controls in the **Senda — Live preview** Mac window. That window uses its own sample journal in `/tmp/senda-live-preview/`, separate from the iPhone journal. Stop the watcher with Ctrl-C. The browser review serves only preview files on this Mac.
+
+`docs/previews/` contains actual **macOS-hosted SwiftUI renders at phone dimensions**, not iPhone simulator screenshots. Regenerate on macOS with:
 
 ```sh
 swift run senda-preview "$PWD/docs/previews"
 ```
 
-## Validation limits and deliberate scope
+## Validation limits and scope
 
-Swift package builds, the domain sample, unit tests, and host SwiftUI renders can run without Xcode. This development machine lacks full Xcode and the iOS SDK, so it cannot execute the iPhone tests locally. Use the GitHub workflow or a local Xcode installation for iPhone build and simulator evidence. A host app-entry typecheck is not an iOS build. Physical-device signing, VoiceOver, real keyboard ergonomics, and a full accessibility review still need device testing, even after the simulator checks pass.
+Swift package builds, the domain sample, unit tests, and host SwiftUI renders run without Xcode. This machine lacks full Xcode and the iOS SDK, so iPhone builds and interaction tests require the GitHub workflow or another Xcode installation. Host typechecking does not establish an iOS build. Physical-device signing, VoiceOver, and keyboard ergonomics still need device testing.
 
-Recorded data persists in the normal scheme. In-session drafts, typed buffers, the selected recorded line, and undo availability do not recover across app restarts. A fresh session suggests the latest performed values in a new unrecorded draft. There is no full history browser, custom exercise catalog, kg conversion, sync, backend, or global undo stack in this focused MVP.
+The normal scheme persists performed entries and recoverable unfinished work. The sample scheme remains memory-only. There is no cloud, sync, backend, full history browser, custom exercise catalog, or global undo stack.
 
-The prior planning and architecture documents remain untouched. This workspace began empty; the new implementation note records the recovered requirements and implementation choices without replacing the approved report.
+Prior planning and architecture documents remain untouched. Implementation notes record the changes without replacing the approved report.

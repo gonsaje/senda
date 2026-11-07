@@ -1,6 +1,6 @@
 import Foundation
 
-public enum NumericField: String, CaseIterable, Identifiable, Sendable {
+public enum NumericField: String, CaseIterable, Identifiable, Codable, Sendable {
     case weight, reps, sets
     public var id: Self { self }
     public var label: String {
