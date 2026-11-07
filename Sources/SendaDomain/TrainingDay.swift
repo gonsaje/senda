@@ -45,12 +45,13 @@ public struct TrainingDay: RawRepresentable, Codable, Hashable, Comparable, Send
 }
 
 public enum TrainingError: Error, LocalizedError {
-    case invalidDay, invalidWorkspace, incompleteWeight, missingRow
+    case invalidDay, invalidWorkspace, incompleteWeight, missingRow, legacyReview
     public var errorDescription: String? {
         switch self {
         case .invalidDay: "That date is not valid."
         case .invalidWorkspace: "The saved notebook could not be restored. Your file has been left untouched."
         case .incompleteWeight: "Finish or clear the incomplete weight before changing units."
+        case .legacyReview: "Review the recovered entry before opening the weekly notebook."
         case .missingRow: "That set is no longer available."
         }
     }

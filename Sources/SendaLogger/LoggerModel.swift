@@ -20,12 +20,14 @@ public final class LoggerModel {
     private var numberInputDirty = false
     private var sessions: [String: LoggerPhase] = [:]
     @ObservationIgnored private let repository: any JournalRepository
+    @ObservationIgnored private let preservedTraining: TrainingWorkspace?
     @ObservationIgnored private let now: () -> Date
     @ObservationIgnored private var lastPersisted: JournalSnapshot?
 
     public init(repository: any JournalRepository, isSample: Bool = false, now: @escaping () -> Date = Date.init) throws {
         self.repository = repository; self.isSample = isSample; self.now = now
         let saved = try repository.loadSnapshot().validated()
+        preservedTraining = saved.training
         journal = saved.journal
         customExercises = saved.customExercises ?? []
         lastPersisted = saved
@@ -508,6 +510,6 @@ public final class LoggerModel {
         } catch { errorMessage = error.localizedDescription; return false }
     }
     private func makeSnapshot(journal: Journal, workspace: EntryWorkspace, custom: [Exercise]? = nil) -> JournalSnapshot {
-        JournalSnapshot(journal: journal, workspace: workspace, customExercises: custom ?? customExercises)
+        JournalSnapshot(journal: journal, workspace: workspace, customExercises: custom ?? customExercises, training: preservedTraining)
     }
 }

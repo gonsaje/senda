@@ -28,7 +28,7 @@ import SendaDomain
         try repository.saveSnapshot(snapshot)
         #expect(try repository.loadSnapshot() == snapshot)
         let object = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
-        #expect(object["version"] as? Int == 3)
+        #expect(object["version"] as? Int == 4)
     }
 
     @Test func journalOnlySavePreservesTheLibraryAndWorkout() throws {
