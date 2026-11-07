@@ -5,6 +5,13 @@ public struct Exercise: Codable, Identifiable, Equatable, Sendable {
     public let name: String
     public let shortName: String
     public let startingWeight: Int
+    public let muscleGroup: MuscleGroup?
+    public let equipment: ExerciseEquipment?
+    public init(id: String, name: String, shortName: String, startingWeight: Int,
+                muscleGroup: MuscleGroup? = nil, equipment: ExerciseEquipment? = nil) {
+        self.id = id; self.name = name; self.shortName = shortName; self.startingWeight = startingWeight
+        self.muscleGroup = muscleGroup; self.equipment = equipment
+    }
 
     public static let catalog: [Exercise] = [
         Exercise(id: "bench", name: "Bench", shortName: "Bench", startingWeight: 13_500),

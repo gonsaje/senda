@@ -3,13 +3,13 @@ import Foundation
 public enum ExerciseLibrary {
     public static let initialWorkoutIDs = ["bench", "deadlift", "squat"]
 
-    public static func custom(named name: String, existing: [Exercise] = Exercise.catalog) throws -> Exercise {
+    public static func custom(named name: String, existing: [Exercise] = Exercise.catalog, muscleGroup: MuscleGroup? = nil, equipment: ExerciseEquipment? = nil) throws -> Exercise {
         let name = cleaned(name)
         guard validName(name) else { throw ExerciseLibraryError.invalidName }
         guard !existing.contains(where: { keys($0).contains(searchKey(name)) }) else {
             throw ExerciseLibraryError.duplicateName(name)
         }
-        return Exercise(id: "custom-\(UUID().uuidString.lowercased())", name: name, shortName: name, startingWeight: 0)
+        return Exercise(id: "custom-\(UUID().uuidString.lowercased())", name: name, shortName: name, startingWeight: 0, muscleGroup: muscleGroup, equipment: equipment)
     }
 
     public static func validated(custom: [Exercise]) throws -> [Exercise] {

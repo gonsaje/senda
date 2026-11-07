@@ -117,3 +117,52 @@ public struct Journal: Codable, Equatable, Sendable {
         try SetValidation.validate(draft.sets)
     }
 }
+
+public extension Journal {
+    @discardableResult mutating func updateSet(_ id: UUID, values: SetValues) throws -> PerformedSet {
+        guard let source = reference(to: id) else { throw JournalError.missingBatch }
+        guard source.set.values != values else { return source.set }
+        var rows = source.batch.values
+        rows[source.set.position - 1] = values
+        let batch = try correct(batchID: source.batch.id, revision: source.batch.revision, sets: rows,
+                                retainedSetIDs: source.batch.sets.map { Optional($0.id) })
+        return batch.sets[source.set.position - 1]
+    }
+    mutating func removeSet(_ id: UUID) throws -> RemovedTrainingSet {
+        guard let index = batches.firstIndex(where: { $0.sets.contains { $0.id == id } }),
+              let set = batches[index].sets.first(where: { $0.id == id }) else { throw JournalError.missingBatch }
+        let batch = batches[index]
+        guard batch.revision < Int.max - 1 else { throw JournalError.staleRevision }
+        let removal = RemovedTrainingSet(batch: batch, set: set, batchIndex: index)
+        let kept = batch.sets.filter { $0.id != id }
+        if kept.isEmpty { _ = try undo(batchID: batch.id, revision: batch.revision) }
+        else { _ = try correct(batchID: batch.id, revision: batch.revision, sets: kept.map(\.values), retainedSetIDs: kept.map { Optional($0.id) }) }
+        return removal
+    }
+    @discardableResult mutating func restoreSet(_ removal: RemovedTrainingSet) throws -> PerformedSet {
+        let old = removal.batch
+        guard removal.batchIndex >= 0, old.revision < Int.max - 1,
+              old.sets.contains(removal.set), reference(to: removal.set.id) == nil,
+              let receiptIndex = receipts.firstIndex(where: { $0.batchID == old.id }),
+              receipts[receiptIndex].request.actionID == old.actionID,
+              receipts[receiptIndex].request.exerciseID == old.exerciseID else { throw JournalError.actionConflict }
+        try SetValidation.validate(old.values)
+        if let index = batches.firstIndex(where: { $0.id == old.id }) {
+            let current = batches[index]
+            guard !receipts[receiptIndex].undone, current.revision == old.revision + 1 else { throw JournalError.staleRevision }
+            var restored = current.sets
+            restored.insert(removal.set, at: min(max(0, removal.set.position - 1), restored.count))
+            try SetValidation.validate(restored.map(\.values))
+            batches[index] = RecordedBatch(id: old.id, actionID: old.actionID, exerciseID: old.exerciseID,
+                recordedAt: old.recordedAt, revision: current.revision + 1, sets: restored.enumerated().map {
+                    PerformedSet(id: $0.element.id, position: $0.offset + 1, values: $0.element.values)
+                })
+        } else {
+            guard receipts[receiptIndex].undone, old.sets.count == 1 else { throw JournalError.staleRevision }
+            batches.insert(RecordedBatch(id: old.id, actionID: old.actionID, exerciseID: old.exerciseID,
+                recordedAt: old.recordedAt, revision: old.revision + 2, sets: old.sets), at: min(removal.batchIndex, batches.count))
+            receipts[receiptIndex].undone = false
+        }
+        return removal.set
+    }
+}
