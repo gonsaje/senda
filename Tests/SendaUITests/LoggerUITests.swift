@@ -9,9 +9,9 @@ final class LoggerUITests: XCTestCase {
         XCTAssertFalse(app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Record ")).firstMatch.exists)
         enter(weight: "135", reps: "10", in: app)
         tap("input-done", in: app)
-        tap("day-unit-kg", in: app)
+        changeUnit("kg", in: app)
         XCTAssertTrue(element("row-1-weight", in: app).label.contains("61.23 kg"))
-        tap("day-unit-lb", in: app)
+        changeUnit("lb", in: app)
         XCTAssertTrue(element("row-1-weight", in: app).label.contains("135 lb"))
         tap("back-to-week", in: app)
         XCTAssertTrue(element(day, in: app).label.contains("1 set"))
@@ -49,12 +49,31 @@ final class LoggerUITests: XCTestCase {
         XCTAssertTrue(element("row-2-reps", in: app).label.contains("12 reps"))
         tap("undo-set-change", in: app)
         XCTAssertFalse(app.buttons["row-2-reps"].exists)
+        tap("set-1-actions", in: app)
+        XCTAssertTrue(element("delete-row-1", in: app).exists)
+        tap("set-1-actions", in: app)
+        XCTAssertFalse(app.buttons["delete-row-1"].exists)
+        let firstRow = element("set-row-1", in: app)
+        firstRow.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).press(forDuration: 0.05,
+            thenDragTo: firstRow.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.5)),
+            withVelocity: .slow, thenHoldForDuration: 0.1)
+        XCTAssertTrue(element("row-1-reps", in: app).exists)
+        attach("Short swipe reveals red delete action", app)
         tap("delete-row-1", in: app)
         XCTAssertFalse(app.buttons["row-1-reps"].exists)
         tap("undo-set-change", in: app)
         XCTAssertTrue(element("row-1-reps", in: app).label.contains("12 reps"))
+        tap("repeat-set", in: app)
+        let secondRow = element("set-row-2", in: app)
+        secondRow.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).press(forDuration: 0.05,
+            thenDragTo: secondRow.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.5)),
+            withVelocity: .slow, thenHoldForDuration: 0.1)
+        XCTAssertFalse(app.buttons["row-2-reps"].exists)
+        XCTAssertTrue(element("row-1-reps", in: app).label.contains("12 reps"))
+        tap("undo-set-change", in: app)
+        XCTAssertTrue(element("row-2-reps", in: app).label.contains("12 reps"))
         tap("back-to-week", in: app)
-        XCTAssertTrue(element(day, in: app).label.contains("1 set"))
+        XCTAssertTrue(element(day, in: app).label.contains("2 sets"))
     }
 
     @MainActor
@@ -187,11 +206,11 @@ final class LoggerUITests: XCTestCase {
         _ = openDay(0, in: app)
         add("Bench", id: "bench", in: app)
         enter(weight: "1", reps: "10", in: app); tap("input-done", in: app)
-        tap("day-unit-kg", in: app)
+        changeUnit("kg", in: app)
         tap("row-1-weight", in: app)
         XCTAssertEqual(element("set-input", in: app).value as? String, "0.45")
         tap("input-done", in: app)
-        tap("day-unit-lb", in: app)
+        changeUnit("lb", in: app)
         XCTAssertTrue(element("row-1-weight", in: app).label.contains(", 1 lb"))
     }
 
@@ -278,6 +297,10 @@ final class LoggerUITests: XCTestCase {
     @MainActor private func enter(weight: String, reps: String, in app: XCUIApplication) {
         tap("row-1-weight", in: app); replace(weight, in: app)
         tap("input-next", in: app); replace(reps, in: app)
+    }
+    @MainActor private func changeUnit(_ symbol: String, in app: XCUIApplication) {
+        tap("weight-unit-menu", in: app)
+        tap("day-unit-\(symbol)", in: app)
     }
     @MainActor private func replace(_ value: String, in app: XCUIApplication) {
         let field = element("set-input", in: app)

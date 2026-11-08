@@ -21,6 +21,7 @@ let package = Package(
         .executableTarget(name: "SendaPreview", dependencies: ["SendaNotebook", "SendaDomain", "SendaLogger", "SendaPersistence"]),
         .testTarget(name: "SendaDomainTests", dependencies: ["SendaDomain"]),
         .testTarget(name: "SendaPersistenceTests", dependencies: ["SendaPersistence"]),
-        .testTarget(name: "SendaLoggerTests", dependencies: ["SendaLogger"])
+        .testTarget(name: "SendaLoggerTests", dependencies: ["SendaLogger"]),
+        .testTarget(name: "SendaNotebookTests", dependencies: ["SendaNotebook"])
     ]
 )

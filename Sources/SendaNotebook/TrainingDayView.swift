@@ -29,9 +29,12 @@ struct TrainingDayView: View {
                         add: { if model.finishEditing() { presentedSheet = .picker } },
                         showAll: { if model.finishEditing() { presentedSheet = .exercises } })
                     if let exercise = model.exercise {
-                        Text(exercise.name).font(NotebookTypography.heading(36, italic: true)).lineLimit(2).minimumScaleFactor(0.7)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .accessibilityIdentifier("entry-exercise").padding(.top, 4)
+                        HStack(alignment: .center, spacing: 12) {
+                            Text(exercise.name).font(NotebookTypography.heading(36, italic: true)).lineLimit(2).minimumScaleFactor(0.7)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .accessibilityIdentifier("entry-exercise")
+                            if exercise.requiresWeight { unitMenu }
+                        }.padding(.top, 4)
                         if model.lastReference != nil || model.personalBest != nil { TrainingReferenceBanners(model: model) }
                         TrainingSetRows(model: model).id("\(day.rawValue)/\(exercise.id)")
                         TrainingSaveStatus(model: model).id("\(day.rawValue)/\(exercise.id)")
@@ -92,6 +95,27 @@ struct TrainingDayView: View {
     private var weekButton: some View {
         Button { model.showWeek() } label: { Label("Week", systemImage: "chevron.left").frame(minHeight: 44) }
             .accessibilityIdentifier("back-to-week")
+    }
+
+    private var unitMenu: some View {
+        Menu {
+            ForEach(WeightUnit.allCases, id: \.self) { unit in
+                Button { model.changeUnit(unit) } label: {
+                    if unit == model.unit {
+                        Label(unit == .pounds ? "Pounds (lb)" : "Kilograms (kg)", systemImage: "checkmark")
+                    } else { Text(unit == .pounds ? "Pounds (lb)" : "Kilograms (kg)") }
+                }.accessibilityIdentifier("day-unit-\(unit.symbol)")
+            }
+        } label: {
+            HStack(spacing: 5) {
+                Text(model.unit.symbol).font(.subheadline.weight(.medium))
+                Image(systemName: "chevron.down").font(.system(size: 9, weight: .medium))
+            }.frame(minWidth: 50, minHeight: 44).contentShape(Rectangle())
+        }
+        .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+        .foregroundStyle(NotebookStyle.quiet)
+        .accessibilityLabel("Weight unit, \(model.unit.symbol)")
+        .accessibilityIdentifier("weight-unit-menu")
     }
 
     private var dateNavigation: some View {
@@ -167,35 +191,27 @@ struct TrainingSetRows: View {
     @Bindable var model: TrainingNotebookModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var highlightedRow: UUID?
+    @State private var revealedRowID: UUID?
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 6) {
                 Text("Set").frame(width: 20, alignment: .leading)
-                ViewThatFits(in: .horizontal) {
-                    HStack(spacing: 6) {
-                        Text("Weight")
-                        unitSwitch
-                    }.fixedSize(horizontal: true, vertical: false)
-                    VStack(spacing: 2) {
-                        Text("Weight")
-                        unitSwitch
-                    }
-                }.frame(maxWidth: .infinity)
+                Text("Weight").frame(maxWidth: .infinity)
                 Text("Reps").frame(width: 60)
                 Color.clear.frame(width: 44, height: 1)
             }.font(.caption.weight(.medium)).foregroundStyle(NotebookStyle.quiet).padding(.bottom, 6)
             Rectangle().fill(NotebookStyle.rule).frame(height: 0.5)
             ForEach(Array(model.rows.enumerated()), id: \.element.id) { index, row in
                 VStack(spacing: 0) {
-                    HStack(spacing: 6) {
-                        Text("\(index + 1)").font(.subheadline.monospacedDigit()).foregroundStyle(NotebookStyle.quiet).frame(width: 20, alignment: .leading)
-                        cell(row.weight.isEmpty ? (model.exercise?.requiresWeight == false ? "BW" : "—") : row.weight, row: row, field: .weight)
-                            .frame(maxWidth: .infinity)
-                        cell(row.reps.isEmpty ? "—" : row.reps, row: row, field: .reps).frame(width: 60)
-                        Button { model.deleteSet(row.id) } label: { Image(systemName: "minus").font(.system(size: 18, weight: .light)).foregroundStyle(NotebookStyle.quiet).frame(width: 44, height: 44) }
-                            .accessibilityLabel("Delete set \(index + 1)").accessibilityIdentifier("delete-row-\(index + 1)")
-                    }.frame(minHeight: 60)
-                        .background(highlightedRow == row.id ? NotebookStyle.olive.opacity(0.10) : .clear, in: RoundedRectangle(cornerRadius: 6))
+                    SwipeableSetRow(id: row.id, index: index + 1, revealedRowID: $revealedRowID,
+                                    highlighted: highlightedRow == row.id, delete: { model.deleteSet(row.id) }) {
+                        HStack(spacing: 6) {
+                            Text("\(index + 1)").font(.subheadline.monospacedDigit()).foregroundStyle(NotebookStyle.quiet).frame(width: 20, alignment: .leading)
+                            cell(row.weight.isEmpty ? (model.exercise?.requiresWeight == false ? "BW" : "—") : row.weight, row: row, field: .weight)
+                                .frame(maxWidth: .infinity)
+                            cell(row.reps.isEmpty ? "—" : row.reps, row: row, field: .reps).frame(width: 60)
+                        }
+                    }
                     Rectangle().fill(NotebookStyle.rule).frame(height: 0.5)
                 }.id(row.id)
                     .transition(reduceMotion ? .identity : .opacity.combined(with: .offset(y: 6)))
@@ -212,25 +228,14 @@ struct TrainingSetRows: View {
             }.font(.subheadline).foregroundStyle(NotebookStyle.clay).padding(.top, 5)
         }
         .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: model.rows.map(\.id))
+        .onChange(of: model.focus?.id) { _, _ in revealedRowID = nil }
+        .onChange(of: model.rows.map(\.id)) { _, _ in revealedRowID = nil }
         .task(id: highlightedRow) {
             guard highlightedRow != nil else { return }
             try? await Task.sleep(for: .milliseconds(650))
             guard !Task.isCancelled else { return }
             withAnimation(reduceMotion ? nil : .easeOut(duration: 0.55)) { highlightedRow = nil }
         }
-    }
-    private var unitSwitch: some View {
-        HStack(spacing: 0) {
-            ForEach(WeightUnit.allCases, id: \.self) { unit in
-                Button { model.changeUnit(unit) } label: {
-                    Text(unit.symbol).font(.caption.weight(unit == model.unit ? .semibold : .regular))
-                        .foregroundStyle(unit == model.unit ? NotebookStyle.ink : NotebookStyle.quiet)
-                        .frame(width: 30, height: 30)
-                        .background(unit == model.unit ? NotebookStyle.ivory : .clear, in: RoundedRectangle(cornerRadius: 4))
-                        .frame(width: 44, height: 44).contentShape(Rectangle())
-                }.accessibilityLabel("Weight in \(unit.symbol)").accessibilityIdentifier("day-unit-\(unit.symbol)")
-            }
-        }.padding(2).background(NotebookStyle.ink.opacity(0.04), in: RoundedRectangle(cornerRadius: 6))
     }
     private func cell(_ text: String, row: TrainingRow, field: NumericField) -> some View {
         let index = (model.rows.firstIndex { $0.id == row.id } ?? 0) + 1
