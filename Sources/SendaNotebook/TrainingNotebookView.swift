@@ -48,6 +48,7 @@ struct TrainingWeekView: View {
                     Rectangle().fill(NotebookStyle.rule).frame(height: 0.5)
                     ForEach(model.weekDays, id: \.self) { day in
                         let summary = model.summary(for: day)
+                        let categories = summary.muscleGroups.map(\.rawValue)
                         Button { model.openDay(day) } label: {
                             HStack(alignment: .center, spacing: 12) {
                                 VStack(alignment: .leading, spacing: 3) {
@@ -58,7 +59,7 @@ struct TrainingWeekView: View {
                                 VStack(alignment: .leading, spacing: 4) {
                                     if summary.setCount == 0 {
                                         Text("No sets logged").font(.subheadline).foregroundStyle(NotebookStyle.quiet)
-                                    } else { Text(summary.exercises.joined(separator: " · ")).font(.subheadline).fixedSize(horizontal: false, vertical: true) }
+                                    } else { Text(categories.joined(separator: " · ")).font(.subheadline).fixedSize(horizontal: false, vertical: true) }
                                     if day == model.today { Text("Today").font(.caption.weight(.medium)).foregroundStyle(NotebookStyle.clay) }
                                 }.frame(maxWidth: .infinity, alignment: .leading)
                                 if summary.setCount > 0 { Text("\(summary.setCount) sets").font(.caption.monospacedDigit()).fixedSize() }
@@ -67,7 +68,7 @@ struct TrainingWeekView: View {
                             .background(day == model.today ? NotebookStyle.clay.opacity(0.06) : .clear)
                             .contentShape(Rectangle())
                         }
-                        .accessibilityLabel("\(TrainingText.date(day, format: "EEEE, MMM d")), \(summary.setCount) sets, \(summary.exercises.joined(separator: ", "))")
+                        .accessibilityLabel("\(TrainingText.date(day, format: "EEEE, MMM d")), \(summary.setCount) sets, \(categories.joined(separator: ", "))")
                         .accessibilityIdentifier("day-\(day.rawValue)")
                         Rectangle().fill(NotebookStyle.rule).frame(height: 0.5)
                     }

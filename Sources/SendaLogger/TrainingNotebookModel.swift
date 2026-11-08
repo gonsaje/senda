@@ -5,6 +5,7 @@ import SendaPersistence
 
 public struct TrainingDaySummary: Equatable, Sendable {
     public let exercises: [String]
+    public let muscleGroups: [MuscleGroup]
     public let setCount: Int
 }
 public struct TrainingPerformanceReference: Equatable, Sendable {
@@ -66,10 +67,12 @@ public struct TrainingPerformanceReference: Equatable, Sendable {
         exercises.first { $0.id == id } ?? Exercise(id: id, name: id, shortName: id, startingWeight: 0)
     }
     public func summary(for day: TrainingDay) -> TrainingDaySummary {
-        guard let workout = workspace.days[day.rawValue] else { return TrainingDaySummary(exercises: [], setCount: 0) }
+        guard let workout = workspace.days[day.rawValue] else { return TrainingDaySummary(exercises: [], muscleGroups: [], setCount: 0) }
         let order = workout.exerciseIDs + workout.rows.keys.sorted().filter { !workout.exerciseIDs.contains($0) }
         let performed = order.filter { id in workout.rows[id]?.contains { $0.performedSetID != nil } == true }
+        let trained = Set(performed.map { exercise($0).group })
         return TrainingDaySummary(exercises: performed.map { exercise($0).name },
+            muscleGroups: MuscleGroup.allCases.filter { trained.contains($0) },
             setCount: workout.rows.values.flatMap { $0 }.filter { $0.performedSetID != nil }.count)
     }
     public var lastReference: TrainingPerformanceReference? {

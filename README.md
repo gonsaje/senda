@@ -12,7 +12,7 @@ The project has no third-party dependencies or generation step.
 
 ## Notebook flow
 
-- **Week → Day → Exercise.** A Monday–Sunday list shows each day's performed exercises and set count. Previous/next controls browse weeks. Open any day; **‹ Week** returns to its week. Each day retains its own exercise tabs and selection.
+- **Week → Day → Exercise.** A Monday–Sunday list shows each day's trained muscle groups and set count. Categories appear once, using only performed sets; opening the day shows the individual exercises and sets. Previous/next controls browse weeks. Open any day; **‹ Week** returns to its week. Each day retains its own exercise tabs and selection.
 - Use **+** to browse exercises by muscle group, narrow by equipment, or search across groups. Flat rows show **Added** when already in the day. **Create exercise** accepts a name, muscle group and equipment. Existing unclassified custom exercises remain searchable under Full body / Other.
 - Each set has one weight value and reps. The **lb/kg switch beside Weight** changes the display unit without rounding untouched canonical values. **Last** and **PR** are separate banners. Last is the previous training day's top set; PR ranks performed weight first, then reps. Tap either to open its source day. There is no Common banner.
 - A newly added exercise starts with a blank row. **New set** adds another blank row and focuses Weight, or Reps for bodyweight exercises. No zero-weight batch is prefilled.

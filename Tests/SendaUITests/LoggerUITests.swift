@@ -16,7 +16,12 @@ final class LoggerUITests: XCTestCase {
         tap("back-to-week", in: app)
         XCTAssertTrue(element(day, in: app).label.contains("1 set"))
         XCTAssertTrue(element("week-summary", in: app).label.contains("1 set"))
-        attach("Automatic set reflected in week", app)
+        XCTAssertTrue(element(day, in: app).label.contains("Chest"))
+        XCTAssertFalse(element(day, in: app).label.contains("Bench"))
+        attach("Trained categories reflected in week", app)
+        tap(day, in: app)
+        XCTAssertEqual(element("entry-exercise", in: app).label, "Bench")
+        XCTAssertTrue(element("row-1-weight", in: app).label.contains("135 lb"))
     }
 
     @MainActor

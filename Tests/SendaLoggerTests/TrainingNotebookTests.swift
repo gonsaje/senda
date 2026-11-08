@@ -17,6 +17,45 @@ import SendaPersistence
         #expect(model.selectInput(row.id, field: .reps))
         model.typeInput(reps, focus: try #require(model.focus))
     }
+    @Test func weekCategoriesAreUniqueStableAndOnlyIncludePerformedExercises() throws {
+        let m = try model()
+        #expect(m.openDay(day))
+        #expect(m.summary(for: day).muscleGroups.isEmpty)
+        #expect(m.addExercise("overhead-press"))
+        try enter(m, weight: "95", reps: "8"); #expect(m.finishEditing())
+        #expect(m.addExercise("bench"))
+        try enter(m, weight: "135", reps: "10"); #expect(m.finishEditing())
+        #expect(m.addExercise("dumbbell-bench"))
+        try enter(m, weight: "50", reps: "12"); #expect(m.finishEditing())
+        #expect(m.addExercise("squat"))
+        try enter(m, weight: "185", reps: ""); #expect(m.finishEditing())
+        let summary = m.summary(for: day)
+        #expect(summary.muscleGroups == [.chest, .shoulders])
+        #expect(summary.setCount == 3)
+        #expect(summary.exercises == ["Overhead press", "Bench", "Dumbbell bench"])
+        #expect(m.summary(for: try day.adding(days: -1)).muscleGroups.isEmpty)
+        #expect(m.showWeek()); #expect(m.openDay(day)); #expect(m.selectExercise("bench"))
+        #expect(m.rows.count == 1 && m.rows[0].weight == "135" && m.rows[0].reps == "10")
+    }
+
+    @Test func weekCategoriesUseCustomClassificationAndFollowDeleteUndo() throws {
+        let m = try model()
+        #expect(m.openDay(day))
+        #expect(m.createExercise(named: "Travel raise", group: .shoulders, equipment: .dumbbell))
+        try enter(m, weight: "20", reps: "12"); #expect(m.finishEditing())
+        let custom = try #require(m.exercise?.id)
+        #expect(m.removeExercise(custom))
+        #expect(m.summary(for: day).muscleGroups == [.shoulders])
+        #expect(m.addExercise("bench"))
+        try enter(m, weight: "135", reps: "10"); #expect(m.finishEditing())
+        #expect(m.summary(for: day).muscleGroups == [.chest, .shoulders])
+        #expect(m.deleteSet(try #require(m.rows.first).id))
+        #expect(m.summary(for: day).muscleGroups == [.shoulders])
+        #expect(m.undoChange())
+        #expect(m.summary(for: day).muscleGroups == [.chest, .shoulders])
+        #expect(m.summary(for: day).setCount == 2)
+    }
+
     @Test func completeRowsCountOnlyWhenEditingFinishesAndRemainDaySpecific() throws {
         let m = try model()
         #expect(m.openDay(day)); #expect(m.addExercise("bench"))
