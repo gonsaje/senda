@@ -251,7 +251,9 @@ final class LoggerUITests: XCTestCase {
         let scroll = picker.exists ? picker : (custom.exists ? custom : app.scrollViews.firstMatch)
         let inPickerContent = (picker.exists || custom.exists) && scroll.descendants(matching: .any).matching(identifier: id).firstMatch.exists
         if inPickerContent || !target.isHittable {
-            for _ in 0..<8 {
+            var upward = true
+            var recoveringTarget = false
+            for _ in 0..<20 {
                 guard scroll.exists else { break }
                 // Offscreen picker rows can report hittable behind the keyboard.
                 // Include its prediction strip and require the whole row to show.
@@ -259,16 +261,28 @@ final class LoggerUITests: XCTestCase {
                 let top = max(app.frame.minY + 80, scroll.frame.minY + 16)
                 let bottom = min(scroll.frame.maxY - 16, app.frame.maxY - 36,
                     keyboard.exists ? keyboard.frame.minY - 72 : app.frame.maxY)
-                let frame = target.frame
-                if target.isHittable && frame.minY >= top && frame.maxY <= bottom { break }
+                if target.exists {
+                    let frame = target.frame
+                    recoveringTarget = false
+                    if target.isHittable && frame.minY >= top && frame.maxY <= bottom { break }
+                    if frame.maxY > bottom { upward = true }
+                    else if frame.minY < top { upward = false }
+                    else { break }
+                } else if !recoveringTarget {
+                    // Accessibility prunes a row after an overshoot. Reverse once
+                    // and keep approaching until it returns to the visible tree.
+                    upward.toggle()
+                    recoveringTarget = true
+                }
                 guard bottom - top > 50 else { break }
-                let upward = frame.maxY > bottom
-                guard upward || frame.minY < top else { break }
-                let middle = (top + bottom) / 2
+                let distance = min(90, (bottom - top) / 3)
+                let startY = upward ? top + distance + 16 : top + 16
+                let endY = upward ? top + 16 : top + distance + 16
                 let origin = app.coordinate(withNormalizedOffset: .zero)
-                origin.withOffset(CGVector(dx: app.frame.width / 2, dy: (upward ? middle : top + 12) - app.frame.minY))
-                    .press(forDuration: 0.05, thenDragTo: origin.withOffset(CGVector(dx: app.frame.width / 2,
-                        dy: (upward ? top + 12 : middle) - app.frame.minY)))
+                origin.withOffset(CGVector(dx: app.frame.width / 2, dy: startY - app.frame.minY))
+                    .press(forDuration: 0.05,
+                        thenDragTo: origin.withOffset(CGVector(dx: app.frame.width / 2, dy: endY - app.frame.minY)),
+                        withVelocity: .slow, thenHoldForDuration: 0.25)
             }
             if inPickerContent {
                 let keyboard = app.keyboards.firstMatch
