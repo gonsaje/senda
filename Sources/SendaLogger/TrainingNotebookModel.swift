@@ -20,6 +20,8 @@ public struct TrainingPerformanceReference: Equatable, Sendable {
     public private(set) var errorMessage: String?
     public private(set) var revealRowID: UUID?
     public private(set) var section: TrainingSection = .log
+    public var learningQuery = ""
+    public var learningExerciseID: String?
     public let profile: ProfileModel
     public let isSample: Bool
     public let calendar: Calendar

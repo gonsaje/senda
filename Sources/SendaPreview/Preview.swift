@@ -48,6 +48,19 @@ struct SendaPreview {
             try render(TrainingNotebookView(model: model), to: directory.appendingPathComponent("senda-dial.png"))
             try render(TrainingNotebookView(model: model), to: directory.appendingPathComponent("senda-dial-compact.png"), width: 320, height: 568)
         }
+        _ = model.finishEditing()
+        _ = model.selectSection(.profile)
+        try render(TrainingNotebookView(model: model), to: directory.appendingPathComponent("senda-profile.png"))
+        try render(TrainingNotebookView(model: model), to: directory.appendingPathComponent("senda-profile-compact.png"), width: 320, height: 568)
+        _ = model.selectSection(.learn)
+        try render(TrainingNotebookView(model: model), to: directory.appendingPathComponent("senda-learn.png"))
+        try render(TrainingNotebookView(model: model), to: directory.appendingPathComponent("senda-learn-compact.png"), width: 320, height: 568)
+        model.learningExerciseID = "bench"
+        try render(TrainingNotebookView(model: model), to: directory.appendingPathComponent("senda-form-guide.png"))
+        try render(TrainingNotebookView(model: model), to: directory.appendingPathComponent("senda-form-guide-compact.png"), width: 320, height: 568)
+        let empty = try TrainingNotebookModel(repository: MemoryJournalRepository())
+        _ = empty.selectSection(.profile)
+        try render(TrainingNotebookView(model: empty), to: directory.appendingPathComponent("senda-profile-empty.png"))
         print("Rendered actual SwiftUI week, day, picker and compact-phone states to \(directory.path).")
     }
 
@@ -59,7 +72,8 @@ struct SendaPreview {
         if !FileManager.default.fileExists(atPath: url.path) {
             try repository.save(SampleJournal.makeWeek())
         }
-        let session = TrainingSession(repository: repository, isSample: true)
+        let session = TrainingSession(repository: repository, isSample: true,
+            profileRepository: FileProfileRepository(url: url.deletingLastPathComponent().appendingPathComponent("profile.json")))
         let host = NSHostingView(rootView: TrainingSessionView(session: session)
             .environment(\.colorScheme, .light)
             .frame(minWidth: 320, minHeight: 568))

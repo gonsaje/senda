@@ -31,6 +31,9 @@ small{font-size:12px}#status{float:right;font-size:12px}</style></head><body>
 <small>Actual SwiftUI screen, rendered on this Mac at phone size. For interactive controls, use the “Senda — Live preview” window.</small></header>
 <main><figure><figcaption>Week</figcaption><img data-file="senda-week.png"></figure>
 <figure><figcaption>Day</figcaption><img data-file="senda-day.png"></figure>
+<figure><figcaption>Profile</figcaption><img data-file="senda-profile.png"></figure>
+<figure><figcaption>Learn</figcaption><img data-file="senda-learn.png"></figure>
+<figure><figcaption>Exercise form</figcaption><img data-file="senda-form-guide.png"></figure>
 <figure><figcaption>Day exercises</figcaption><img data-file="senda-day-exercises.png"></figure>
 <figure><figcaption>Add exercise</figcaption><img data-file="senda-picker.png"></figure>
 <figure><figcaption>Weight editor</figcaption><img data-file="senda-dial.png"></figure></main>

@@ -7,9 +7,15 @@ public struct TrainingNotebookView: View {
     public init(model: TrainingNotebookModel) { self.model = model }
     public var body: some View {
         Group {
-            if let day = model.selectedDay { TrainingDayView(model: model, day: day) }
-            else { TrainingWeekView(model: model) }
+            switch model.section {
+            case .log:
+                if let day = model.selectedDay { TrainingDayView(model: model, day: day) }
+                else { TrainingWeekView(model: model) }
+            case .learn: TrainingLearnView(model: model)
+            case .profile: TrainingProfileView(model: model)
+            }
         }
+        .safeAreaInset(edge: .bottom, spacing: 0) { TrainingDock(model: model) }
         .background(NotebookStyle.ivory).foregroundStyle(NotebookStyle.ink)
         .scrollIndicators(.never)
         .tint(NotebookStyle.clay).buttonStyle(.plain)

@@ -323,6 +323,87 @@ final class LoggerUITests: XCTestCase {
         attach("Large text All action in the tab row", app)
     }
 
+    @MainActor
+    func testDockKeepsUnfinishedSetsAndProfileDetailsRecover() throws {
+        let app = launch()
+        _ = openDay(0, in: app)
+        add("Bench", id: "bench", in: app)
+        enter(weight: "31.", reps: "8", in: app)
+        tap("dock-profile", in: app)
+        XCTAssertTrue(element("big-three-total", in: app).label.contains("incomplete"))
+        XCTAssertFalse(app.buttons["profile-pr-bench"].exists)
+        tap("profile-details", in: app)
+        let name = element("profile-name", in: app)
+        name.tap(); name.typeText("Jae")
+        let email = element("profile-email", in: app)
+        email.tap(); email.typeText("jae@example.com")
+        tap("profile-save", in: app)
+        XCTAssertTrue(element("profile-details", in: app).label.contains("Jae"))
+        tap("profile-settings", in: app)
+        tap("preference-kg", in: app)
+        tap("close-settings", in: app)
+        tap("dock-learn", in: app)
+        let search = element("learn-search", in: app)
+        search.tap(); search.typeText("Bench")
+        tap("learn-exercise-bench", in: app)
+        XCTAssertTrue(element("form-guide-bench", in: app).exists)
+        XCTAssertTrue(element("form-source", in: app).exists)
+        tap("dock-profile", in: app); tap("dock-learn", in: app)
+        XCTAssertTrue(element("form-guide-bench", in: app).exists)
+        tap("dock-log", in: app)
+        XCTAssertEqual(element("entry-exercise", in: app).label, "Bench")
+        tap("row-1-weight", in: app)
+        XCTAssertEqual(element("set-input", in: app).value as? String, "31.")
+        tap("input-done", in: app)
+        app.terminate(); app.launch()
+        tap("dock-profile", in: app)
+        XCTAssertTrue(element("profile-details", in: app).label.contains("Jae"))
+        XCTAssertTrue(element("big-three-total", in: app).label.contains("incomplete"))
+        tap("profile-settings", in: app)
+        XCTAssertTrue(element("preference-kg", in: app).isSelected)
+        attach("Local profile and unit setting", app)
+    }
+
+    @MainActor
+    func testProfileBigThreeAndPrOpenTheRecordedSet() throws {
+        let app = launch()
+        _ = openDay(0, in: app)
+        add("Bench", id: "bench", in: app)
+        enter(weight: "135", reps: "10", in: app); tap("input-done", in: app)
+        add("Deadlift", id: "deadlift", in: app)
+        enter(weight: "225", reps: "5", in: app); tap("input-done", in: app)
+        add("Squat", id: "squat", in: app)
+        enter(weight: "185", reps: "8", in: app)
+        tap("dock-profile", in: app)
+        XCTAssertTrue(element("big-three-total", in: app).label.contains("545 lb"))
+        XCTAssertTrue(element("profile-pr-bench", in: app).label.contains("135 lb"))
+        XCTAssertTrue(element("profile-pr-deadlift", in: app).label.contains("225 lb"))
+        attach("Big 3 breakdown and actual PRs", app)
+        tap("profile-pr-bench", in: app)
+        XCTAssertEqual(element("entry-exercise", in: app).label, "Bench")
+        tap("row-1-weight", in: app); replace("145", in: app); tap("input-done", in: app)
+        tap("dock-profile", in: app)
+        XCTAssertTrue(element("big-three-total", in: app).label.contains("555 lb"))
+        XCTAssertTrue(element("profile-pr-bench", in: app).label.contains("145 lb"))
+    }
+
+    @MainActor
+    func testLargeTextDockKeepsProfileAndLearningReachable() throws {
+        let app = launch(extra: ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
+        for id in ["dock-log", "dock-learn", "dock-profile"] { XCTAssertTrue(element(id, in: app).isHittable) }
+        tap("dock-profile", in: app)
+        _ = element("big-three-total", in: app)
+        tap("profile-settings", in: app); tap("preference-kg", in: app); tap("close-settings", in: app)
+        tap("dock-learn", in: app)
+        let search = element("learn-search", in: app)
+        search.tap(); search.typeText("Bench")
+        tap("learn-exercise-bench", in: app)
+        XCTAssertTrue(element("form-guide-bench", in: app).exists)
+        tap("dock-log", in: app)
+        XCTAssertTrue(app.scrollViews["week-view"].exists)
+        attach("Large text Log Learn Profile dock", app)
+    }
+
     @MainActor private func launch(extra: [String] = []) -> XCUIApplication {
         continueAfterFailure = false
         let app = XCUIApplication()
@@ -373,13 +454,15 @@ final class LoggerUITests: XCTestCase {
     @MainActor private func tap(_ id: String, in app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
         let target = element(id, in: app, file: file, line: line)
         let day = app.scrollViews["day-scroll"]
+        let dock = app.descendants(matching: .any).matching(identifier: "app-dock").firstMatch
         let controls = app.descendants(matching: .any).matching(identifier: "day-controls").firstMatch
         let inDay = day.descendants(matching: .any).matching(identifier: id).firstMatch.exists
         let inControls = controls.descendants(matching: .any).matching(identifier: id).firstMatch.exists
         if inDay && !inControls {
             for _ in 0..<6 {
                 let top = max(app.frame.minY + 65, day.frame.minY)
-                let bottom = controls.exists && controls.frame.height > 0 ? controls.frame.minY - 8 : app.frame.maxY - 36
+                let editorBottom = controls.exists && controls.frame.height > 0 ? controls.frame.minY - 8 : app.frame.maxY - 36
+                let bottom = min(editorBottom, dock.exists ? dock.frame.minY - 8 : app.frame.maxY - 36)
                 if target.isHittable && target.frame.minY >= top && target.frame.maxY <= bottom { break }
                 guard bottom - top > 50 else { break }
                 let upward = target.frame.maxY > bottom
@@ -391,9 +474,15 @@ final class LoggerUITests: XCTestCase {
         let picker = app.scrollViews["exercise-picker-scroll"]
         let custom = app.scrollViews["custom-exercise-scroll"]
         let dayIndex = app.scrollViews["day-exercises-scroll"]
-        let scroll = picker.exists ? picker : (custom.exists ? custom : (dayIndex.exists ? dayIndex : app.scrollViews.firstMatch))
-        let inSheetContent = (picker.exists || custom.exists || dayIndex.exists) && scroll.descendants(matching: .any).matching(identifier: id).firstMatch.exists
-        if inSheetContent || !target.isHittable {
+        let details = app.scrollViews["profile-details-scroll"]
+        let settings = app.scrollViews["settings-scroll"]
+        let profile = app.scrollViews["profile-scroll"]
+        let learn = app.scrollViews["learn-scroll"]
+        let sheetScroll = [picker, custom, dayIndex, details, settings].first { $0.exists }
+        let scroll = sheetScroll ?? [profile, learn, app.scrollViews.firstMatch].first { $0.exists } ?? app.scrollViews.firstMatch
+        let inPageContent = sheetScroll == nil && (profile.exists || learn.exists) && scroll.descendants(matching: .any).matching(identifier: id).firstMatch.exists
+        let inSheetContent = sheetScroll != nil && scroll.descendants(matching: .any).matching(identifier: id).firstMatch.exists
+        if inSheetContent || inPageContent || !target.isHittable {
             var upward = true
             var recoveringTarget = false
             for _ in 0..<20 {
@@ -403,7 +492,8 @@ final class LoggerUITests: XCTestCase {
                 let keyboard = app.keyboards.firstMatch
                 let top = max(app.frame.minY + 80, scroll.frame.minY + 16)
                 let bottom = min(scroll.frame.maxY - 16, app.frame.maxY - 36,
-                    keyboard.exists ? keyboard.frame.minY - 72 : app.frame.maxY)
+                    keyboard.exists ? keyboard.frame.minY - 72 : app.frame.maxY,
+                    inPageContent && dock.exists ? dock.frame.minY - 8 : app.frame.maxY)
                 if target.exists {
                     let frame = target.frame
                     recoveringTarget = false
@@ -427,10 +517,11 @@ final class LoggerUITests: XCTestCase {
                         thenDragTo: origin.withOffset(CGVector(dx: app.frame.width / 2, dy: endY - app.frame.minY)),
                         withVelocity: .slow, thenHoldForDuration: 0.25)
             }
-            if inSheetContent {
+            if inSheetContent || inPageContent {
                 let keyboard = app.keyboards.firstMatch
                 let bottom = min(scroll.frame.maxY - 16, app.frame.maxY - 36,
-                    keyboard.exists ? keyboard.frame.minY - 72 : app.frame.maxY)
+                    keyboard.exists ? keyboard.frame.minY - 72 : app.frame.maxY,
+                    inPageContent && dock.exists ? dock.frame.minY - 8 : app.frame.maxY)
                 XCTAssertLessThanOrEqual(target.frame.maxY, bottom, "Covered \(id)", file: file, line: line)
             }
         }

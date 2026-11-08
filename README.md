@@ -10,6 +10,16 @@ A native iPhone training notebook. Browse a week, open a day, and enter individu
 
 The project has no third-party dependencies or generation step.
 
+## App sections
+
+A minimal bottom dock has **Log**, **Learn**, and **Profile**. Switching sections finishes a valid set or keeps incomplete input recoverable; failed saves retain the current section. Log returns to the selected day and exercise.
+
+**Profile** has editable on-device name and optional email, default lb/kg settings, all logged exercise PRs and a Big 3 breakdown. The total adds the heaviest logged bench, deadlift and squat sets; reps break weight ties. A total appears only when all three lifts have records. This is a sum of observed sets, not an estimated one-rep max or competition result. Tap a PR to open its original set. Corrections, deletion and Undo update progress from the journal. Default units affect progress and new days, preserving existing day units and canonical weights.
+
+Profile details use a separate versioned atomic local file. An unreadable profile stays untouched and does not prevent logging. There is no account authentication or synchronization.
+
+**Learn** has searchable offline setup, movement and form cues for all 20 presets, with explicit links to original sources. Broad exercise names specify the variation covered. Custom exercises remain searchable and clearly show when a guide has not been added. [Source notes](docs/implementation/2026-11-08-form-sources.md).
+
 ## Notebook flow
 
 - **Week → Day → Exercise.** A Monday–Sunday list shows each day's trained muscle groups and set count. Categories appear once, using only performed sets; opening the day shows the individual exercises and sets. Days without logged sets show **+ Start workout**; tap the row to open that day's workout, keeping any unfinished entries. Swipe left for the next week or right for the previous week; vertical scrolling and the arrow controls remain available. In the day view, arrows beside the date move to the previous or next calendar day; **‹ Week** returns to that day's week. Each day retains its own exercise tabs, selection and sets. Changing days finishes the current edit, preserving incomplete input without counting it.
@@ -31,7 +41,7 @@ The project has no third-party dependencies or generation step.
 python3 scripts/preview.py
 ```
 
-Open **http://127.0.0.1:8765** for actual SwiftUI renders of Week, Day, the day exercise list and Add exercise. Use the **Senda — Live preview** Mac window for interactive controls. It has its own sample journal at `/tmp/senda-weekly-live-preview/journal.json`; the earlier preview journal is left intact. The browser serves only preview files on this Mac.
+Open **http://127.0.0.1:8765** for actual SwiftUI renders of Week, Day, Profile, Learn, exercise form and logger details. Use the **Senda — Live preview** Mac window for interactive controls. It has its own sample journal at `/tmp/senda-weekly-live-preview/journal.json`; the earlier preview journal is left intact. The browser serves only preview files on this Mac.
 
 The visual language uses ivory `#F7F3EB`, terracotta `#A94E32`, charcoal `#302720`, expressive serif titles and aligned tabular numerals. Georgia headings pair with system text and tabular numerals. An original tapered S-path is drawn natively, with an editable SVG in `docs/brand/senda-path.svg`; muted olive marks the identity and quiet save feedback. The day header is compact, reference banners are neutral, and separators are lighter. New rows enter gently and successful repeats briefly highlight their new row. Reduced Motion disables positional transitions and animated focus scrolling. The canonical original logo attachment remains unavailable; this mark is a new drawing for review.
 
