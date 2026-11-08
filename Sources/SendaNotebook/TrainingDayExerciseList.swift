@@ -65,6 +65,7 @@ public struct TrainingDayExerciseList: View {
             }
             .padding(.horizontal, 24).padding(.vertical, 12).frame(maxWidth: 560).frame(maxWidth: .infinity)
         }
+        .scrollIndicators(.never)
         .accessibilityIdentifier("day-exercises-scroll")
         .background(NotebookStyle.ivory).foregroundStyle(NotebookStyle.ink).tint(NotebookStyle.clay).buttonStyle(.plain)
         #if os(macOS)

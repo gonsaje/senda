@@ -87,7 +87,7 @@ struct TrainingWeightRuler: View {
                         }
                     }.scrollTargetLayout()
                 }.contentMargins(.horizontal, max(0, (geometry.size.width - 12) / 2), for: .scrollContent)
-                    .scrollIndicators(.hidden).scrollDisabled(true).scrollPosition(id: $position)
+                    .scrollIndicators(.never).scrollDisabled(true).scrollPosition(id: $position)
                 Rectangle().fill(NotebookStyle.clay).frame(width: 2, height: 26).allowsHitTesting(false)
             }
         }

@@ -11,6 +11,7 @@ public struct TrainingNotebookView: View {
             else { TrainingWeekView(model: model) }
         }
         .background(NotebookStyle.ivory).foregroundStyle(NotebookStyle.ink)
+        .scrollIndicators(.never)
         .tint(NotebookStyle.clay).buttonStyle(.plain)
     }
 }

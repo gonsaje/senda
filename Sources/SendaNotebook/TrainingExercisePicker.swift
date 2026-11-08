@@ -73,6 +73,7 @@ public struct TrainingExercisePicker: View {
                 }.scrollDismissesKeyboard(.interactively).accessibilityIdentifier("exercise-picker-scroll")
             }
         }
+        .scrollIndicators(.never)
         .background(NotebookStyle.ivory).foregroundStyle(NotebookStyle.ink).tint(NotebookStyle.clay).buttonStyle(.plain)
         #if os(macOS)
         .frame(minWidth: 420, idealWidth: 470, minHeight: 620, idealHeight: 740)

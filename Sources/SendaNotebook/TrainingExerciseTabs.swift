@@ -38,7 +38,7 @@ struct TrainingExerciseTabs: View {
                         }
                     }
                 }
-                .scrollIndicators(.hidden)
+                .scrollIndicators(.never)
                 .scrollPosition(id: $visibleTabID, anchor: .center)
                 .coordinateSpace(name: viewportSpace)
                 .overlay(alignment: .leading) {
@@ -88,7 +88,7 @@ struct TrainingExerciseTabs: View {
             .background {
                 if selected {
                     RoundedRectangle(cornerRadius: 7).fill(NotebookStyle.ivory)
-                        .shadow(color: NotebookStyle.ink.opacity(0.12), radius: 3, x: 0, y: 2)
+                        .shadow(color: NotebookStyle.ink.opacity(0.22), radius: 3, x: 0, y: 2)
                 }
             }
             .contentShape(Rectangle())
@@ -102,9 +102,9 @@ struct TrainingExerciseTabs: View {
 
     private func edgeShadow(leading: Bool) -> some View {
         let leftEdge = leading == (layoutDirection == .leftToRight)
-        return Rectangle().fill(NotebookStyle.ivory).frame(width: 1)
-            .shadow(color: NotebookStyle.ink.opacity(0.18), radius: 5, x: leftEdge ? 3 : -3, y: 0)
-            .frame(width: 12, alignment: leading ? .leading : .trailing)
+        return Rectangle().fill(NotebookStyle.ivory).frame(width: 3)
+            .shadow(color: NotebookStyle.ink.opacity(0.30), radius: 5, x: leftEdge ? 3 : -3, y: 0)
+            .frame(width: 16, alignment: leading ? .leading : .trailing)
             .clipped().allowsHitTesting(false).accessibilityHidden(true)
     }
 }
