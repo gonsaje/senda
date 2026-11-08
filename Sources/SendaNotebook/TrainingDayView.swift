@@ -33,7 +33,7 @@ struct TrainingDayView: View {
                             Text(exercise.name).font(NotebookTypography.heading(36, italic: true)).lineLimit(2).minimumScaleFactor(0.7)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .accessibilityIdentifier("entry-exercise")
-                            if exercise.requiresWeight { unitMenu }
+                            unitMenu
                         }.padding(.top, 4)
                         if model.lastReference != nil || model.personalBest != nil { TrainingReferenceBanners(model: model) }
                         TrainingSetRows(model: model).id("\(day.rawValue)/\(exercise.id)")
