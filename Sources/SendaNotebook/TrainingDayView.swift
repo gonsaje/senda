@@ -76,6 +76,7 @@ struct TrainingDayView: View {
                 }
                 .padding(.horizontal, 24).padding(.top, 2).padding(.bottom, 28)
                 .frame(maxWidth: 560).frame(maxWidth: .infinity)
+                .id("day-top")
             }
             .accessibilityIdentifier("day-scroll")
             .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -114,6 +115,11 @@ struct TrainingDayView: View {
                 if let row = model.focus?.rowID { scroll.scrollTo(row, anchor: .center) }
             }
             #endif
+            .onChange(of: day) { _, _ in
+                presentedSheet = nil
+                tabPosition = model.exercise?.id
+                if model.revealRowID == nil { scroll.scrollTo("day-top", anchor: .top) }
+            }
             .onChange(of: model.exercise?.id) { _, id in tabPosition = id }
             .onAppear { tabPosition = model.exercise?.id }
         }.background(NotebookStyle.ivory)

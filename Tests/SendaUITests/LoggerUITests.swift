@@ -23,12 +23,15 @@ final class LoggerUITests: XCTestCase {
         XCTAssertEqual(element("entry-exercise", in: app).label, "Bench")
         XCTAssertTrue(element("row-1-weight", in: app).label.contains("135 lb"))
         let originalDate = element("day-date", in: app).label
+        let originalHeaderY = element("back-to-week", in: app).frame.minY
         tap("next-day", in: app)
         XCTAssertNotEqual(element("day-date", in: app).label, originalDate)
+        XCTAssertEqual(element("back-to-week", in: app).frame.minY, originalHeaderY, accuracy: 1)
         XCTAssertFalse(app.staticTexts["entry-exercise"].exists)
         XCTAssertTrue(element("back-to-week", in: app).exists)
         tap("previous-day", in: app)
         XCTAssertEqual(element("day-date", in: app).label, originalDate)
+        XCTAssertEqual(element("back-to-week", in: app).frame.minY, originalHeaderY, accuracy: 1)
         XCTAssertEqual(element("entry-exercise", in: app).label, "Bench")
         XCTAssertTrue(element("row-1-weight", in: app).label.contains("135 lb"))
         attach("Adjacent day navigation", app)

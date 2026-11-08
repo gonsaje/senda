@@ -7,7 +7,7 @@ public struct TrainingNotebookView: View {
     public init(model: TrainingNotebookModel) { self.model = model }
     public var body: some View {
         Group {
-            if let day = model.selectedDay { TrainingDayView(model: model, day: day).id(day) }
+            if let day = model.selectedDay { TrainingDayView(model: model, day: day) }
             else { TrainingWeekView(model: model) }
         }
         .background(NotebookStyle.ivory).foregroundStyle(NotebookStyle.ink)
