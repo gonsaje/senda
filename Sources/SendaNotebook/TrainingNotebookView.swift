@@ -58,7 +58,8 @@ struct TrainingWeekView: View {
                                     .foregroundStyle(day == model.today ? NotebookStyle.clay : NotebookStyle.ink)
                                 VStack(alignment: .leading, spacing: 4) {
                                     if summary.setCount == 0 {
-                                        Text("No sets logged").font(.subheadline).foregroundStyle(NotebookStyle.quiet)
+                                        Label("Start workout", systemImage: "plus")
+                                            .font(.subheadline).foregroundStyle(NotebookStyle.clay)
                                     } else { Text(categories.joined(separator: " · ")).font(.subheadline).fixedSize(horizontal: false, vertical: true) }
                                     if day == model.today { Text("Today").font(.caption.weight(.medium)).foregroundStyle(NotebookStyle.clay) }
                                 }.frame(maxWidth: .infinity, alignment: .leading)
@@ -68,7 +69,7 @@ struct TrainingWeekView: View {
                             .background(day == model.today ? NotebookStyle.clay.opacity(0.06) : .clear)
                             .contentShape(Rectangle())
                         }
-                        .accessibilityLabel("\(TrainingText.date(day, format: "EEEE, MMM d")), \(summary.setCount) sets, \(categories.joined(separator: ", "))")
+                        .accessibilityLabel("\(TrainingText.date(day, format: "EEEE, MMM d")), \(summary.setCount) sets, \(summary.setCount == 0 ? "Start workout" : categories.joined(separator: ", "))")
                         .accessibilityIdentifier("day-\(day.rawValue)")
                         Rectangle().fill(NotebookStyle.rule).frame(height: 0.5)
                     }
