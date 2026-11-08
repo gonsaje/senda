@@ -27,7 +27,7 @@ public struct TrainingExercisePicker: View {
                     VStack(alignment: .leading, spacing: 20) {
                         Button { model.dismissError(); close() } label: { Label("Day", systemImage: "chevron.left").frame(minHeight: 44) }
                             .accessibilityIdentifier("close-exercise-picker")
-                        Text("Add exercise").font(.system(size: 40, design: .serif).italic())
+                        Text("Add exercise").font(NotebookTypography.heading(34))
                         HStack(spacing: 9) {
                             Image(systemName: "magnifyingglass").foregroundStyle(NotebookStyle.quiet)
                             TextField("Find an exercise", text: $search).textFieldStyle(.plain).autocorrectionDisabled()
@@ -49,9 +49,9 @@ public struct TrainingExercisePicker: View {
                                 }
                             }
                         }
-                        Text(search.isEmpty ? group.rawValue : "Exercises").font(.system(size: 29, design: .serif).italic())
+                        Text(search.isEmpty ? group.rawValue : "Exercises").font(NotebookTypography.heading(26))
                         VStack(spacing: 0) {
-                            Rectangle().fill(NotebookStyle.rule).frame(height: 1)
+                            Rectangle().fill(NotebookStyle.rule).frame(height: 0.5)
                             ForEach(matches) { exercise in
                                 let added = model.workout?.exerciseIDs.contains(exercise.id) == true
                                 Button { if model.addExercise(exercise.id) { close() } } label: {
@@ -62,7 +62,7 @@ public struct TrainingExercisePicker: View {
                                     }.frame(minHeight: 48).contentShape(Rectangle())
                                 }.accessibilityLabel(exercise.name + (added ? ", added" : ""))
                                     .accessibilityIdentifier("picker-\(exercise.id)")
-                                Rectangle().fill(NotebookStyle.rule).frame(height: 1)
+                                Rectangle().fill(NotebookStyle.rule).frame(height: 0.5)
                             }
                             if matches.isEmpty { Text("No exercises found").font(.callout).foregroundStyle(NotebookStyle.quiet).padding(.vertical, 20) }
                         }
@@ -100,9 +100,9 @@ private struct CreateTrainingExercise: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 Button(action: back) { Label("Exercises", systemImage: "chevron.left").frame(minHeight: 44) }
-                Text("Create exercise").font(.system(size: 36, design: .serif).italic())
-                TextField("Exercise name", text: $name).textFieldStyle(.plain).font(.system(size: 26, design: .serif)).focused($typing)
-                    .padding(.vertical, 12).overlay(alignment: .bottom) { Rectangle().fill(NotebookStyle.rule).frame(height: 1) }
+                Text("Create exercise").font(NotebookTypography.heading(32))
+                TextField("Exercise name", text: $name).textFieldStyle(.plain).font(NotebookTypography.heading(26, relativeTo: .title2)).focused($typing)
+                    .padding(.vertical, 12).overlay(alignment: .bottom) { Rectangle().fill(NotebookStyle.rule).frame(height: 0.5) }
                     .accessibilityIdentifier("custom-name")
                 Picker("Muscle group", selection: $group) { ForEach(MuscleGroup.allCases, id: \.self) { Text($0.rawValue).tag($0) } }.pickerStyle(.menu)
                     .accessibilityIdentifier("custom-group")

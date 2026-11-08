@@ -6,8 +6,15 @@ enum NotebookStyle {
     static let ivory = Color(red: 247 / 255, green: 243 / 255, blue: 235 / 255)
     static let clay = Color(red: 169 / 255, green: 78 / 255, blue: 50 / 255)
     static let ink = Color(red: 48 / 255, green: 39 / 255, blue: 32 / 255)
+    static let olive = Color(red: 98 / 255, green: 104 / 255, blue: 84 / 255)
     static let quiet = ink.opacity(0.65)
-    static let rule = ink.opacity(0.16)
+    static let rule = ink.opacity(0.10)
+}
+
+enum NotebookTypography {
+    static func heading(_ size: CGFloat, italic: Bool = false, relativeTo style: Font.TextStyle = .title) -> Font {
+        .custom(italic ? "Georgia-Italic" : "Georgia", size: size, relativeTo: style)
+    }
 }
 
 struct RecordButton: View {

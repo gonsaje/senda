@@ -31,7 +31,7 @@ python3 scripts/preview.py
 
 Open **http://127.0.0.1:8765** for actual SwiftUI renders of Week, Day and Add exercise. Use the **Senda — Live preview** Mac window for interactive controls. It has its own sample journal at `/tmp/senda-weekly-live-preview/journal.json`; the earlier preview journal is left intact. The browser serves only preview files on this Mac.
 
-The visual language uses ivory `#F7F3EB`, terracotta `#A94E32`, charcoal `#302720`, expressive serif titles and aligned tabular numerals. The typographic wordmark is temporary because the canonical logo attachment is unavailable in this workspace.
+The visual language uses ivory `#F7F3EB`, terracotta `#A94E32`, charcoal `#302720`, expressive serif titles and aligned tabular numerals. Georgia headings pair with system text and tabular numerals. An original tapered S-path is drawn natively, with an editable SVG in `docs/brand/senda-path.svg`; muted olive marks the identity and quiet save feedback. The day header is compact, reference banners are neutral, and separators are lighter. New rows enter gently and successful repeats briefly highlight their new row. Reduced Motion disables positional transitions and animated focus scrolling. The canonical original logo attachment remains unavailable; this mark is a new drawing for review.
 
 `docs/previews/` contains macOS-hosted SwiftUI renders at phone dimensions, not iPhone simulator screenshots. Regenerate with:
 

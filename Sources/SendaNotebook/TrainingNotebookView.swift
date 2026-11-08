@@ -25,17 +25,13 @@ enum TrainingText {
     static func set(_ values: SetValues, unit: WeightUnit) -> String { "\(unit.text(for: values.weight)) \(unit.symbol) × \(values.reps)" }
 }
 
-struct TrainingWordmark: View {
-    var body: some View { Text("senda").font(.system(size: 27, weight: .medium, design: .serif).italic()).foregroundStyle(NotebookStyle.clay) }
-}
-
 struct TrainingWeekView: View {
     @Bindable var model: TrainingNotebookModel
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
+            VStack(alignment: .leading, spacing: 22) {
                 TrainingWordmark()
-                Text("Your week").font(.system(size: 43, design: .serif).italic())
+                Text("Your week").font(NotebookTypography.heading(35))
                 HStack {
                     Button { model.changeWeek(-1) } label: { Image(systemName: "chevron.left").frame(width: 44, height: 44) }
                         .accessibilityLabel("Previous week").accessibilityIdentifier("previous-week")
@@ -47,9 +43,9 @@ struct TrainingWeekView: View {
                     Spacer(minLength: 0)
                     Button { model.changeWeek(1) } label: { Image(systemName: "chevron.right").frame(width: 44, height: 44) }
                         .accessibilityLabel("Next week").accessibilityIdentifier("next-week")
-                }.foregroundStyle(NotebookStyle.clay)
+                }.foregroundStyle(NotebookStyle.ink)
                 VStack(spacing: 0) {
-                    Rectangle().fill(NotebookStyle.rule).frame(height: 1)
+                    Rectangle().fill(NotebookStyle.rule).frame(height: 0.5)
                     ForEach(model.weekDays, id: \.self) { day in
                         let summary = model.summary(for: day)
                         Button { model.openDay(day) } label: {
@@ -61,9 +57,9 @@ struct TrainingWeekView: View {
                                     .foregroundStyle(day == model.today ? NotebookStyle.clay : NotebookStyle.ink)
                                 VStack(alignment: .leading, spacing: 4) {
                                     if summary.setCount == 0 {
-                                        Text("No sets logged").font(.system(.body, design: .serif).italic()).foregroundStyle(NotebookStyle.quiet)
+                                        Text("No sets logged").font(.subheadline).foregroundStyle(NotebookStyle.quiet)
                                     } else { Text(summary.exercises.joined(separator: " · ")).font(.subheadline).fixedSize(horizontal: false, vertical: true) }
-                                    if day == model.today { Text("Today").font(.system(.caption, design: .serif).italic()).foregroundStyle(NotebookStyle.clay) }
+                                    if day == model.today { Text("Today").font(.caption.weight(.medium)).foregroundStyle(NotebookStyle.clay) }
                                 }.frame(maxWidth: .infinity, alignment: .leading)
                                 if summary.setCount > 0 { Text("\(summary.setCount) sets").font(.caption.monospacedDigit()).fixedSize() }
                             }
@@ -73,7 +69,7 @@ struct TrainingWeekView: View {
                         }
                         .accessibilityLabel("\(TrainingText.date(day, format: "EEEE, MMM d")), \(summary.setCount) sets, \(summary.exercises.joined(separator: ", "))")
                         .accessibilityIdentifier("day-\(day.rawValue)")
-                        Rectangle().fill(NotebookStyle.rule).frame(height: 1)
+                        Rectangle().fill(NotebookStyle.rule).frame(height: 0.5)
                     }
                 }
                 Text("\(model.trainingDayCount) training days · \(model.weekSetCount) sets")

@@ -8,7 +8,7 @@ struct TrainingInputDock: View {
     @FocusState private var typing: Bool
     var body: some View {
         VStack(spacing: 8) {
-            Rectangle().fill(NotebookStyle.rule).frame(height: 1)
+            Rectangle().fill(NotebookStyle.rule).frame(height: 0.5)
             HStack(spacing: 8) {
                 let index = (model.rows.firstIndex { $0.id == focus.rowID } ?? 0) + 1
                 Text("\(model.exercise?.name ?? "") · Set \(index)").font(.caption).foregroundStyle(NotebookStyle.quiet)
