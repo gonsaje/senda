@@ -5,11 +5,17 @@ import SendaLogger
 import UIKit
 #endif
 
+private enum TrainingDaySheet: String, Identifiable {
+    case picker, exercises
+    var id: String { rawValue }
+}
+
 struct TrainingDayView: View {
     @Bindable var model: TrainingNotebookModel
     let day: TrainingDay
-    @State private var picking = false
+    @State private var presentedSheet: TrainingDaySheet?
     @State private var tabPosition: String?
+    @ScaledMetric(relativeTo: .body) private var tabLineHeight: CGFloat = 22
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         ScrollViewReader { scroll in
@@ -47,20 +53,33 @@ struct TrainingDayView: View {
                                         .id(exercise.id)
                                 }
                             }.scrollTargetLayout()
-                        }.scrollIndicators(.hidden).scrollPosition(id: $tabPosition, anchor: .center)
-                        Button { if model.finishEditing() { picking = true } } label: { Image(systemName: "plus").font(.title2).frame(width: 44, height: 44) }
+                        }.frame(height: max(44, tabLineHeight + 12))
+                            .scrollIndicators(.hidden).scrollPosition(id: $tabPosition, anchor: .center)
+                        Button { if model.finishEditing() { presentedSheet = .picker } } label: { Image(systemName: "plus").font(.title2).frame(width: 44, height: 44) }
                             .foregroundStyle(NotebookStyle.clay)
                             .accessibilityLabel("Add exercise").accessibilityIdentifier("add-exercise")
                     }
                     if let exercise = model.exercise {
-                        Text(exercise.name).font(NotebookTypography.heading(36, italic: true)).lineLimit(2).minimumScaleFactor(0.7)
-                            .padding(.top, 4)
-                            .accessibilityIdentifier("entry-exercise")
+                        HStack(alignment: .firstTextBaseline, spacing: 12) {
+                            Text(exercise.name).font(NotebookTypography.heading(36, italic: true)).lineLimit(2).minimumScaleFactor(0.7)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .accessibilityIdentifier("entry-exercise")
+                            if model.tabs.count > 1 {
+                                Button { if model.finishEditing() { presentedSheet = .exercises } } label: {
+                                    HStack(spacing: 5) {
+                                        Text("All \(model.tabs.count)").monospacedDigit()
+                                        Image(systemName: "list.bullet")
+                                    }.font(.caption).frame(minWidth: 44, minHeight: 44)
+                                }.foregroundStyle(NotebookStyle.clay)
+                                    .accessibilityLabel("View all \(model.tabs.count) exercises")
+                                    .accessibilityIdentifier("all-exercises")
+                            }
+                        }.padding(.top, 4)
                         if model.lastReference != nil || model.personalBest != nil { TrainingReferenceBanners(model: model) }
                         TrainingSetRows(model: model).id("\(day.rawValue)/\(exercise.id)")
                         TrainingSaveStatus(model: model).id("\(day.rawValue)/\(exercise.id)")
                     } else {
-                        Button { if model.finishEditing() { picking = true } } label: { Label("Add exercise", systemImage: "plus").frame(minHeight: 52) }
+                        Button { if model.finishEditing() { presentedSheet = .picker } } label: { Label("Add exercise", systemImage: "plus").frame(minHeight: 52) }
                             .foregroundStyle(NotebookStyle.clay).accessibilityIdentifier("empty-add-exercise")
                     }
                     if let error = model.errorMessage { TrainingSaveError(model: model, message: error) }
@@ -84,7 +103,15 @@ struct TrainingDayView: View {
                     }
                 }.background(NotebookStyle.ivory).accessibilityElement(children: .contain).accessibilityIdentifier("day-controls")
             }
-            .sheet(isPresented: $picking) { TrainingExercisePicker(model: model, close: { picking = false }) }
+            .sheet(item: $presentedSheet) { destination in
+                switch destination {
+                case .picker:
+                    TrainingExercisePicker(model: model, close: { presentedSheet = nil })
+                case .exercises:
+                    TrainingDayExerciseList(model: model, day: day, close: { presentedSheet = nil },
+                        add: { presentedSheet = .picker })
+                }
+            }
             .task(id: model.focus?.id) {
                 if let row = model.focus?.rowID {
                     await Task.yield()

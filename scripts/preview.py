@@ -31,6 +31,7 @@ small{font-size:12px}#status{float:right;font-size:12px}</style></head><body>
 <small>Actual SwiftUI screen, rendered on this Mac at phone size. For interactive controls, use the “Senda — Live preview” window.</small></header>
 <main><figure><figcaption>Week</figcaption><img data-file="senda-week.png"></figure>
 <figure><figcaption>Day</figcaption><img data-file="senda-day.png"></figure>
+<figure><figcaption>Day exercises</figcaption><img data-file="senda-day-exercises.png"></figure>
 <figure><figcaption>Add exercise</figcaption><img data-file="senda-picker.png"></figure></main>
 <script>let previous='';async function refresh(){try{let s=await(await fetch('/status.json',{cache:'no-store'})).json();
 document.querySelector('#status').textContent=s.building?'Updating preview…':'Preview ready';

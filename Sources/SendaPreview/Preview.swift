@@ -27,10 +27,16 @@ struct SendaPreview {
         let model = try TrainingNotebookModel(repository: MemoryJournalRepository(journal: SampleJournal.makeWeek(relativeTo: date)), isSample: true, now: { date })
         try render(TrainingNotebookView(model: model), to: directory.appendingPathComponent("senda-week.png"))
         _ = model.openDay(model.today)
-        _ = model.addExercise("cable-row")
+        for id in ["cable-row", "lat-pulldown", "overhead-press", "lateral-raise", "biceps-curl", "triceps-extension", "push-up"] {
+            _ = model.addExercise(id)
+        }
         _ = model.selectExercise("bench")
         try render(TrainingNotebookView(model: model), to: directory.appendingPathComponent("senda-day.png"))
         try render(TrainingNotebookView(model: model), to: directory.appendingPathComponent("senda-draft.png"))
+        try render(TrainingDayExerciseList(model: model, day: model.today, close: {}, add: {}),
+                   to: directory.appendingPathComponent("senda-day-exercises.png"))
+        try render(TrainingDayExerciseList(model: model, day: model.today, close: {}, add: {}),
+                   to: directory.appendingPathComponent("senda-day-exercises-compact.png"), width: 320, height: 568)
         try render(TrainingExercisePicker(model: model, close: {}), to: directory.appendingPathComponent("senda-picker.png"))
         try render(TrainingNotebookView(model: model), to: directory.appendingPathComponent("senda-compact.png"), width: 320, height: 568)
         _ = model.repeatLastSet()

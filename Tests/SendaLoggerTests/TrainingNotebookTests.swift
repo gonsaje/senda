@@ -17,6 +17,28 @@ import SendaPersistence
         #expect(model.selectInput(row.id, field: .reps))
         model.typeInput(reps, focus: try #require(model.focus))
     }
+    @Test func exerciseListCountsArePerformedExerciseAndDaySpecific() throws {
+        let m = try model()
+        #expect(m.openDay(day)); #expect(m.addExercise("bench"))
+        try enter(m, weight: "135", reps: "10")
+        #expect(m.loggedSetCount(for: "bench", on: day) == 0)
+        #expect(m.finishEditing())
+        #expect(m.newSet())
+        #expect(m.loggedSetCount(for: "bench", on: day) == 1)
+        #expect(m.addExercise("cable-row"))
+        #expect(m.loggedSetCount(for: "cable-row", on: day) == 0)
+        try enter(m, weight: "50", reps: "12"); #expect(m.finishEditing())
+        let previous = try day.adding(days: -1)
+        #expect(m.openDay(previous)); #expect(m.addExercise("bench"))
+        try enter(m, weight: "145", reps: "8"); #expect(m.finishEditing())
+        #expect(m.repeatLastSet())
+        #expect(m.loggedSetCount(for: "bench", on: previous) == 2)
+        #expect(m.loggedSetCount(for: "bench", on: day) == 1)
+        #expect(m.loggedSetCount(for: "cable-row", on: day) == 1)
+        #expect(m.loggedSetCount(for: "cable-row", on: previous) == 0)
+        #expect(m.loggedSetCount(for: "unknown", on: day) == 0)
+    }
+
     @Test func weekCategoriesAreUniqueStableAndOnlyIncludePerformedExercises() throws {
         let m = try model()
         #expect(m.openDay(day))

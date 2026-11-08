@@ -13,6 +13,7 @@ The project has no third-party dependencies or generation step.
 ## Notebook flow
 
 - **Week → Day → Exercise.** A Monday–Sunday list shows each day's trained muscle groups and set count. Categories appear once, using only performed sets; opening the day shows the individual exercises and sets. Previous/next controls browse weeks. Open any day; **‹ Week** returns to its week. Each day retains its own exercise tabs and selection.
+- When a day has multiple exercises, **All N** beside its exercise title opens the full day list. Each row shows its actual logged-set count, or **No sets yet**. Select one to return to its existing sets, or choose **Add exercise** from the list.
 - Use **+** to browse exercises by muscle group, narrow by equipment, or search across groups. Flat rows show **Added** when already in the day. **Create exercise** accepts a name, muscle group and equipment. Existing unclassified custom exercises remain searchable under Full body / Other.
 - Each set has one weight value and reps. The **lb/kg switch beside Weight** changes the display unit without rounding untouched canonical values. **Last** and **PR** are separate banners. Last is the previous training day's top set; PR ranks performed weight first, then reps. Tap either to open its source day. There is no Common banner.
 - A newly added exercise starts with a blank row. **New set** adds another blank row and focuses Weight, or Reps for bodyweight exercises. No zero-weight batch is prefilled.
@@ -29,7 +30,7 @@ The project has no third-party dependencies or generation step.
 python3 scripts/preview.py
 ```
 
-Open **http://127.0.0.1:8765** for actual SwiftUI renders of Week, Day and Add exercise. Use the **Senda — Live preview** Mac window for interactive controls. It has its own sample journal at `/tmp/senda-weekly-live-preview/journal.json`; the earlier preview journal is left intact. The browser serves only preview files on this Mac.
+Open **http://127.0.0.1:8765** for actual SwiftUI renders of Week, Day, the day exercise list and Add exercise. Use the **Senda — Live preview** Mac window for interactive controls. It has its own sample journal at `/tmp/senda-weekly-live-preview/journal.json`; the earlier preview journal is left intact. The browser serves only preview files on this Mac.
 
 The visual language uses ivory `#F7F3EB`, terracotta `#A94E32`, charcoal `#302720`, expressive serif titles and aligned tabular numerals. Georgia headings pair with system text and tabular numerals. An original tapered S-path is drawn natively, with an editable SVG in `docs/brand/senda-path.svg`; muted olive marks the identity and quiet save feedback. The day header is compact, reference banners are neutral, and separators are lighter. New rows enter gently and successful repeats briefly highlight their new row. Reduced Motion disables positional transitions and animated focus scrolling. The canonical original logo attachment remains unavailable; this mark is a new drawing for review.
 

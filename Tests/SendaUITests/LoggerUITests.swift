@@ -138,6 +138,24 @@ final class LoggerUITests: XCTestCase {
         XCTAssertTrue(custom.waitForExistence(timeout: 5))
         XCTAssertTrue(custom.label.contains("added"))
         attach("Grouped local exercise picker", app)
+        let customID = String(custom.identifier.dropFirst("picker-".count))
+        tap("close-exercise-picker", in: app)
+        tap("all-exercises", in: app)
+        XCTAssertTrue(element("day-exercise-bench", in: app).label.contains("No sets yet"))
+        XCTAssertTrue(element("day-exercise-\(customID)", in: app).label.contains("1 set"))
+        attach("Day exercise index and actual set counts", app)
+        tap("day-exercise-bench", in: app)
+        XCTAssertEqual(element("entry-exercise", in: app).label, "Bench")
+        tap("all-exercises", in: app)
+        tap("day-exercise-\(customID)", in: app)
+        XCTAssertTrue(element("row-1-weight", in: app).label.contains("50 lb"))
+        tap("all-exercises", in: app)
+        tap("day-list-add-exercise", in: app)
+        _ = element("exercise-search", in: app)
+        tap("close-exercise-picker", in: app)
+        app.terminate(); app.launch()
+        XCTAssertEqual(element("entry-exercise", in: app).label, "Travel row")
+        XCTAssertTrue(element("row-1-reps", in: app).label.contains("8 reps"))
     }
 
     @MainActor
@@ -253,9 +271,10 @@ final class LoggerUITests: XCTestCase {
         }
         let picker = app.scrollViews["exercise-picker-scroll"]
         let custom = app.scrollViews["custom-exercise-scroll"]
-        let scroll = picker.exists ? picker : (custom.exists ? custom : app.scrollViews.firstMatch)
-        let inPickerContent = (picker.exists || custom.exists) && scroll.descendants(matching: .any).matching(identifier: id).firstMatch.exists
-        if inPickerContent || !target.isHittable {
+        let dayIndex = app.scrollViews["day-exercises-scroll"]
+        let scroll = picker.exists ? picker : (custom.exists ? custom : (dayIndex.exists ? dayIndex : app.scrollViews.firstMatch))
+        let inSheetContent = (picker.exists || custom.exists || dayIndex.exists) && scroll.descendants(matching: .any).matching(identifier: id).firstMatch.exists
+        if inSheetContent || !target.isHittable {
             var upward = true
             var recoveringTarget = false
             for _ in 0..<20 {
@@ -289,7 +308,7 @@ final class LoggerUITests: XCTestCase {
                         thenDragTo: origin.withOffset(CGVector(dx: app.frame.width / 2, dy: endY - app.frame.minY)),
                         withVelocity: .slow, thenHoldForDuration: 0.25)
             }
-            if inPickerContent {
+            if inSheetContent {
                 let keyboard = app.keyboards.firstMatch
                 let bottom = min(scroll.frame.maxY - 16, app.frame.maxY - 36,
                     keyboard.exists ? keyboard.frame.minY - 72 : app.frame.maxY)

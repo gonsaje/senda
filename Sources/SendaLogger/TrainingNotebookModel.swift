@@ -66,6 +66,9 @@ public struct TrainingPerformanceReference: Equatable, Sendable {
     public func exercise(_ id: String) -> Exercise {
         exercises.first { $0.id == id } ?? Exercise(id: id, name: id, shortName: id, startingWeight: 0)
     }
+    public func loggedSetCount(for exerciseID: String, on day: TrainingDay) -> Int {
+        workspace.days[day.rawValue]?.rows[exerciseID]?.filter { $0.performedSetID != nil }.count ?? 0
+    }
     public func summary(for day: TrainingDay) -> TrainingDaySummary {
         guard let workout = workspace.days[day.rawValue] else { return TrainingDaySummary(exercises: [], muscleGroups: [], setCount: 0) }
         let order = workout.exerciseIDs + workout.rows.keys.sorted().filter { !workout.exerciseIDs.contains($0) }
