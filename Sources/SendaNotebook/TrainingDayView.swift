@@ -14,8 +14,6 @@ struct TrainingDayView: View {
     @Bindable var model: TrainingNotebookModel
     let day: TrainingDay
     @State private var presentedSheet: TrainingDaySheet?
-    @State private var tabPosition: String?
-    @ScaledMetric(relativeTo: .body) private var tabLineHeight: CGFloat = 22
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         ScrollViewReader { scroll in
@@ -27,44 +25,13 @@ struct TrainingDayView: View {
                         if day == model.today { Text("Today").font(.callout).foregroundStyle(NotebookStyle.clay).fixedSize() }
                     }
                     dateNavigation.padding(.bottom, 2).id("day-header")
-                    HStack(spacing: 10) {
-                        ScrollView(.horizontal) {
-                            LazyHStack(spacing: 24) {
-                                ForEach(model.tabs) { exercise in
-                                    Button { model.selectExercise(exercise.id) } label: {
-                                        VStack(spacing: 5) {
-                                            Text(exercise.name).font(.body.weight(model.exercise?.id == exercise.id ? .semibold : .regular))
-                                                .lineLimit(1).frame(maxWidth: 180)
-                                            Rectangle().fill(model.exercise?.id == exercise.id ? NotebookStyle.clay : .clear).frame(height: 2)
-                                        }.frame(minHeight: 44)
-                                    }.foregroundStyle(model.exercise?.id == exercise.id ? NotebookStyle.clay : NotebookStyle.ink)
-                                        .accessibilityIdentifier("exercise-\(exercise.id)")
-                                        .contextMenu { Button("Remove from day", role: .destructive) { model.removeExercise(exercise.id) } }
-                                        .id(exercise.id)
-                                }
-                            }.scrollTargetLayout()
-                        }.frame(height: max(44, tabLineHeight + 12))
-                            .scrollIndicators(.hidden).scrollPosition(id: $tabPosition, anchor: .center)
-                        Button { if model.finishEditing() { presentedSheet = .picker } } label: { Image(systemName: "plus").font(.title2).frame(width: 44, height: 44) }
-                            .foregroundStyle(NotebookStyle.clay)
-                            .accessibilityLabel("Add exercise").accessibilityIdentifier("add-exercise")
-                    }
+                    TrainingExerciseTabs(model: model, day: day,
+                        add: { if model.finishEditing() { presentedSheet = .picker } },
+                        showAll: { if model.finishEditing() { presentedSheet = .exercises } })
                     if let exercise = model.exercise {
-                        HStack(alignment: .firstTextBaseline, spacing: 12) {
-                            Text(exercise.name).font(NotebookTypography.heading(36, italic: true)).lineLimit(2).minimumScaleFactor(0.7)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .accessibilityIdentifier("entry-exercise")
-                            if model.tabs.count > 1 {
-                                Button { if model.finishEditing() { presentedSheet = .exercises } } label: {
-                                    HStack(spacing: 5) {
-                                        Text("All \(model.tabs.count)").monospacedDigit()
-                                        Image(systemName: "list.bullet")
-                                    }.font(.caption).frame(minWidth: 44, minHeight: 44)
-                                }.foregroundStyle(NotebookStyle.clay)
-                                    .accessibilityLabel("View all \(model.tabs.count) exercises")
-                                    .accessibilityIdentifier("all-exercises")
-                            }
-                        }.padding(.top, 4)
+                        Text(exercise.name).font(NotebookTypography.heading(36, italic: true)).lineLimit(2).minimumScaleFactor(0.7)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .accessibilityIdentifier("entry-exercise").padding(.top, 4)
                         if model.lastReference != nil || model.personalBest != nil { TrainingReferenceBanners(model: model) }
                         TrainingSetRows(model: model).id("\(day.rawValue)/\(exercise.id)")
                         TrainingSaveStatus(model: model).id("\(day.rawValue)/\(exercise.id)")
@@ -117,11 +84,8 @@ struct TrainingDayView: View {
             #endif
             .onChange(of: day) { _, _ in
                 presentedSheet = nil
-                tabPosition = model.exercise?.id
                 if model.revealRowID == nil { scroll.scrollTo("day-top", anchor: .top) }
             }
-            .onChange(of: model.exercise?.id) { _, id in tabPosition = id }
-            .onAppear { tabPosition = model.exercise?.id }
         }.background(NotebookStyle.ivory)
     }
 

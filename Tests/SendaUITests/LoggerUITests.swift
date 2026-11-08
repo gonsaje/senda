@@ -156,6 +156,13 @@ final class LoggerUITests: XCTestCase {
         attach("Grouped local exercise picker", app)
         let customID = String(custom.identifier.dropFirst("picker-".count))
         tap("close-exercise-picker", in: app)
+        let tabs = element("exercise-tabs", in: app)
+        let all = element("all-exercises", in: app)
+        XCTAssertEqual(all.frame.midY, tabs.frame.midY, accuracy: 2)
+        XCTAssertEqual(element("add-exercise", in: app).frame.midY, tabs.frame.midY, accuracy: 2)
+        let benchTab = element("exercise-bench", in: app)
+        XCTAssertGreaterThanOrEqual(benchTab.frame.width, 64)
+        XCTAssertGreaterThanOrEqual(benchTab.frame.height, 48)
         tap("all-exercises", in: app)
         XCTAssertTrue(element("day-exercise-bench", in: app).label.contains("No sets yet"))
         XCTAssertTrue(element("day-exercise-\(customID)", in: app).label.contains("1 set"))
@@ -230,6 +237,10 @@ final class LoggerUITests: XCTestCase {
         XCTAssertEqual(element("day-date", in: app).label, originalDate)
         XCTAssertEqual(element("entry-exercise", in: app).label, "Bench")
         attach("Large text day navigation", app)
+        add("Cable row", id: "cable-row", in: app)
+        tap("all-exercises", in: app)
+        _ = element("day-exercises-title", in: app)
+        attach("Large text All action in the tab row", app)
     }
 
     @MainActor private func launch(extra: [String] = []) -> XCUIApplication {
