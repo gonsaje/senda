@@ -27,18 +27,19 @@ enum TrainingText {
 
 struct TrainingWeekView: View {
     @Bindable var model: TrainingNotebookModel
+    @ScaledMetric(relativeTo: .body) private var dateColumnWidth: CGFloat = 44
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
                 TrainingWordmark()
-                Text("Your week").font(NotebookTypography.heading(35))
+                Text("Your week").font(NotebookTypography.heading(37))
                 HStack {
                     Button { model.changeWeek(-1) } label: { Image(systemName: "chevron.left").frame(width: 44, height: 44) }
                         .accessibilityLabel("Previous week").accessibilityIdentifier("previous-week")
                     Spacer(minLength: 0)
                     if let last = model.weekDays.last {
                         Text("\(TrainingText.date(model.workspace.visibleWeek, format: "MMM d"))–\(TrainingText.date(last, format: String(model.workspace.visibleWeek.rawValue.prefix(7)) == String(last.rawValue.prefix(7)) ? "d" : "MMM d"))")
-                            .font(.headline).accessibilityIdentifier("week-range")
+                            .font(.title3.weight(.semibold)).accessibilityIdentifier("week-range")
                     }
                     Spacer(minLength: 0)
                     Button { model.changeWeek(1) } label: { Image(systemName: "chevron.right").frame(width: 44, height: 44) }
@@ -52,18 +53,18 @@ struct TrainingWeekView: View {
                         Button { model.openDay(day) } label: {
                             HStack(alignment: .center, spacing: 12) {
                                 VStack(alignment: .leading, spacing: 3) {
-                                    Text(TrainingText.date(day, format: "EEE")).font(.subheadline.weight(.medium))
-                                    Text(TrainingText.date(day, format: "d")).font(.subheadline.monospacedDigit())
-                                }.frame(width: 38, alignment: .leading)
+                                    Text(TrainingText.date(day, format: "EEE")).font(.body.weight(.medium))
+                                    Text(TrainingText.date(day, format: "d")).font(.body.monospacedDigit())
+                                }.frame(width: dateColumnWidth, alignment: .leading)
                                     .foregroundStyle(day == model.today ? NotebookStyle.clay : NotebookStyle.ink)
                                 VStack(alignment: .leading, spacing: 4) {
                                     if summary.setCount == 0 {
                                         Label("Start workout", systemImage: "plus")
-                                            .font(.subheadline).foregroundStyle(NotebookStyle.clay)
-                                    } else { Text(categories.joined(separator: " · ")).font(.subheadline.bold()).fixedSize(horizontal: false, vertical: true) }
-                                    if day == model.today { Text("Today").font(.caption.weight(.medium)).foregroundStyle(NotebookStyle.clay) }
+                                            .font(.body).foregroundStyle(NotebookStyle.clay)
+                                    } else { Text(categories.joined(separator: " · ")).font(.body.bold()).fixedSize(horizontal: false, vertical: true) }
+                                    if day == model.today { Text("Today").font(.subheadline.weight(.medium)).foregroundStyle(NotebookStyle.clay) }
                                 }.frame(maxWidth: .infinity, alignment: .leading)
-                                if summary.setCount > 0 { Text("\(summary.setCount) sets").font(.caption.monospacedDigit()).fixedSize() }
+                                if summary.setCount > 0 { Text("\(summary.setCount) sets").font(.subheadline.monospacedDigit()).fixedSize() }
                             }
                             .padding(.vertical, 14).padding(.horizontal, 8).frame(minHeight: 64)
                             .background(day == model.today ? NotebookStyle.clay.opacity(0.06) : .clear)
@@ -75,7 +76,7 @@ struct TrainingWeekView: View {
                     }
                 }
                 Text("\(model.trainingDayCount) training days · \(model.weekSetCount) sets")
-                    .font(.subheadline).foregroundStyle(NotebookStyle.quiet).accessibilityIdentifier("week-summary")
+                    .font(.body).foregroundStyle(NotebookStyle.quiet).accessibilityIdentifier("week-summary")
                 if let error = model.errorMessage { TrainingSaveError(model: model, message: error) }
             }
             .padding(.horizontal, 24).padding(.vertical, 24).frame(maxWidth: 560).frame(maxWidth: .infinity)

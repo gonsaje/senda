@@ -26,6 +26,7 @@ struct SendaPreview {
         let date = Date()
         let model = try TrainingNotebookModel(repository: MemoryJournalRepository(journal: SampleJournal.makeWeek(relativeTo: date)), isSample: true, now: { date })
         try render(TrainingNotebookView(model: model), to: directory.appendingPathComponent("senda-week.png"))
+        try render(TrainingNotebookView(model: model), to: directory.appendingPathComponent("senda-week-compact.png"), width: 320, height: 568)
         _ = model.openDay(model.today)
         for id in ["cable-row", "lat-pulldown", "overhead-press", "lateral-raise", "biceps-curl", "triceps-extension", "push-up"] {
             _ = model.addExercise(id)
