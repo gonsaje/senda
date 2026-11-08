@@ -73,9 +73,23 @@ struct TrainingSettingsView: View {
                     }
                 }
                 Text("Used for progress and new workouts.").font(.subheadline).foregroundStyle(NotebookStyle.quiet)
-                if let error = model.errorMessage { TrainingSaveError(model: model, message: error) }
+                if let error = model.errorMessage { ProfileActionError(model: model, message: error) }
             }.padding(24).frame(maxWidth: 560).frame(maxWidth: .infinity)
         }.background(NotebookStyle.ivory).tint(NotebookStyle.clay).buttonStyle(.plain).scrollIndicators(.never)
             .accessibilityIdentifier("settings-scroll")
+    }
+}
+
+struct ProfileActionError: View {
+    @Bindable var model: TrainingNotebookModel
+    let message: String
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(message).font(.callout).foregroundStyle(NotebookStyle.clay)
+            if model.canRetryProfileAction {
+                Button("Try again") { model.retryProfileAction() }.frame(minHeight: 44)
+                    .accessibilityIdentifier("retry-profile-action")
+            }
+        }
     }
 }

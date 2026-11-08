@@ -47,7 +47,7 @@ struct TrainingProfileView: View {
                         }
                     }
                 }
-                if let error = model.errorMessage { TrainingSaveError(model: model, message: error) }
+                if let error = model.errorMessage { ProfileActionError(model: model, message: error) }
             }
             .padding(24).padding(.bottom, 8).frame(maxWidth: 560).frame(maxWidth: .infinity)
         }.accessibilityIdentifier("profile-scroll")

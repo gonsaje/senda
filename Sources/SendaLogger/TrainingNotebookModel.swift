@@ -22,6 +22,9 @@ public struct TrainingPerformanceReference: Equatable, Sendable {
     public private(set) var section: TrainingSection = .log
     public var learningQuery = ""
     public var learningExerciseID: String?
+    private enum ProfileAction { case unit(WeightUnit), record(ExercisePersonalRecord) }
+    private var pendingProfileAction: ProfileAction?
+    public var canRetryProfileAction: Bool { pendingProfileAction != nil }
     public let profile: ProfileModel
     public let isSample: Bool
     public let calendar: Calendar
@@ -46,10 +49,20 @@ public struct TrainingPerformanceReference: Equatable, Sendable {
         guard section != self.section else { return true }
         guard finishEditing() else { return false }
         self.section = section
+        pendingProfileAction = nil
         return true
     }
+    @discardableResult public func retryProfileAction() -> Bool {
+        switch pendingProfileAction {
+        case .unit(let unit): setPreferredUnit(unit)
+        case .record(let record): openPersonalRecord(record)
+        case nil: false
+        }
+    }
     @discardableResult public func setPreferredUnit(_ unit: WeightUnit) -> Bool {
-        commit { $0.training!.preferredUnit = unit }
+        let saved = commit { $0.training!.preferredUnit = unit }
+        pendingProfileAction = saved ? nil : .unit(unit)
+        return saved
     }
     @discardableResult public func openPersonalRecord(_ record: ExercisePersonalRecord) -> Bool {
         for key in workspace.days.keys.sorted() {
@@ -57,11 +70,12 @@ public struct TrainingPerformanceReference: Equatable, Sendable {
                   let row = workspace.days[key]?.rows[record.exerciseID]?.first(where: { $0.performedSetID == record.reference.setID }),
                   let performed = journal.reference(to: record.reference.setID) else { continue }
             let reference = TrainingPerformanceReference(day: day, exerciseID: record.exerciseID, rowID: row.id, values: performed.set.values)
-            guard openReference(reference) else { return false }
-            section = .log
+            guard openReference(reference) else { pendingProfileAction = .record(record); return false }
+            section = .log; pendingProfileAction = nil
             return true
         }
         errorMessage = JournalError.missingBatch.localizedDescription
+        pendingProfileAction = .record(record)
         return false
     }
     public var journal: Journal { snapshot.journal }

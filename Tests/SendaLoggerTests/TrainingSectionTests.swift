@@ -58,6 +58,35 @@ import SendaPersistence
         let reopened = try TrainingNotebookModel(repository: store)
         #expect(reopened.workspace.preferredUnit == .kilograms)
     }
+    @Test func preferenceRetryAppliesTheRejectedUnitWithoutChangingWeights() throws {
+        let store = DockFailureStore()
+        let model = try TrainingNotebookModel(repository: store)
+        try enter(model, weight: "135", reps: "10"); #expect(model.finishEditing())
+        store.reject = true
+        #expect(!model.setPreferredUnit(.kilograms))
+        #expect(model.workspace.preferredUnit == .pounds)
+        store.reject = false
+        #expect(model.retryProfileAction())
+        #expect(model.workspace.preferredUnit == .kilograms)
+        #expect(model.personalRecords[0].reference.values.weight == 13_500)
+        #expect(try TrainingNotebookModel(repository: store).workspace.preferredUnit == .kilograms)
+    }
+    @Test func recordRetryOpensTheSourceInsteadOfOnlyDismissingItsError() throws {
+        let store = DockFailureStore()
+        let model = try TrainingNotebookModel(repository: store)
+        try enter(model, weight: "135", reps: "10"); #expect(model.finishEditing())
+        let sourceDay = model.selectedDay
+        let record = try #require(model.personalRecords.first)
+        #expect(model.changeDay(1)); #expect(model.selectSection(.profile))
+        store.reject = true
+        #expect(!model.openPersonalRecord(record))
+        #expect(model.section == .profile && model.selectedDay != sourceDay)
+        store.reject = false
+        #expect(model.retryProfileAction())
+        #expect(model.section == .log && model.selectedDay == sourceDay)
+        #expect(model.exercise?.id == "bench" && model.journal.batches.count == 1)
+        #expect(model.errorMessage == nil)
+    }
     @Test func recordDrilldownOpensOriginalSetAndRestoresRemovedTab() throws {
         let model = try TrainingNotebookModel(repository: MemoryJournalRepository())
         try enter(model, weight: "135", reps: "10"); #expect(model.finishEditing())
