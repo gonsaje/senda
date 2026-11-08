@@ -28,6 +28,8 @@ enum TrainingText {
 
 struct TrainingWeekView: View {
     @Bindable var model: TrainingNotebookModel
+    @State private var swipe = WeekSwipeState()
+    @GestureState private var dragging = false
     @ScaledMetric(relativeTo: .body) private var dateColumnWidth: CGFloat = 44
     var body: some View {
         ScrollView {
@@ -81,7 +83,26 @@ struct TrainingWeekView: View {
                 if let error = model.errorMessage { TrainingSaveError(model: model, message: error) }
             }
             .padding(.horizontal, 24).padding(.vertical, 24).frame(maxWidth: 560).frame(maxWidth: .infinity)
-        }.background(NotebookStyle.ivory).accessibilityIdentifier("week-view")
+            .disabled(swipe.isHorizontal)
+        }
+        .contentShape(Rectangle())
+        .simultaneousGesture(DragGesture(minimumDistance: 16)
+            .updating($dragging) { _, active, _ in active = true }
+            .onChanged { value in swipe.move(value.translation) }
+            .onEnded { value in
+                if let direction = swipe.finish(value.translation) { model.changeWeek(direction) }
+            })
+        .onChange(of: dragging) { _, active in
+            if !active {
+                Task { @MainActor in
+                    // Ended gestures settle first; cancelled drags only reset controls.
+                    await Task.yield()
+                    if !dragging { swipe.cancel() }
+                }
+            }
+        }
+        .onDisappear { swipe.cancel() }
+        .background(NotebookStyle.ivory).accessibilityIdentifier("week-view")
     }
 }
 

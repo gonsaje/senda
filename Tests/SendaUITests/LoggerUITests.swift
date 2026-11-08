@@ -38,6 +38,53 @@ final class LoggerUITests: XCTestCase {
     }
 
     @MainActor
+    func testWeekSwipesNavigateWithoutOpeningDaysAndKeepVerticalScrolling() throws {
+        let app = launch(extra: ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryXXXL"])
+        let days = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "day-"))
+        let originalDay = days.element(boundBy: 0).identifier
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"; formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        var calendar = Calendar(identifier: .gregorian); calendar.timeZone = formatter.timeZone
+        let date = try XCTUnwrap(formatter.date(from: String(originalDay.dropFirst(4))))
+        let previous = "day-" + formatter.string(from: try XCTUnwrap(calendar.date(byAdding: .day, value: -7, to: date)))
+        let next = "day-" + formatter.string(from: try XCTUnwrap(calendar.date(byAdding: .day, value: 7, to: date)))
+        func swipe(_ id: String, left: Bool) {
+            let row = element(id, in: app)
+            row.coordinate(withNormalizedOffset: CGVector(dx: left ? 0.85 : 0.15, dy: 0.5))
+                .press(forDuration: 0.05,
+                    thenDragTo: row.coordinate(withNormalizedOffset: CGVector(dx: left ? 0.15 : 0.85, dy: 0.5)),
+                    withVelocity: .slow, thenHoldForDuration: 0.1)
+            XCTAssertTrue(app.scrollViews["week-view"].exists)
+            XCTAssertFalse(app.buttons["back-to-week"].exists)
+        }
+        swipe(originalDay, left: false)
+        XCTAssertEqual(days.element(boundBy: 0).identifier, previous)
+        swipe(previous, left: true)
+        XCTAssertEqual(days.element(boundBy: 0).identifier, originalDay)
+        swipe(originalDay, left: true)
+        XCTAssertEqual(days.element(boundBy: 0).identifier, next)
+        swipe(next, left: false)
+        XCTAssertEqual(days.element(boundBy: 0).identifier, originalDay)
+        let week = app.scrollViews["week-view"]
+        let firstY = element(originalDay, in: app).frame.minY
+        let verticalStart = week.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.65))
+        verticalStart.press(forDuration: 0.05,
+            thenDragTo: verticalStart.withOffset(CGVector(dx: 3, dy: -90)),
+            withVelocity: .slow, thenHoldForDuration: 0.1)
+        XCTAssertEqual(days.element(boundBy: 0).identifier, originalDay)
+        XCTAssertLessThan(element(originalDay, in: app).frame.minY, firstY)
+        XCTAssertFalse(app.buttons["back-to-week"].exists)
+        tap("previous-week", in: app)
+        XCTAssertEqual(days.element(boundBy: 0).identifier, previous)
+        tap("next-week", in: app)
+        XCTAssertEqual(days.element(boundBy: 0).identifier, originalDay)
+        tap(originalDay, in: app)
+        XCTAssertTrue(element("day-title", in: app).exists)
+        attach("Swipe weeks and open a day", app)
+    }
+
+    @MainActor
     func testBodyweightRepeatDeleteAndUndo() throws {
         let app = launch()
         let day = openDay(0, in: app)
@@ -180,10 +227,10 @@ final class LoggerUITests: XCTestCase {
         attach("Grouped local exercise picker", app)
         let customID = String(custom.identifier.dropFirst("picker-".count))
         tap("close-exercise-picker", in: app)
-        let tabs = element("exercise-tabs", in: app)
+        let selectedTab = element("exercise-\(customID)", in: app)
         let all = element("all-exercises", in: app)
-        XCTAssertEqual(all.frame.midY, tabs.frame.midY, accuracy: 2)
-        XCTAssertEqual(element("add-exercise", in: app).frame.midY, tabs.frame.midY, accuracy: 2)
+        XCTAssertEqual(all.frame.midY, selectedTab.frame.midY, accuracy: 2)
+        XCTAssertEqual(element("add-exercise", in: app).frame.midY, selectedTab.frame.midY, accuracy: 2)
         let benchTab = element("exercise-bench", in: app)
         XCTAssertGreaterThanOrEqual(benchTab.frame.width, 64)
         XCTAssertGreaterThanOrEqual(benchTab.frame.height, 48)
