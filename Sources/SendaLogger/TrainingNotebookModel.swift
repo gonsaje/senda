@@ -19,6 +19,7 @@ public struct TrainingPerformanceReference: Equatable, Sendable {
     public private(set) var snapshot: JournalSnapshot
     public private(set) var errorMessage: String?
     public private(set) var revealRowID: UUID?
+    public private(set) var section: TrainingSection = .log
     public let isSample: Bool
     public let calendar: Calendar
     @ObservationIgnored private let repository: any JournalRepository
@@ -32,6 +33,32 @@ public struct TrainingPerformanceReference: Equatable, Sendable {
         lastWritten = saved
         let training = try TrainingWorkspace.migrate(saved, today: TrainingDay(now(), calendar: calendar), calendar: calendar)
         snapshot = try JournalSnapshot(journal: saved.journal, customExercises: saved.customExercises, training: training).validated()
+    }
+    public var personalRecords: [ExercisePersonalRecord] {
+        journal.personalRecords.sorted { exercise($0.exerciseID).name.localizedStandardCompare(exercise($1.exerciseID).name) == .orderedAscending }
+    }
+    public var bigThreeProgress: BigThreeProgress { journal.bigThreeProgress }
+    @discardableResult public func selectSection(_ section: TrainingSection) -> Bool {
+        guard section != self.section else { return true }
+        guard finishEditing() else { return false }
+        self.section = section
+        return true
+    }
+    @discardableResult public func setPreferredUnit(_ unit: WeightUnit) -> Bool {
+        commit { $0.training!.preferredUnit = unit }
+    }
+    @discardableResult public func openPersonalRecord(_ record: ExercisePersonalRecord) -> Bool {
+        for key in workspace.days.keys.sorted() {
+            guard let day = try? TrainingDay(key),
+                  let row = workspace.days[key]?.rows[record.exerciseID]?.first(where: { $0.performedSetID == record.reference.setID }),
+                  let performed = journal.reference(to: record.reference.setID) else { continue }
+            let reference = TrainingPerformanceReference(day: day, exerciseID: record.exerciseID, rowID: row.id, values: performed.set.values)
+            guard openReference(reference) else { return false }
+            section = .log
+            return true
+        }
+        errorMessage = JournalError.missingBatch.localizedDescription
+        return false
     }
     public var journal: Journal { snapshot.journal }
     public var workspace: TrainingWorkspace { snapshot.training! }
