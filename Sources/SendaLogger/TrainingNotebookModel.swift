@@ -39,7 +39,13 @@ public struct TrainingPerformanceReference: Equatable, Sendable {
     public var focus: TrainingFocus? { workspace.focus }
     public var workout: DayWorkout? { selectedDay.flatMap { workspace.days[$0.rawValue] } }
     public var exercise: Exercise? { workout?.selectedExerciseID.map { exercise($0) } }
-    public var exercises: [Exercise] { Exercise.catalog + (snapshot.customExercises ?? []) }
+    public var exercises: [Exercise] {
+        let known = Exercise.catalog + (snapshot.customExercises ?? [])
+        let ids = Set(known.map(\.id))
+        return known + (workspace.legacyExerciseIDs ?? []).filter { !ids.contains($0) }.map {
+            Exercise(id: $0, name: $0, shortName: $0, startingWeight: 0)
+        }
+    }
     public var tabs: [Exercise] { workout?.exerciseIDs.map { exercise($0) } ?? [] }
     public var unit: WeightUnit { workout?.unit ?? workspace.preferredUnit }
     public var rows: [TrainingRow] { exercise.flatMap { workout?.rows[$0.id] } ?? [] }
@@ -266,8 +272,21 @@ public struct TrainingPerformanceReference: Equatable, Sendable {
                 state.training!.days[day.rawValue]!.rows[id] = rows
             case .deleted(let day, let id, let index, let row, let removal):
                 if let removal { _ = try state.journal.restoreSet(removal) }
-                var rows = state.training!.days[day.rawValue]!.rows[id]!
-                rows.insert(row, at: min(index, rows.count)); state.training!.days[day.rawValue]!.rows[id] = rows
+                var restored = row
+                var workout = state.training!.days[day.rawValue]!
+                if !restored.changeUnit(to: workout.unit) {
+                    // An incomplete deleted weight keeps its original unit. Other
+                    // values remain exact while restoring that input context.
+                    for key in workout.rows.keys {
+                        var current = workout.rows[key]!
+                        for i in current.indices { guard current[i].changeUnit(to: row.unit) else { throw TrainingError.incompleteWeight } }
+                        workout.rows[key] = current
+                    }
+                    workout.unit = row.unit
+                }
+                var rows = workout.rows[id]!
+                rows.insert(restored, at: min(index, rows.count)); workout.rows[id] = rows
+                state.training!.days[day.rawValue] = workout
             }
             state.training!.undo = nil
         }

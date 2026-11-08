@@ -9,9 +9,15 @@ public extension TrainingWorkspace {
     }
     static func migrate(_ snapshot: JournalSnapshot, today: TrainingDay, calendar: Calendar) throws -> TrainingWorkspace {
         guard !requiresLegacyReview(snapshot) else { throw TrainingError.legacyReview }
-        if let existing = snapshot.training { return existing }
+        let known = Set(Exercise.catalog.map(\.id) + (snapshot.customExercises ?? []).map(\.id))
+        let unknown = Set(snapshot.journal.batches.map(\.exerciseID)).subtracting(known)
+        if var existing = snapshot.training {
+            let retained = Set(existing.legacyExerciseIDs ?? []).union(unknown)
+            existing.legacyExerciseIDs = retained.isEmpty ? nil : retained.sorted()
+            return existing
+        }
         let unit = snapshot.workspace?.weightUnit ?? .pounds
-        var result = TrainingWorkspace(visibleWeek: try today.week()[0], preferredUnit: unit)
+        var result = TrainingWorkspace(visibleWeek: try today.week()[0], preferredUnit: unit, legacyExerciseIDs: unknown.isEmpty ? nil : unknown.sorted())
         for batch in snapshot.journal.batches.enumerated().sorted(by: {
             $0.element.recordedAt == $1.element.recordedAt ? $0.offset < $1.offset : $0.element.recordedAt < $1.element.recordedAt
         }).map(\.element) {
@@ -25,7 +31,8 @@ public extension TrainingWorkspace {
         }
         if let old = snapshot.workspace {
             var workout = result.days[today.rawValue] ?? DayWorkout(unit: unit)
-            workout.exerciseIDs = old.workoutExerciseIDs ?? ExerciseLibrary.initialWorkoutIDs
+            let oldOrder = old.workoutExerciseIDs ?? ExerciseLibrary.initialWorkoutIDs
+            workout.exerciseIDs = oldOrder + unknown.sorted().filter { workout.rows[$0] != nil && !oldOrder.contains($0) }
             workout.selectedExerciseID = old.selectedExerciseID
             for id in workout.exerciseIDs where workout.rows[id] == nil { workout.rows[id] = [] }
             for (id, phase) in old.sessions {

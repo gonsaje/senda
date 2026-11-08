@@ -114,6 +114,47 @@ import SendaPersistence
         #expect(m.finishEditing())
         #expect(m.summary(for: day).setCount == 1)
     }
+    @Test func unitSwitchAfterDeletionKeepsUndoAndExactCanonicalValues() throws {
+        let m = try model()
+        #expect(m.openDay(day)); #expect(m.addExercise("bench"))
+        try enter(m, weight: "1", reps: "10"); #expect(m.finishEditing())
+        #expect(m.repeatLastSet())
+        #expect(m.deleteSet(m.rows[1].id))
+        #expect(m.changeUnit(.kilograms))
+        #expect(m.unit == .kilograms)
+        #expect(m.undoChange())
+        #expect(m.rows.count == 2)
+        #expect(m.rows[1].unit == .kilograms)
+        #expect(m.rows[1].parsed(for: Exercise.catalog[0])?.weight == 100)
+    }
+    @Test func unknownLegacyExercisesRemainReachableAndCanDeleteTheirLastSet() throws {
+        var journal = Journal()
+        _ = try journal.record(DraftBatch(exerciseID: "legacy-lift", sets: [SetValues(weight: 100, reps: 8)]), at: day.date(in: calendar))
+        let legacy = EntryWorkspace(sessions: ["bench": .draft(DraftBatch(exerciseID: "bench", sets: [SetValues(weight: 13_500, reps: 10)]))])
+        let store = try MemoryJournalRepository(snapshot: JournalSnapshot(journal: journal, workspace: legacy))
+        let m = try model(store)
+        #expect(m.openDay(day))
+        #expect(m.tabs.contains { $0.id == "legacy-lift" })
+        #expect(m.selectExercise("legacy-lift"))
+        #expect(m.deleteSet(try #require(m.rows.first).id))
+        #expect(m.summary(for: day).setCount == 0)
+        #expect(m.exercises.contains { $0.id == "legacy-lift" })
+        let reopened = try model(store)
+        #expect(reopened.addExercise("legacy-lift"))
+        #expect(reopened.summary(for: day).setCount == 0)
+    }
+
+    @Test func undoRestoresDeletedPartialInputInItsOriginalUnit() throws {
+        let m = try model()
+        #expect(m.openDay(day)); #expect(m.addExercise("bench"))
+        try enter(m, weight: "31.", reps: "8"); #expect(m.finishEditing())
+        #expect(m.deleteSet(m.rows[0].id))
+        #expect(m.changeUnit(.kilograms))
+        #expect(m.undoChange())
+        #expect(m.rows[0].weight == "31." && m.rows[0].unit == .pounds)
+        #expect(m.summary(for: day).setCount == 0)
+    }
+
 }
 @MainActor private final class TrainingFailureStore: JournalRepository {
     var snapshot = JournalSnapshot()

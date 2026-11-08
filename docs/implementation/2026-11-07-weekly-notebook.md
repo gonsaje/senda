@@ -44,42 +44,42 @@ The user's consolidated edit list confirms Week → Day → Exercise navigation,
 
 Files: new `TrainingDay.swift`, `ExerciseClassification.swift`, `TrainingWorkspace.swift`, `JournalRows.swift`; extend `Models.swift` / `ExerciseLibrary.swift`. Tests: new `TrainingDomainTests.swift`.
 
-- [ ] Write and run failing tests for Monday weeks/DST, required bodyweight versus weighted values, unchanged kg conversion, row correction/removal/restore identity, duplicate delivery, and targeted undo with unrelated entries retained.
-- [ ] Implement `TrainingDay`, `MuscleGroup`, `ExerciseEquipment`, exercise effective metadata, `TrainingRow` / `DayWorkout` / `TrainingFocus` / `TrainingUndo` / `TrainingWorkspace`; validate row references and completeness independently of raw recovery text.
-- [ ] Add `Journal.reference(to:)`, `updateSet`, `removeSet` and `restoreSet` commands; retain batch/action/set invariants and limit restoration to the matching deletion revision.
-- [ ] Run the full suite and commit.
+- [x] Write and run failing tests for Monday weeks/DST, required bodyweight versus weighted values, unchanged kg conversion, row correction/removal/restore identity, duplicate delivery, and targeted undo with unrelated entries retained.
+- [x] Implement `TrainingDay`, `MuscleGroup`, `ExerciseEquipment`, exercise effective metadata, `TrainingRow` / `DayWorkout` / `TrainingFocus` / `TrainingUndo` / `TrainingWorkspace`; validate row references and completeness independently of raw recovery text.
+- [x] Add `Journal.reference(to:)`, `updateSet`, `removeSet` and `restoreSet` commands; retain batch/action/set invariants and limit restoration to the matching deletion revision.
+- [x] Run the full suite and commit.
 
 ### Task 2 — Atomic format-4 persistence and legacy recovery
 
 Files: `EntryWorkspace.swift`, repository adapters, new `TrainingMigration.swift`, `LegacyRecoveryModel.swift`; metadata retention in `LoggerModel`. Tests: `TrainingMigrationTests.swift`, `TrainingStorageTests.swift`.
 
-- [ ] Write/run failing tests for v1–v3 migration, partial draft retention, pending-editor resolution, unknown IDs, custom metadata defaults, missing enabled notebook state, failed writes and journal-only metadata preservation.
-- [ ] Add optional `JournalSnapshot.training`, format-4 enabled marker, and atomic save/load validation. Build explicit day assignments and retain unresolved original workspace until recovery review completes.
-- [ ] Implement one-time legacy review using existing set-editor commands and a memory snapshot adapter; never auto-record old drafts or apply old corrections on load.
-- [ ] Run full tests and commit.
+- [x] Write/run failing tests for v1–v3 migration, partial draft retention, pending-editor resolution, unknown IDs, custom metadata defaults, missing enabled notebook state, failed writes and journal-only metadata preservation.
+- [x] Add optional `JournalSnapshot.training`, format-4 enabled marker, and atomic save/load validation. Build explicit day assignments and retain unresolved original workspace until recovery review completes.
+- [x] Implement one-time legacy review using existing set-editor commands and a memory snapshot adapter; never auto-record old drafts or apply old corrections on load.
+- [x] Run full tests and commit.
 
 ### Task 3 — Weekly application model
 
 Files: new `TrainingNotebookModel.swift`, focused command/projection extensions; tests `TrainingNotebookTests.swift`.
 
-- [ ] Write/run failing tests for valid-on-finish logging, incomplete recovery, no-op corrections, day isolation and totals, tab selection, new/repeat, undo repeat/delete, unit switching, failed commits, Last/PR committed-only projections and reopening.
-- [ ] Implement repository-backed `TrainingNotebookModel` with candidate transactions, focus-token input updates, complete-row finalization, day/exercise navigation, grouped picker metadata and summary projections.
-- [ ] Run full tests and commit.
+- [x] Write/run failing tests for valid-on-finish logging, incomplete recovery, no-op corrections, day isolation and totals, tab selection, new/repeat, undo repeat/delete, unit switching, failed commits, Last/PR committed-only projections and reopening.
+- [x] Implement repository-backed `TrainingNotebookModel` with candidate transactions, focus-token input updates, complete-row finalization, day/exercise navigation, grouped picker metadata and summary projections.
+- [x] Run full tests and commit.
 
 ### Task 4 — Native weekly UI and live preview
 
 Files: new week/day/banner/set-row/numeric/picker views; `App/SendaApp.swift`, preview renderer, minimal legacy editor callbacks.
 
-- [ ] Build Week → Day flow, separate Last/PR, one weight column and header switch, flat filtered picker, blank/new/repeat rows, subtle saved status and targeted Undo.
-- [ ] Wire app lifecycle, recovered-editor gate and sample/real local composition. Keep active input visible and reject old focus callbacks. Remove recording buttons from reachable production UI.
-- [ ] Render week, day, picker and compact states from actual SwiftUI; inspect layout and update the running local preview and committed previews.
-- [ ] Run unit suite and host typechecks; commit.
+- [x] Build Week → Day flow, separate Last/PR, one weight column and header switch, flat filtered picker, blank/new/repeat rows, subtle saved status and targeted Undo.
+- [x] Wire app lifecycle, recovered-editor gate and sample/real local composition. Keep active input visible and reject old focus callbacks. Remove recording buttons from reachable production UI.
+- [x] Render week, day, picker and compact states from actual SwiftUI; inspect layout and update the running local preview and committed previews.
+- [x] Run unit suite and host typechecks; commit.
 
 ### Task 5 — iPhone behavior checks and final review
 
 Files: update existing `Tests/SendaUITests/LoggerUITests.swift` to the new production flow, README, implementation notes.
 
-- [ ] Cover week/day navigation, weighted/bodyweight entry, finish boundary, partial recovery, repeat/delete undo, unit precision, Last/PR, grouped/custom picker and large text.
+- [x] Cover week/day navigation, weighted/bodyweight entry, finish boundary, partial recovery, repeat/delete undo, unit precision, Last/PR, grouped/custom picker and large text.
 - [ ] Run full local tests and both phone workflows; request a fresh whole-change review, fix confirmed material issues with regression tests, and push the finished branch.
 
 ## Review focus

@@ -74,13 +74,16 @@ public struct TrainingWorkspace: Codable, Equatable, Sendable {
     public var days: [String: DayWorkout]
     public var focus: TrainingFocus?
     public var undo: TrainingUndo?
+    public var legacyExerciseIDs: [String]?
     public init(visibleWeek: TrainingDay, selectedDay: TrainingDay? = nil, preferredUnit: WeightUnit = .pounds,
-                days: [String: DayWorkout] = [:], focus: TrainingFocus? = nil, undo: TrainingUndo? = nil) {
+                days: [String: DayWorkout] = [:], focus: TrainingFocus? = nil, undo: TrainingUndo? = nil, legacyExerciseIDs: [String]? = nil) {
         self.visibleWeek = visibleWeek; self.selectedDay = selectedDay; self.preferredUnit = preferredUnit
-        self.days = days; self.focus = focus; self.undo = undo
+        self.days = days; self.focus = focus; self.undo = undo; self.legacyExerciseIDs = legacyExerciseIDs
     }
     public func validated(against journal: Journal, exercises: [Exercise]) throws -> TrainingWorkspace {
-        let known = Set(exercises.map(\.id) + journal.batches.map(\.exerciseID))
+        let legacy = legacyExerciseIDs ?? []
+        guard Set(legacy).count == legacy.count, legacy.allSatisfy({ !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && $0.count <= 80 }) else { throw TrainingError.invalidWorkspace }
+        let known = Set(exercises.map(\.id) + journal.batches.map(\.exerciseID) + legacy)
         let samples = journal.batches.flatMap { batch in batch.sets.map { ($0.id, (batch.exerciseID, $0.values)) } }
         guard Set(samples.map { $0.0 }).count == samples.count else { throw TrainingError.invalidWorkspace }
         let sets = Dictionary(uniqueKeysWithValues: samples)
@@ -122,7 +125,7 @@ public struct TrainingWorkspace: Codable, Equatable, Sendable {
                 guard let row = days[day.rawValue]?.rows[exercise]?.first(where: { $0.id == rowID }), row.performedSetID != nil else { throw TrainingError.invalidWorkspace }
             case .deleted(let day, let exercise, let index, let row, let removal):
                 guard let rows = days[day.rawValue]?.rows[exercise], index >= 0, index <= rows.count,
-                      !rowIDs.contains(row.id), !actions.contains(row.actionID), row.unit == days[day.rawValue]?.unit,
+                      !rowIDs.contains(row.id), !actions.contains(row.actionID),
                       row.weight.count <= 64, row.reps.count <= 64 else { throw TrainingError.invalidWorkspace }
                 if let removal {
                     guard removal.batch.exerciseID == exercise, row.performedSetID == removal.set.id else { throw TrainingError.invalidWorkspace }

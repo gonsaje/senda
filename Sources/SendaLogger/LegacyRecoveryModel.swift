@@ -106,6 +106,9 @@ import SendaPersistence
             workspace.workoutExerciseIDs = order
         }
         var candidate = source; candidate.workspace = workspace
+        // The coordinator owns the checkpoint. Keeping it inside the edit writer
+        // would validate its old revision against the newly confirmed history.
+        candidate.legacyBase = nil
         let memory = try MemoryJournalRepository(snapshot: candidate)
         self.memory = memory; logger = try LoggerModel(repository: memory)
     }

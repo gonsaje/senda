@@ -37,6 +37,11 @@ import SendaPersistence
         let reopened = try LegacyRecoveryModel(repository: store)
         #expect(reopened.logger?.editor?.inputs[0].weight == "14.")
         #expect(try store.loadSnapshot().journal == source.journal)
+        let resumed = try #require(reopened.logger)
+        resumed.typeEditedSet(at: 0, field: .weight, text: "140")
+        #expect(resumed.confirmSetEdits())
+        #expect(reopened.accept())
+        #expect(try store.loadSnapshot().journal.batches[0].values[0].weight == 14_000)
     }
     @Test func cancellingRecoveredEditorLeavesPerformedHistoryUntouched() throws {
         let source = try original()

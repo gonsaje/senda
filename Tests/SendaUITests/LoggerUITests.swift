@@ -249,8 +249,24 @@ final class LoggerUITests: XCTestCase {
         if !target.isHittable {
             let scroll = app.scrollViews["exercise-picker-scroll"].exists ? app.scrollViews["exercise-picker-scroll"] :
                 (app.scrollViews["custom-exercise-scroll"].exists ? app.scrollViews["custom-exercise-scroll"] : app.scrollViews.firstMatch)
-            for _ in 0..<5 { if target.isHittable { break }; scroll.swipeUp() }
-            for _ in 0..<5 { if target.isHittable { break }; scroll.swipeDown() }
+            for _ in 0..<8 {
+                guard scroll.exists else { break }
+                // SwiftUI exposes the full sheet frame even behind the keyboard.
+                // Keep the finger inside visible content so it scrolls the list.
+                let keyboard = app.keyboards.firstMatch
+                let top = max(app.frame.minY + 80, scroll.frame.minY + 16)
+                let bottom = min(scroll.frame.maxY - 16, app.frame.maxY - 36,
+                    keyboard.exists ? keyboard.frame.minY - 12 : app.frame.maxY)
+                let frame = target.frame
+                if target.isHittable && frame.minY >= top && frame.maxY <= bottom { break }
+                guard bottom - top > 50 else { break }
+                let upward = frame.maxY > bottom
+                guard upward || frame.minY < top else { break }
+                let origin = app.coordinate(withNormalizedOffset: .zero)
+                origin.withOffset(CGVector(dx: app.frame.width / 2, dy: (upward ? bottom - 12 : top + 12) - app.frame.minY))
+                    .press(forDuration: 0.05, thenDragTo: origin.withOffset(CGVector(dx: app.frame.width / 2,
+                        dy: (upward ? top + 12 : bottom - 12) - app.frame.minY)))
+            }
         }
         XCTAssertTrue(target.isHittable, "Unreachable \(id)", file: file, line: line)
         target.tap()

@@ -65,6 +65,10 @@ private struct LegacyTrainingRecoveryView: View {
         }
         .onChange(of: recovery.logger?.numberInputText) { _, _ in recovery.flushRecovery() }
         .onChange(of: recovery.logger?.editor) { _, _ in recovery.flushRecovery() }
+        .onChange(of: recovery.logger?.phase) { _, _ in recovery.flushRecovery() }
+        .onChange(of: recovery.logger?.selectedSetIndex) { _, _ in recovery.flushRecovery() }
+        .onChange(of: recovery.logger?.selectedField) { _, _ in recovery.flushRecovery() }
+        .onChange(of: recovery.logger?.selectedWeightUnit) { _, _ in recovery.flushRecovery() }
         .onChange(of: recovery.isComplete) { _, done in if done { finished() } }
     }
 }
