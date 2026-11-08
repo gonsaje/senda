@@ -21,26 +21,12 @@ struct TrainingDayView: View {
         ScrollViewReader { scroll in
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
-                    ViewThatFits(in: .horizontal) {
-                        HStack(spacing: 8) {
-                            weekButton.fixedSize()
-                            Spacer(minLength: 4)
-                            dateNavigation.fixedSize()
-                        }
-                        VStack(alignment: .leading, spacing: 0) {
-                            weekButton
-                            dateNavigation
-                        }
-                    }.id("day-header")
-                    HStack(alignment: .firstTextBaseline, spacing: 12) {
-                        Text(TrainingText.date(day, format: "EEEE"))
-                            .font(NotebookTypography.heading(28, relativeTo: .title2))
-                            .fixedSize(horizontal: false, vertical: true)
-                            .accessibilityLabel(TrainingText.date(day, format: "EEEE, MMM d"))
-                            .accessibilityIdentifier("day-title")
+                    HStack {
+                        weekButton
+                        Spacer(minLength: 12)
                         if day == model.today { Text("Today").font(.callout).foregroundStyle(NotebookStyle.clay).fixedSize() }
-                        Spacer(minLength: 0)
-                    }.padding(.bottom, 2)
+                    }
+                    dateNavigation.padding(.bottom, 2).id("day-header")
                     HStack(spacing: 10) {
                         ScrollView(.horizontal) {
                             LazyHStack(spacing: 24) {
@@ -139,22 +125,49 @@ struct TrainingDayView: View {
     }
 
     private var dateNavigation: some View {
-        HStack(spacing: 4) {
-            Button { model.changeDay(-1) } label: {
-                Image(systemName: "chevron.left").frame(width: 44, height: 44)
+        HStack(spacing: 8) {
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    weekdayTitle.fixedSize()
+                    dateTitle().fixedSize()
+                }
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    weekdayTitle.fixedSize()
+                    dateTitle("MMM d").fixedSize()
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    weekdayTitle
+                    dateTitle()
+                }
+            }.frame(maxWidth: .infinity, alignment: .leading)
+            HStack(spacing: 0) {
+                Button { model.changeDay(-1) } label: {
+                    Image(systemName: "chevron.left").frame(width: 44, height: 44)
+                }
+                .disabled((try? day.adding(days: -1)) == nil)
+                .accessibilityLabel("Previous day").accessibilityIdentifier("previous-day")
+                Button { model.changeDay(1) } label: {
+                    Image(systemName: "chevron.right").frame(width: 44, height: 44)
+                }
+                .disabled((try? day.adding(days: 1)) == nil)
+                .accessibilityLabel("Next day").accessibilityIdentifier("next-day")
             }
-            .disabled((try? day.adding(days: -1)) == nil)
-            .accessibilityLabel("Previous day").accessibilityIdentifier("previous-day")
-            Text(TrainingText.date(day, format: "MMM d, yyyy"))
-                .font(.caption).foregroundStyle(NotebookStyle.quiet)
-                .multilineTextAlignment(.center).frame(maxWidth: .infinity)
-                .accessibilityIdentifier("day-date")
-            Button { model.changeDay(1) } label: {
-                Image(systemName: "chevron.right").frame(width: 44, height: 44)
-            }
-            .disabled((try? day.adding(days: 1)) == nil)
-            .accessibilityLabel("Next day").accessibilityIdentifier("next-day")
         }
+    }
+
+    private var weekdayTitle: some View {
+        Text(TrainingText.date(day, format: "EEEE"))
+            .font(NotebookTypography.heading(28, relativeTo: .title2))
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityLabel(TrainingText.date(day, format: "EEEE, MMM d"))
+            .accessibilityIdentifier("day-title")
+    }
+
+    private func dateTitle(_ format: String = "MMM d, yyyy") -> some View {
+        Text(TrainingText.date(day, format: format))
+            .font(.caption).foregroundStyle(NotebookStyle.quiet)
+            .accessibilityLabel(TrainingText.date(day, format: "MMM d, yyyy"))
+            .accessibilityIdentifier("day-date")
     }
 }
 
