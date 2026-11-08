@@ -60,7 +60,7 @@ struct TrainingWeekView: View {
                                     if summary.setCount == 0 {
                                         Label("Start workout", systemImage: "plus")
                                             .font(.subheadline).foregroundStyle(NotebookStyle.clay)
-                                    } else { Text(categories.joined(separator: " · ")).font(.subheadline).fixedSize(horizontal: false, vertical: true) }
+                                    } else { Text(categories.joined(separator: " · ")).font(.subheadline.bold()).fixedSize(horizontal: false, vertical: true) }
                                     if day == model.today { Text("Today").font(.caption.weight(.medium)).foregroundStyle(NotebookStyle.clay) }
                                 }.frame(maxWidth: .infinity, alignment: .leading)
                                 if summary.setCount > 0 { Text("\(summary.setCount) sets").font(.caption.monospacedDigit()).fixedSize() }
