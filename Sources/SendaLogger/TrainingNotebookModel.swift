@@ -20,6 +20,7 @@ public struct TrainingPerformanceReference: Equatable, Sendable {
     public private(set) var errorMessage: String?
     public private(set) var revealRowID: UUID?
     public private(set) var section: TrainingSection = .log
+    public let profile: ProfileModel
     public let isSample: Bool
     public let calendar: Calendar
     @ObservationIgnored private let repository: any JournalRepository
@@ -27,7 +28,8 @@ public struct TrainingPerformanceReference: Equatable, Sendable {
     @ObservationIgnored private var lastWritten: JournalSnapshot
 
     public init(repository: any JournalRepository, isSample: Bool = false, calendar: Calendar = .current,
-                now: @escaping () -> Date = Date.init) throws {
+                now: @escaping () -> Date = Date.init, profileRepository: (any ProfileRepository)? = nil) throws {
+        self.profile = ProfileModel(repository: profileRepository ?? MemoryProfileRepository())
         self.repository = repository; self.isSample = isSample; self.calendar = calendar; self.now = now
         let saved = try repository.loadSnapshot().validated()
         lastWritten = saved

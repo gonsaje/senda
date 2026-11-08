@@ -8,8 +8,10 @@ import SendaPersistence
     public private(set) var recovery: LegacyRecoveryModel?
     public private(set) var openingError: String?
     @ObservationIgnored private let repository: any JournalRepository
+    @ObservationIgnored private let profileRepository: any ProfileRepository
     public let isSample: Bool
-    public init(repository: any JournalRepository, isSample: Bool = false) {
+    public init(repository: any JournalRepository, isSample: Bool = false, profileRepository: (any ProfileRepository)? = nil) {
+        self.profileRepository = profileRepository ?? MemoryProfileRepository()
         self.repository = repository; self.isSample = isSample; open()
     }
     public func open() {
@@ -17,9 +19,9 @@ import SendaPersistence
             let saved = try repository.loadSnapshot().validated()
             if TrainingWorkspace.requiresLegacyReview(saved) {
                 let review = try LegacyRecoveryModel(repository: repository)
-                if review.isComplete { recovery = nil; notebook = try TrainingNotebookModel(repository: repository, isSample: isSample) }
+                if review.isComplete { recovery = nil; notebook = try TrainingNotebookModel(repository: repository, isSample: isSample, profileRepository: profileRepository) }
                 else { notebook = nil; recovery = review }
-            } else { recovery = nil; notebook = try TrainingNotebookModel(repository: repository, isSample: isSample) }
+            } else { recovery = nil; notebook = try TrainingNotebookModel(repository: repository, isSample: isSample, profileRepository: profileRepository) }
             openingError = nil
         } catch { openingError = error.localizedDescription }
     }

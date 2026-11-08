@@ -47,8 +47,10 @@ private struct JournalRootView: View {
         do {
             let sample = ProcessInfo.processInfo.arguments.contains("--sample-data")
             let repository: any JournalRepository
+            let profileRepository: any ProfileRepository
             if sample {
                 repository = MemoryJournalRepository(journal: try SampleJournal.makeWeek())
+                profileRepository = MemoryProfileRepository()
             } else {
                 let support = try FileManager.default.url(for: .applicationSupportDirectory,
                     in: .userDomainMask, appropriateFor: nil, create: true)
@@ -60,9 +62,11 @@ private struct JournalRootView: View {
                     journalPath = "Senda/UITests/\(id.uuidString)/journal-v1.json"
                 }
                 #endif
-                repository = FileJournalRepository(url: support.appendingPathComponent(journalPath))
+                let journalURL = support.appendingPathComponent(journalPath)
+                repository = FileJournalRepository(url: journalURL)
+                profileRepository = FileProfileRepository(url: journalURL.deletingLastPathComponent().appendingPathComponent("profile.json"))
             }
-            session = TrainingSession(repository: repository, isSample: sample)
+            session = TrainingSession(repository: repository, isSample: sample, profileRepository: profileRepository)
             openingError = nil
         } catch { openingError = error.localizedDescription }
     }
