@@ -111,6 +111,10 @@ public struct TrainingPerformanceReference: Equatable, Sendable {
             state.training!.undo = nil
         }
     }
+    @discardableResult public func changeDay(_ direction: Int) -> Bool {
+        guard let selectedDay, let destination = try? selectedDay.adding(days: direction < 0 ? -1 : 1) else { return false }
+        return openDay(destination)
+    }
     @discardableResult public func showWeek() -> Bool {
         revealRowID = nil
         return commit { state in try finalize(&state); state.training!.selectedDay = nil; state.training!.undo = nil }

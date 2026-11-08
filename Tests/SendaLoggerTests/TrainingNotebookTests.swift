@@ -17,6 +17,75 @@ import SendaPersistence
         #expect(model.selectInput(row.id, field: .reps))
         model.typeInput(reps, focus: try #require(model.focus))
     }
+    @Test func dayNavigationSavesSourceEditsAndRestoresEachDaysWorkout() throws {
+        let store = MemoryJournalRepository()
+        let m = try model(store)
+        let sunday = try TrainingDay("2026-11-08")
+        #expect(m.openDay(sunday)); #expect(m.addExercise("bench"))
+        try enter(m, weight: "135", reps: "10")
+        let benchRow = try #require(m.rows.first).id
+        #expect(m.changeDay(1))
+        #expect(m.selectedDay?.rawValue == "2026-11-09")
+        #expect(m.workspace.visibleWeek.rawValue == "2026-11-09")
+        #expect(m.tabs.isEmpty && m.rows.isEmpty && m.focus == nil)
+        #expect(m.summary(for: sunday).setCount == 1)
+        #expect(m.addExercise("overhead-press"))
+        try enter(m, weight: "95", reps: "8")
+        #expect(m.changeDay(-1))
+        #expect(m.selectedDay == sunday)
+        #expect(m.workspace.visibleWeek.rawValue == "2026-11-02")
+        #expect(m.exercise?.id == "bench")
+        #expect(m.rows.count == 1 && m.rows[0].id == benchRow)
+        #expect(m.rows[0].weight == "135" && m.rows[0].reps == "10")
+        #expect(m.changeDay(1))
+        let reopened = try model(store)
+        #expect(reopened.selectedDay?.rawValue == "2026-11-09")
+        #expect(reopened.exercise?.id == "overhead-press")
+        #expect(reopened.rows[0].weight == "95" && reopened.rows[0].reps == "8")
+        #expect(reopened.summary(for: sunday).setCount == 1)
+        #expect(reopened.summary(for: try TrainingDay("2026-11-09")).setCount == 1)
+        #expect(reopened.showWeek())
+        #expect(reopened.workspace.visibleWeek.rawValue == "2026-11-09")
+    }
+
+    @Test func dayNavigationKeepsPartialInputOutOfProgressAcrossReopening() throws {
+        let store = MemoryJournalRepository()
+        let m = try model(store)
+        #expect(m.openDay(day)); #expect(m.addExercise("bench"))
+        try enter(m, weight: "31.", reps: "8")
+        let row = try #require(m.rows.first).id
+        #expect(m.changeDay(1))
+        #expect(m.selectedDay?.rawValue == "2026-11-08")
+        let reopened = try model(store)
+        #expect(reopened.rows.isEmpty)
+        #expect(reopened.changeDay(-1))
+        #expect(reopened.rows[0].id == row)
+        #expect(reopened.rows[0].weight == "31." && reopened.rows[0].reps == "8")
+        #expect(reopened.rows[0].performedSetID == nil)
+        #expect(reopened.summary(for: day).setCount == 0)
+        #expect(reopened.journal.batches.isEmpty)
+    }
+
+    @Test func failedDayNavigationKeepsEditingContextAndRetriesWithoutDuplicateSets() throws {
+        let store = TrainingFailureStore()
+        let m = try model(store)
+        #expect(m.openDay(day)); #expect(m.addExercise("bench"))
+        try enter(m, weight: "135", reps: "10")
+        let before = m.snapshot, saved = try store.loadSnapshot()
+        store.reject = true
+        #expect(!m.changeDay(1))
+        #expect(m.snapshot == before)
+        #expect(try store.loadSnapshot() == saved)
+        #expect(m.focus != nil && m.errorMessage != nil)
+        store.reject = false
+        #expect(m.changeDay(1))
+        #expect(m.selectedDay?.rawValue == "2026-11-08")
+        #expect(m.changeDay(-1))
+        #expect(m.summary(for: day).setCount == 1)
+        #expect(m.rows.count == 1 && m.rows[0].performedSetID != nil)
+        #expect(m.focus == nil && m.errorMessage == nil)
+    }
+
     @Test func exerciseListCountsArePerformedExerciseAndDaySpecific() throws {
         let m = try model()
         #expect(m.openDay(day)); #expect(m.addExercise("bench"))

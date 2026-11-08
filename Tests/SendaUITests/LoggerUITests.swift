@@ -22,6 +22,16 @@ final class LoggerUITests: XCTestCase {
         tap(day, in: app)
         XCTAssertEqual(element("entry-exercise", in: app).label, "Bench")
         XCTAssertTrue(element("row-1-weight", in: app).label.contains("135 lb"))
+        let originalDate = element("day-date", in: app).label
+        tap("next-day", in: app)
+        XCTAssertNotEqual(element("day-date", in: app).label, originalDate)
+        XCTAssertFalse(app.staticTexts["entry-exercise"].exists)
+        XCTAssertTrue(element("back-to-week", in: app).exists)
+        tap("previous-day", in: app)
+        XCTAssertEqual(element("day-date", in: app).label, originalDate)
+        XCTAssertEqual(element("entry-exercise", in: app).label, "Bench")
+        XCTAssertTrue(element("row-1-weight", in: app).label.contains("135 lb"))
+        attach("Adjacent day navigation", app)
     }
 
     @MainActor
@@ -50,6 +60,9 @@ final class LoggerUITests: XCTestCase {
         let day = openDay(0, in: app)
         add("Bench", id: "bench", in: app)
         enter(weight: "31.", reps: "8", in: app)
+        tap("next-day", in: app)
+        XCTAssertFalse(app.staticTexts["entry-exercise"].exists)
+        tap("previous-day", in: app)
         app.terminate(); app.launch()
         XCTAssertTrue(element("entry-exercise", in: app).label.contains("Bench"))
         tap("row-1-weight", in: app)
@@ -206,6 +219,14 @@ final class LoggerUITests: XCTestCase {
         XCTAssertTrue(element("input-done", in: app).isHittable)
         XCTAssertTrue(element("input-next", in: app).isHittable)
         attach("Large text automatic entry", app)
+        tap("input-done", in: app)
+        let originalDate = element("day-date", in: app).label
+        tap("next-day", in: app)
+        XCTAssertNotEqual(element("day-date", in: app).label, originalDate)
+        tap("previous-day", in: app)
+        XCTAssertEqual(element("day-date", in: app).label, originalDate)
+        XCTAssertEqual(element("entry-exercise", in: app).label, "Bench")
+        attach("Large text day navigation", app)
     }
 
     @MainActor private func launch(extra: [String] = []) -> XCUIApplication {

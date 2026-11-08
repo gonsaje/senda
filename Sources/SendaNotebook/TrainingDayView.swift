@@ -21,13 +21,17 @@ struct TrainingDayView: View {
         ScrollViewReader { scroll in
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
-                    HStack {
-                        Button { model.showWeek() } label: { Label("Week", systemImage: "chevron.left").frame(minHeight: 44) }
-                            .accessibilityIdentifier("back-to-week")
-                        Spacer(minLength: 12)
-                        Text(TrainingText.date(day, format: "MMM d, yyyy"))
-                            .font(.caption).foregroundStyle(NotebookStyle.quiet).lineLimit(1)
-                    }
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 8) {
+                            weekButton.fixedSize()
+                            Spacer(minLength: 4)
+                            dateNavigation.fixedSize()
+                        }
+                        VStack(alignment: .leading, spacing: 0) {
+                            weekButton
+                            dateNavigation
+                        }
+                    }.id("day-header")
                     HStack(alignment: .firstTextBaseline, spacing: 12) {
                         Text(TrainingText.date(day, format: "EEEE"))
                             .font(NotebookTypography.heading(28, relativeTo: .title2))
@@ -127,6 +131,30 @@ struct TrainingDayView: View {
             .onChange(of: model.exercise?.id) { _, id in tabPosition = id }
             .onAppear { tabPosition = model.exercise?.id }
         }.background(NotebookStyle.ivory)
+    }
+
+    private var weekButton: some View {
+        Button { model.showWeek() } label: { Label("Week", systemImage: "chevron.left").frame(minHeight: 44) }
+            .accessibilityIdentifier("back-to-week")
+    }
+
+    private var dateNavigation: some View {
+        HStack(spacing: 4) {
+            Button { model.changeDay(-1) } label: {
+                Image(systemName: "chevron.left").frame(width: 44, height: 44)
+            }
+            .disabled((try? day.adding(days: -1)) == nil)
+            .accessibilityLabel("Previous day").accessibilityIdentifier("previous-day")
+            Text(TrainingText.date(day, format: "MMM d, yyyy"))
+                .font(.caption).foregroundStyle(NotebookStyle.quiet)
+                .multilineTextAlignment(.center).frame(maxWidth: .infinity)
+                .accessibilityIdentifier("day-date")
+            Button { model.changeDay(1) } label: {
+                Image(systemName: "chevron.right").frame(width: 44, height: 44)
+            }
+            .disabled((try? day.adding(days: 1)) == nil)
+            .accessibilityLabel("Next day").accessibilityIdentifier("next-day")
+        }
     }
 }
 
