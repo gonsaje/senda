@@ -202,18 +202,25 @@ final class LoggerUITests: XCTestCase {
         add("Bench", id: "bench", in: app)
         for row in 1...3 {
             tap("row-\(row)-weight", in: app)
+            XCTAssertTrue(element("weight-dial", in: app).exists)
+            XCTAssertFalse(app.keyboards.firstMatch.exists)
+            XCTAssertFalse(app.buttons["input-mode"].exists)
             for value in ["152.5", "127.25", "135", "152.5"] {
                 replace(value, in: app)
                 XCTAssertEqual(element("set-input", in: app).value as? String, value)
-                XCTAssertFalse(app.descendants(matching: .any).matching(identifier: "weight-dial").firstMatch.exists)
+                XCTAssertTrue(element("weight-dial", in: app).exists)
             }
             tap("input-next", in: app); replace("10", in: app); tap("input-done", in: app)
             if row < 3 { tap("new-set", in: app) }
         }
-        tap("row-3-weight", in: app); tap("input-mode", in: app)
+        tap("row-3-weight", in: app)
+        replace("152.5", in: app)
         let dial = element("weight-dial", in: app)
+        let beforeDrag = try XCTUnwrap(dial.value as? String)
         dial.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.4)).press(forDuration: 0.1,
             thenDragTo: dial.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.4)))
+        XCTAssertNotEqual(dial.value as? String, beforeDrag)
+        XCTAssertFalse(app.keyboards.firstMatch.exists)
         tap("input-done", in: app)
         XCTAssertTrue(element("row-1-weight", in: app).label.contains("152.5 lb"))
         tap("back-to-week", in: app)

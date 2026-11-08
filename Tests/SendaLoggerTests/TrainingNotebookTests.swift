@@ -17,6 +17,32 @@ import SendaPersistence
         #expect(model.selectInput(row.id, field: .reps))
         model.typeInput(reps, focus: try #require(model.focus))
     }
+    @Test func weightSelectionDefaultsToDialWhileRepsRequestKeyboard() throws {
+        let store = MemoryJournalRepository()
+        let m = try model(store)
+        #expect(m.openDay(day)); #expect(m.addExercise("bench"))
+        let row = try #require(m.rows.first)
+        #expect(m.selectInput(row.id, field: .weight))
+        #expect(try #require(m.focus).keyboard == false)
+        let reopened = try model(store)
+        #expect(try #require(reopened.focus).keyboard == false)
+        #expect(reopened.journal.batches.isEmpty)
+        #expect(m.selectInput(row.id, field: .reps))
+        #expect(try #require(m.focus).keyboard == true)
+    }
+
+    @Test func newWeightedSetsStartWithDialAndBodyweightSetsOpenRepsKeyboard() throws {
+        let m = try model()
+        #expect(m.openDay(day)); #expect(m.addExercise("bench"))
+        #expect(m.newSet())
+        #expect(m.focus?.field == .weight)
+        #expect(try #require(m.focus).keyboard == false)
+        #expect(m.addExercise("push-up")); #expect(m.newSet())
+        #expect(m.focus?.field == .reps)
+        #expect(try #require(m.focus).keyboard == true)
+        #expect(m.summary(for: day).setCount == 0)
+    }
+
     @Test func dayNavigationSavesSourceEditsAndRestoresEachDaysWorkout() throws {
         let store = MemoryJournalRepository()
         let m = try model(store)

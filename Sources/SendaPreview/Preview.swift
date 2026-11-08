@@ -42,6 +42,11 @@ struct SendaPreview {
         _ = model.repeatLastSet()
         try render(TrainingNotebookView(model: model), to: directory.appendingPathComponent("senda-exception.png"))
         try render(TrainingNotebookView(model: model), to: directory.appendingPathComponent("senda-recorded.png"))
+        if let row = model.rows.dropFirst(2).first {
+            _ = model.selectInput(row.id, field: .weight)
+            try render(TrainingNotebookView(model: model), to: directory.appendingPathComponent("senda-dial.png"))
+            try render(TrainingNotebookView(model: model), to: directory.appendingPathComponent("senda-dial-compact.png"), width: 320, height: 568)
+        }
         print("Rendered actual SwiftUI week, day, picker and compact-phone states to \(directory.path).")
     }
 

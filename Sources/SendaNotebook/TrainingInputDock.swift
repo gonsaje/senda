@@ -15,9 +15,6 @@ struct TrainingInputDock: View {
                     .lineLimit(1).minimumScaleFactor(0.7)
                 Spacer(minLength: 0)
                 if focus.field == .weight {
-                    Button { typing.toggle() } label: {
-                        Image(systemName: typing ? "ruler" : "keyboard").frame(width: 40, height: 44)
-                    }.accessibilityLabel(typing ? "Use weight dial" : "Use keyboard").accessibilityIdentifier("input-mode")
                     Button("Next") { model.selectInput(focus.rowID, field: .reps) }.frame(minWidth: 40, minHeight: 44)
                         .accessibilityIdentifier("input-next")
                 }
@@ -30,6 +27,7 @@ struct TrainingInputDock: View {
                     get: { model.inputText(for: focus) }, set: { model.typeInput($0, focus: focus) }))
                     .font(.system(size: 31, weight: .medium).monospacedDigit()).multilineTextAlignment(.center)
                     .textFieldStyle(.plain).numericKeyboard(decimal: focus.field == .weight).focused($typing)
+                    .frame(minHeight: 48)
                     .submitLabel(focus.field == .weight ? .next : .done)
                     .onSubmit {
                         if focus.field == .weight { model.selectInput(focus.rowID, field: .reps) }
@@ -39,8 +37,9 @@ struct TrainingInputDock: View {
                     .accessibilityIdentifier("set-input")
                 step(true)
             }
-            if focus.field == .weight && !typing {
-                TrainingWeightRuler(value: model.focusedRow?.parsedWeight ?? model.focusedRow?.canonicalWeight ?? 0, unit: model.unit) {
+            if focus.field == .weight {
+                TrainingWeightRuler(value: model.focusedRow?.parsedWeight ?? model.focusedRow?.canonicalWeight ?? 0,
+                                    unit: model.unit, beginInteraction: { typing = false }) {
                     model.setInputWeight($0, focus: focus)
                 }
             }
@@ -60,11 +59,12 @@ struct TrainingInputDock: View {
 struct TrainingWeightRuler: View {
     let value: Int
     let unit: WeightUnit
+    let beginInteraction: () -> Void
     var update: (Int) -> Void
     @State private var position: Int?
     @State private var start: Int?
-    init(value: Int, unit: WeightUnit, update: @escaping (Int) -> Void) {
-        self.value = value; self.unit = unit; self.update = update
+    init(value: Int, unit: WeightUnit, beginInteraction: @escaping () -> Void, update: @escaping (Int) -> Void) {
+        self.value = value; self.unit = unit; self.beginInteraction = beginInteraction; self.update = update
         _position = State(initialValue: Self.tick(value, unit))
     }
     private var step: Double { NSDecimalNumber(decimal: unit.step).doubleValue }
@@ -94,7 +94,7 @@ struct TrainingWeightRuler: View {
         .frame(height: 60).contentShape(Rectangle())
         .onChange(of: value) { _, _ in if position != nearest { position = nearest } }
         .gesture(DragGesture(minimumDistance: 2).onChanged { gesture in
-            if start == nil { start = nearest }
+            if start == nil { beginInteraction(); start = nearest }
             move(start ?? nearest, gesture.translation.width)
         }.onEnded { gesture in
             withAnimation(.easeOut(duration: 0.25)) { move(start ?? nearest, gesture.predictedEndTranslation.width) }
@@ -103,6 +103,7 @@ struct TrainingWeightRuler: View {
         .accessibilityElement(children: .ignore).accessibilityLabel("Weight dial in \(unit.symbol)")
         .accessibilityValue("\(unit.text(for: value)) \(unit.symbol)")
         .accessibilityAdjustableAction { direction in
+            beginInteraction()
             switch direction {
             case .increment: update(unit.stepped(value, increasing: true))
             case .decrement: update(unit.stepped(value, increasing: false))

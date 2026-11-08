@@ -167,19 +167,21 @@ public struct TrainingPerformanceReference: Equatable, Sendable {
             let (day, id) = try context(state)
             let row = TrainingRow(unit: state.training!.days[day.rawValue]!.unit)
             state.training!.days[day.rawValue]!.rows[id, default: []].append(row)
+            let field: NumericField = exercise(id).requiresWeight ? .weight : .reps
             state.training!.focus = TrainingFocus(day: day, exerciseID: id, rowID: row.id,
-                                                  field: exercise(id).requiresWeight ? .weight : .reps)
+                                                  field: field, keyboard: field == .reps)
             state.training!.undo = nil
         }
     }
-    @discardableResult public func selectInput(_ rowID: UUID, field: NumericField, keyboard: Bool = true) -> Bool {
+    @discardableResult public func selectInput(_ rowID: UUID, field: NumericField, keyboard: Bool? = nil) -> Bool {
         guard field != .sets else { return false }
         revealRowID = nil
         return commit { state in
             let (day, id) = try context(state)
             if state.training!.focus?.rowID != rowID { try finalize(&state) }
             guard state.training!.days[day.rawValue]!.rows[id]?.contains(where: { $0.id == rowID }) == true else { throw TrainingError.missingRow }
-            state.training!.focus = TrainingFocus(day: day, exerciseID: id, rowID: rowID, field: field, keyboard: keyboard)
+            state.training!.focus = TrainingFocus(day: day, exerciseID: id, rowID: rowID, field: field,
+                                                 keyboard: keyboard ?? (field == .reps))
         }
     }
     public func inputText(for token: TrainingFocus) -> String {
