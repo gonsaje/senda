@@ -16,7 +16,7 @@ struct TrainingExerciseTabs: View {
     private var tabHeight: CGFloat { max(48, lineHeight + 22) }
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(alignment: .bottom, spacing: 6) {
             GeometryReader { viewport in
                 let canOverflow = !model.tabs.isEmpty && contentFrame.width > viewport.size.width + 1
                 let leftOverflow = canOverflow && contentFrame.minX < -1
@@ -28,7 +28,7 @@ struct TrainingExerciseTabs: View {
                         }
                     }
                     .scrollTargetLayout()
-                    .padding(.horizontal, 5).padding(.vertical, 6)
+                    .padding(.horizontal, 5).padding(.top, 12)
                     .background {
                         GeometryReader { content in
                             let frame = content.frame(in: .named(viewportSpace))
@@ -70,6 +70,10 @@ struct TrainingExerciseTabs: View {
             }.foregroundStyle(NotebookStyle.clay)
         }
         .frame(height: tabHeight + 12)
+        .background(alignment: .bottom) {
+            Rectangle().fill(NotebookStyle.rule).frame(height: 0.5)
+        }
+        .clipped()
         .onChange(of: day) { _, _ in visibleTabID = model.exercise?.id }
         .onChange(of: model.exercise?.id) { _, id in visibleTabID = id }
         .onAppear { visibleTabID = model.exercise?.id }
@@ -78,17 +82,15 @@ struct TrainingExerciseTabs: View {
     private func tab(_ exercise: Exercise) -> some View {
         let selected = model.exercise?.id == exercise.id
         return Button { model.selectExercise(exercise.id) } label: {
-            VStack(spacing: 4) {
-                Text(exercise.name).font(.body.weight(selected ? .semibold : .regular))
-                    .lineLimit(1).frame(maxWidth: 180)
-                Rectangle().fill(selected ? NotebookStyle.clay : .clear).frame(height: 2)
-            }
-            .padding(.horizontal, 14).padding(.vertical, 8)
+            Text(exercise.name).font(.body.weight(selected ? .semibold : .regular))
+                .lineLimit(1).frame(maxWidth: 180)
+                .padding(.horizontal, 14).padding(.vertical, 8)
             .frame(minWidth: 64, minHeight: tabHeight)
             .background {
                 if selected {
-                    RoundedRectangle(cornerRadius: 7).fill(NotebookStyle.ivory)
-                        .shadow(color: NotebookStyle.ink.opacity(0.22), radius: 3, x: 0, y: 2)
+                    UnevenRoundedRectangle(topLeadingRadius: 7, topTrailingRadius: 7)
+                        .fill(NotebookStyle.ivory)
+                        .shadow(color: NotebookStyle.ink.opacity(0.22), radius: 3, x: 0, y: -1)
                 }
             }
             .contentShape(Rectangle())
