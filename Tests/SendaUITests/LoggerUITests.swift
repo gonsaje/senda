@@ -246,17 +246,19 @@ final class LoggerUITests: XCTestCase {
                     .press(forDuration: 0.05, thenDragTo: origin.withOffset(CGVector(dx: app.frame.width / 2, dy: (upward ? top + 12 : bottom - 12) - app.frame.minY)))
             }
         }
-        if !target.isHittable {
-            let scroll = app.scrollViews["exercise-picker-scroll"].exists ? app.scrollViews["exercise-picker-scroll"] :
-                (app.scrollViews["custom-exercise-scroll"].exists ? app.scrollViews["custom-exercise-scroll"] : app.scrollViews.firstMatch)
+        let picker = app.scrollViews["exercise-picker-scroll"]
+        let custom = app.scrollViews["custom-exercise-scroll"]
+        let scroll = picker.exists ? picker : (custom.exists ? custom : app.scrollViews.firstMatch)
+        let inPickerContent = (picker.exists || custom.exists) && scroll.descendants(matching: .any).matching(identifier: id).firstMatch.exists
+        if inPickerContent || !target.isHittable {
             for _ in 0..<8 {
                 guard scroll.exists else { break }
-                // The sheet extends behind the keyboard, whose reported frame
-                // excludes the prediction bar. Start in the upper visible half.
+                // Offscreen picker rows can report hittable behind the keyboard.
+                // Include its prediction strip and require the whole row to show.
                 let keyboard = app.keyboards.firstMatch
                 let top = max(app.frame.minY + 80, scroll.frame.minY + 16)
                 let bottom = min(scroll.frame.maxY - 16, app.frame.maxY - 36,
-                    keyboard.exists ? keyboard.frame.minY - 12 : app.frame.maxY)
+                    keyboard.exists ? keyboard.frame.minY - 72 : app.frame.maxY)
                 let frame = target.frame
                 if target.isHittable && frame.minY >= top && frame.maxY <= bottom { break }
                 guard bottom - top > 50 else { break }
@@ -267,6 +269,12 @@ final class LoggerUITests: XCTestCase {
                 origin.withOffset(CGVector(dx: app.frame.width / 2, dy: (upward ? middle : top + 12) - app.frame.minY))
                     .press(forDuration: 0.05, thenDragTo: origin.withOffset(CGVector(dx: app.frame.width / 2,
                         dy: (upward ? top + 12 : middle) - app.frame.minY)))
+            }
+            if inPickerContent {
+                let keyboard = app.keyboards.firstMatch
+                let bottom = min(scroll.frame.maxY - 16, app.frame.maxY - 36,
+                    keyboard.exists ? keyboard.frame.minY - 72 : app.frame.maxY)
+                XCTAssertLessThanOrEqual(target.frame.maxY, bottom, "Covered \(id)", file: file, line: line)
             }
         }
         XCTAssertTrue(target.isHittable, "Unreachable \(id)", file: file, line: line)
