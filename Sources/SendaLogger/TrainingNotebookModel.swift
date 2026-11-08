@@ -300,6 +300,7 @@ public struct TrainingPerformanceReference: Equatable, Sendable {
             state.training!.days[token.day.rawValue]!.rows[token.exerciseID] = rows; state.training!.undo = nil
         }
     }
+    public func dismissError() { errorMessage = nil }
     @discardableResult public func flushRecovery() -> Bool { commit { _ in } }
     private func context(_ state: JournalSnapshot) throws -> (TrainingDay, String) {
         guard let day = state.training!.selectedDay, let id = state.training!.days[day.rawValue]?.selectedExerciseID else { throw TrainingError.missingRow }

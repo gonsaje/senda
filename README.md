@@ -1,86 +1,74 @@
 # Senda
 
-A native iPhone training notebook for the moment between sets. Each set has its own weight and reps row, with lb and kg visible together. No workout setup, account, network service, or cloud dependency.
+A native iPhone training notebook. Browse a week, open a day, and enter individual sets. The app saves locally; no account, network service, backend or cloud dependency.
 
-## Run on iPhone
+## Run
 
-1. Install full Xcode 16 or later with an iOS simulator runtime.
-2. Open **Senda.xcodeproj**, choose an iPhone simulator, and run the **Senda Sample** scheme to explore the notebook with prior performed entries. Sample changes stay in memory and disappear on relaunch.
-3. Use the **Senda** scheme for a real journal with local persistence and automatic recovery. For a physical iPhone, select your development team in Signing & Capabilities and use a unique bundle identifier if needed.
+1. Open **Senda.xcodeproj** in Xcode 16.4 or later with an iOS 17+ simulator.
+2. Run **Senda Sample** for a populated sample week. Sample changes stay in memory.
+3. Run **Senda** for a real journal with automatic local persistence and recovery. Physical-device builds need your development team and signing configuration.
 
-Minimum device version: iOS 17. No third-party dependencies or project-generation step.
+The project has no third-party dependencies or generation step.
 
-## Try the central flow
+## Notebook flow
 
-- Choose an exercise tab in the workout. Use **+** to search the 20 preset exercises or create a named custom exercise; each addition becomes another tab. Tabs keep their chosen order when you record. The quiet date-and-top-set line references the previous performed entry; tapping it opens that entry for correction.
-- Hold a tab and choose **Remove from workout** to hide it. Its history and entered sets remain available when you add it back. Custom exercises and the workout’s tabs recover after reopening.
-- Beneath the exercise name, **PR** shows the heaviest performed set, with reps breaking ties. Tap it to correct its source entry. **Common** shows the most frequently recorded weight and its typical rep range. Both references use recorded history and update after save, correction or undo; they do not change while editing unfinished numbers.
-- Every set shows **lb**, **kg**, and **reps**. Tap either weight value to edit in that unit. The low dock has both unit choices, a scrolling ruler dial, minus/plus, and direct number entry. Drag the ruler horizontally with a finger (or mouse in the Mac preview); a faster release carries it farther. The dial spans zero through the full supported range (10,000 lb / 4,535.9237 kg), with 2.5 lb / 1.25 kg tick steps; typing accepts finer amounts. Switching units alone preserves the exact stored weight.
-- Edit one row without changing the others. **Add set** copies the last row; the minus beside a row removes it. For example, change set 4 from 10 reps to 8 before recording.
-- **Record 4 sets** writes all four ordered sets together. Unfinished numbers recover automatically after reopening, including incomplete input, without being counted as performed work.
-- Logged rows remain directly editable. **Done** saves the correction; **Cancel** restores the recorded entry. Corrections and open previous-entry editors also recover after reopening.
-- **Undo** removes the visible entry, including corrections, and leaves its values ready to record again. **New entry** starts a fresh action; intentional identical entries are allowed, while repeated delivery of the same action is protected.
-- Expand **Compare last entry** after recording to see actual entries and a factual rep difference when every set uses the same load. Unfinished changes do not affect progress.
-
-## Tests and sample
-
-```sh
-bash scripts/test.sh
-swift run senda-sample
-```
-
-The unit test script uses Swift Testing and supports standalone Command Line Tools. In a restricted build environment, pass writable cache locations and `--disable-sandbox` as needed. In Xcode, open `Package.swift` to run package unit tests. Both application schemes include the `SendaUITests` interaction tests, which run with ⌘U on an iPhone simulator.
-
-With full Xcode installed, run the app build and iPhone interaction tests from Terminal:
-
-```sh
-bash scripts/test-ios.sh
-# Optional compact phone:
-SENDA_SIMULATOR_NAME='iPhone 13 mini' bash scripts/test-ios.sh
-```
-
-The script chooses an installed iOS runtime supported by the selected Xcode, creates a temporary simulator, and deletes only that simulator afterward. Set `SENDA_SIMULATOR_ID` to use an existing simulator instead. Results and screenshots go in ignored `TestResults/`; `SENDA_TEST_RESULTS` overrides that location. Debug persistence tests use separate UUID-named journals without touching a person's journal.
-
-The `iPhone validation` GitHub workflow runs unit tests plus iPhone 16 and iPhone 13 mini UI checks on Xcode 16.4. Test result bundles are retained for seven days. It does not deploy or add a service to the app.
-
-Unit coverage includes atomic batches and snapshots, duplicate actions versus intentional identical entries, ordered set identities through add/remove/correction, targeted undo, version-1 migration, corrupt/future files, failed writes, raw input recovery, per-lift state, Done/Cancel corrections, independent previous-entry editing, expandable workout tabs, custom-name validation and identity, catalog/workout migration and atomic writes, removed-tab recovery, row-specific edits, lb/kg conversion and rounding, full-range dial values, top-set/PR ordering, common-load frequency and typical rep ranges, and committed-only references/comparisons. UI coverage includes row editing, simultaneous units and switching, scrolling weights, keyboard-visible recording, correction/undo, intentional identical entries, relaunch recovery, PR/source-entry editing, preset/custom exercise creation and reopening, and action reachability with large text.
-
-## Structure
-
-| Module | Responsibility |
-| --- | --- |
-| `SendaDomain` | Pure value models, journal commands, action receipts, weight conversion, recoverable workspace values, comparisons |
-| `SendaPersistence` | Main-actor snapshot repository; memory and versioned atomic JSON adapters |
-| `SendaLogger` | Observable screen state, per-lift sessions, row/unit selection, buffered input, editing and recovery |
-| `SendaNotebook` | SwiftUI set rows, thumb dock, weight dial, previous-entry editor, comparison |
-| `App` | iPhone entry point, lifecycle recovery flush, local/sample composition |
-
-The real journal remains at Application Support `Senda/journal-v1.json` so existing installations retain their data. The version-3 file contains the performed journal, recoverable workspace, ordered workout tabs, and custom exercise library in one snapshot. Version-1 and version-2 journals load without rewriting and upgrade on the next write. The original three-tab selection is retained for existing journals. Recovery writes follow each accepted interaction. Record, correction, and undo write their candidate history and matching workspace together, then publish the result. A failed history write leaves committed history unchanged; a recovery-write error retains open edits and offers retry. Unreadable files remain untouched and fail visibly.
-
-Weights remain integer hundredths of a pound; kg uses the exact conversion factor 0.45359237. Only explicit weight edits round back to that canonical precision. Display conversion and unit switching never rewrite untouched weights. Performed sets have stable IDs and 1-based positions; removing a row preserves surviving IDs, and new rows receive new IDs. Action receipts remain consumed after undo. Revision checks reject stale corrections/undo. The app has one main-actor writer; multi-process writers are outside this MVP.
-
-PR and Common are pure projections of the selected exercise's performed history, without a separate statistics store. PR ranks weight before reps and chooses the latest exact tie. Common requires the same weight in at least two performed sets; frequency ties favor the latest occurrence. Its rep range uses the middle half of sorted observations with quartile positions rounded outward to actual rep counts. This limits isolated rep outliers and shows a single count when the range is constant.
+- **Week → Day → Exercise.** A Monday–Sunday list shows each day's performed exercises and set count. Previous/next controls browse weeks. Open any day; **‹ Week** returns to its week. Each day retains its own exercise tabs and selection.
+- Use **+** to browse exercises by muscle group, narrow by equipment, or search across groups. Flat rows show **Added** when already in the day. **Create exercise** accepts a name, muscle group and equipment. Existing unclassified custom exercises remain searchable under Full body / Other.
+- Each set has one weight value and reps. The **lb/kg switch beside Weight** changes the display unit without rounding untouched canonical values. **Last** and **PR** are separate banners. Last is the previous training day's top set; PR ranks performed weight first, then reps. Tap either to open its source day. There is no Common banner.
+- A newly added exercise starts with a blank row. **New set** adds another blank row and focuses Weight, or Reps for bodyweight exercises. No zero-weight batch is prefilled.
+- Tap a value to edit. **Next** moves Weight → Reps within the row. **Done**, another row, another exercise, navigation or backgrounding finishes the edit. A weighted set needs a weight and 1–999 reps; bodyweight needs reps alone. Explicit zero weight is allowed.
+- A complete row counts when editing finishes. Incomplete rows are retained without counting. Existing performed values remain committed while editing; finishing an incomplete correction unrecords that set while retaining the editable row. Completing it later uses a fresh performed identity. Ordinary valid corrections retain set IDs.
+- There is no Record button and no completion checkbox. Recovery saves accepted input immediately. An abruptly interrupted edit reopens with its partial input; it is not silently recorded on launch.
+- The low numeric editor supports Next, Done and minus/plus. For weight, its keyboard/ruler button switches to a finger-draggable full-range dial. The ruler does not scroll while keyboard typing is active.
+- **Repeat last set** copies only the immediately preceding complete row and counts the copy immediately. Identical values are legitimate. **Undo** after repeat removes that copy; Undo after delete restores the original row and set identity. New edits or navigation clear the older undo action.
+- Hold an exercise tab to **Remove from day**. This hides the tab while retaining its rows and history. The week's totals still reflect actual performed sets.
 
 ## Local preview
-
-Ivory `#F7F3EB`, terracotta `#A94E32`, charcoal `#302720`, expressive serif headings, and tabular numerals. The original canonical logo attachment is unavailable in this workspace, so the small typographic wordmark is temporary.
 
 ```sh
 python3 scripts/preview.py
 ```
 
-Open **http://127.0.0.1:8765** for actual SwiftUI renders that refresh as source changes. Interact with controls in the **Senda — Live preview** Mac window. That window uses its own sample journal in `/tmp/senda-live-preview/`, separate from the iPhone journal. Stop the watcher with Ctrl-C. The browser review serves only preview files on this Mac.
+Open **http://127.0.0.1:8765** for actual SwiftUI renders of Week, Day and Add exercise. Use the **Senda — Live preview** Mac window for interactive controls. It has its own sample journal at `/tmp/senda-weekly-live-preview/journal.json`; the earlier preview journal is left intact. The browser serves only preview files on this Mac.
 
-`docs/previews/` contains actual **macOS-hosted SwiftUI renders at phone dimensions**, not iPhone simulator screenshots. Regenerate on macOS with:
+The visual language uses ivory `#F7F3EB`, terracotta `#A94E32`, charcoal `#302720`, expressive serif titles and aligned tabular numerals. The typographic wordmark is temporary because the canonical logo attachment is unavailable in this workspace.
+
+`docs/previews/` contains macOS-hosted SwiftUI renders at phone dimensions, not iPhone simulator screenshots. Regenerate with:
 
 ```sh
 swift run senda-preview "$PWD/docs/previews"
 ```
 
-## Validation limits and scope
+## Tests
 
-Swift package builds, the domain sample, unit tests, and host SwiftUI renders run without Xcode. This machine lacks full Xcode and the iOS SDK, so iPhone builds and interaction tests require the GitHub workflow or another Xcode installation. Host typechecking does not establish an iOS build. Physical-device signing, VoiceOver, and keyboard ergonomics still need device testing.
+```sh
+bash scripts/test.sh
+swift run senda-sample
+# Full Xcode and an installed iOS runtime:
+bash scripts/test-ios.sh
+SENDA_SIMULATOR_NAME='iPhone 13 mini' bash scripts/test-ios.sh
+```
 
-The normal scheme persists performed entries and recoverable unfinished work. The sample scheme remains memory-only. There is no cloud, sync, backend, full history browser, workout-template library, scheduling, or global undo stack. Custom exercises are stored locally.
+Unit tests use Swift Testing and work with standalone Mac Command Line Tools. Restricted environments can pass writable cache locations and `--disable-sandbox`. The iPhone script creates and removes only its own temporary simulator; `SENDA_SIMULATOR_ID` can use an existing simulator. Results are in ignored `TestResults/`, or `SENDA_TEST_RESULTS`. Both Xcode schemes include the interaction tests for ⌘U.
 
-Prior planning and architecture documents remain untouched. Implementation notes record the changes without replacing the approved report.
+The GitHub **iPhone validation** workflow runs unit tests and interactions on iPhone 16 and iPhone 13 mini using Xcode 16.4. Debug UI tests use UUID-isolated journals. Result bundles are retained for seven days. The workflow does not deploy a service.
+
+Coverage includes ordered batch/set identities, duplicate-action protection, automatic row boundaries, incomplete recovery, bodyweight requirements, day isolation and summaries, Last/PR projections, date/DST arithmetic, exact lb/kg conversion and unchanged-input echoes, repeat/delete undo, invalid workspace data, custom exercise classification, legacy editor recovery, migrations and failed atomic writes. iPhone flows cover navigation, entry, units, rapid typing, finger dial, recovery, source-day editing, grouped/custom picking, undo and large text.
+
+## Architecture and data
+
+| Module | Responsibility |
+| --- | --- |
+| `SendaDomain` | Journal commands and receipts, individual set operations, validated day/workspace values, classification and conversion |
+| `SendaPersistence` | Main-actor snapshot repository; memory and versioned atomic JSON adapters |
+| `SendaLogger` | Weekly application model, candidate transactions, projections and legacy recovery review; original logger retained for compatibility |
+| `SendaNotebook` | Native week/day/picker views, set rows, banners, numeric input and recovered-entry UI |
+| `App` | Real/sample composition, lifecycle finishing and local-file opening |
+
+The real file stays at Application Support `Senda/journal-v1.json`. Format 4 stores the journal, custom library and weekly workspace in one atomic snapshot. An explicit enabled marker prevents a missing weekly workspace being mistaken for an empty journal. Formats 1–3 load without rewriting; the next accepted interaction writes the upgraded snapshot.
+
+Performed IDs, original dates and consumed action receipts are preserved. Day membership is explicit, so time-zone changes do not relocate saved sets. Undated legacy unfinished sessions move to the migration day's workspace without being counted. Removed-tab sessions remain recoverable. A legacy open group editor or pending recorded correction gets a one-time Done/Cancel review before weekly migration. Input in that review is also recoverable. Old unfinished batches are never automatically recorded during migration.
+
+Weights are integer hundredths of a pound. Kilograms use the exact factor 0.45359237. Display changes and unchanged input events preserve canonical values. New automatically logged rows use one-set batches; existing multi-set batches remain intact. Row commands preserve surviving IDs and reject stale undo/corrections. Failed committed writes publish neither history nor new totals; failed recovery writes retain input and offer retry. Unreadable files remain untouched and fail visibly. The MVP has one main-actor writer.
+
+Approved planning and architecture documents remain unchanged. New implementation notes describe this revision without replacing them. There is no sync, backend, workout-template library or global undo stack. Physical-device signing, VoiceOver and keyboard ergonomics still require device testing; this Mac has Command Line Tools rather than full Xcode, so iPhone builds run through the workflow or another Xcode installation.

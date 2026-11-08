@@ -29,9 +29,9 @@ figure{margin:0;width:min(100%,393px)}figcaption{margin:0 0 10px;font-size:13px}
 small{font-size:12px}#status{float:right;font-size:12px}</style></head><body>
 <header><span id="status">Updating…</span><h1>senda</h1><p>Live preview — updates as I work.</p>
 <small>Actual SwiftUI screen, rendered on this Mac at phone size. For interactive controls, use the “Senda — Live preview” window.</small></header>
-<main><figure><figcaption>Entry</figcaption><img data-file="senda-draft.png"></figure>
-<figure><figcaption>Individual sets</figcaption><img data-file="senda-exception.png"></figure>
-<figure><figcaption>Logged entry</figcaption><img data-file="senda-recorded.png"></figure></main>
+<main><figure><figcaption>Week</figcaption><img data-file="senda-week.png"></figure>
+<figure><figcaption>Day</figcaption><img data-file="senda-day.png"></figure>
+<figure><figcaption>Add exercise</figcaption><img data-file="senda-picker.png"></figure></main>
 <script>let previous='';async function refresh(){try{let s=await(await fetch('/status.json',{cache:'no-store'})).json();
 document.querySelector('#status').textContent=s.building?'Updating preview…':'Preview ready';
 let stamp=JSON.stringify(s.files);if(stamp!==previous){previous=stamp;document.querySelectorAll('img').forEach(i=>{let f=i.dataset.file;if(s.files[f])i.src='/'+f+'?v='+s.files[f]})}}catch(e){}}

@@ -81,7 +81,9 @@ public struct TrainingWorkspace: Codable, Equatable, Sendable {
     }
     public func validated(against journal: Journal, exercises: [Exercise]) throws -> TrainingWorkspace {
         let known = Set(exercises.map(\.id) + journal.batches.map(\.exerciseID))
-        let sets = Dictionary(uniqueKeysWithValues: journal.batches.flatMap { batch in batch.sets.map { ($0.id, batch.exerciseID) } })
+        let samples = journal.batches.flatMap { batch in batch.sets.map { ($0.id, (batch.exerciseID, $0.values)) } }
+        guard Set(samples.map { $0.0 }).count == samples.count else { throw TrainingError.invalidWorkspace }
+        let sets = Dictionary(uniqueKeysWithValues: samples)
         var rowIDs = Set<UUID>(), links = Set<UUID>(), actions = Set<UUID>()
         guard try visibleWeek.week().first == visibleWeek else { throw TrainingError.invalidWorkspace }
         for (key, day) in days {
@@ -95,9 +97,16 @@ public struct TrainingWorkspace: Codable, Equatable, Sendable {
                     guard rowIDs.insert(row.id).inserted, actions.insert(row.actionID).inserted,
                           row.weight.count <= 64, row.reps.count <= 64, row.unit == day.unit,
                           row.canonicalWeight.map(NumericField.weight.range.contains) ?? true else { throw TrainingError.invalidWorkspace }
-                    if let id = row.performedSetID {
-                        guard sets[id] == exercise, links.insert(id).inserted else { throw TrainingError.invalidWorkspace }
+                    if !row.weightIsDirty && !row.weight.isEmpty {
+                        guard let canonical = row.canonicalWeight, row.weight == row.unit.text(for: canonical) else { throw TrainingError.invalidWorkspace }
                     }
+                    if let id = row.performedSetID {
+                        guard sets[id]?.0 == exercise, links.insert(id).inserted else { throw TrainingError.invalidWorkspace }
+                        if focus?.rowID != row.id {
+                            let description = exercises.first { $0.id == exercise } ?? Exercise(id: exercise, name: exercise, shortName: exercise, startingWeight: 0)
+                            guard row.parsed(for: description) == sets[id]?.1 else { throw TrainingError.invalidWorkspace }
+                        }
+                    } else if journal.hasConsumedAction(row.actionID) { throw TrainingError.invalidWorkspace }
                 }
             }
         }
@@ -106,6 +115,22 @@ public struct TrainingWorkspace: Codable, Equatable, Sendable {
             guard selectedDay == focus.day, focus.field != .sets,
                   let day = days[focus.day.rawValue], day.selectedExerciseID == focus.exerciseID,
                   day.rows[focus.exerciseID]?.contains(where: { $0.id == focus.rowID }) == true else { throw TrainingError.invalidWorkspace }
+        }
+        if let undo {
+            switch undo {
+            case .repeated(let day, let exercise, let rowID):
+                guard let row = days[day.rawValue]?.rows[exercise]?.first(where: { $0.id == rowID }), row.performedSetID != nil else { throw TrainingError.invalidWorkspace }
+            case .deleted(let day, let exercise, let index, let row, let removal):
+                guard let rows = days[day.rawValue]?.rows[exercise], index >= 0, index <= rows.count,
+                      !rowIDs.contains(row.id), !actions.contains(row.actionID), row.unit == days[day.rawValue]?.unit,
+                      row.weight.count <= 64, row.reps.count <= 64 else { throw TrainingError.invalidWorkspace }
+                if let removal {
+                    guard removal.batch.exerciseID == exercise, row.performedSetID == removal.set.id else { throw TrainingError.invalidWorkspace }
+                    var restored = journal
+                    _ = try restored.restoreSet(removal)
+                    _ = try restored.validated()
+                } else if row.performedSetID != nil { throw TrainingError.invalidWorkspace }
+            }
         }
         return self
     }

@@ -24,30 +24,31 @@ struct SendaPreview {
         _ = NSApplication.shared
         NSApp.setActivationPolicy(.prohibited)
         let date = Date()
-        let model = try LoggerModel(repository: MemoryJournalRepository(journal: SampleJournal.make(relativeTo: date)),
-                                    isSample: true, now: { date })
-        try render(model, to: directory.appendingPathComponent("senda-draft.png"))
-        model.beginEditingSets()
-        _ = model.updateEditedSet(at: 3, values: SetValues(weight: 13_500, reps: 8))
-        _ = model.confirmSetEdits()
-        model.selectSet(3, field: .weight, unit: .kilograms)
-        try render(model, to: directory.appendingPathComponent("senda-exception.png"))
-        try render(model, to: directory.appendingPathComponent("senda-compact.png"), width: 320, height: 568)
-        _ = model.record()
-        try render(model, to: directory.appendingPathComponent("senda-recorded.png"))
-        print("Rendered the actual SwiftUI notebook and compact-phone check to \(directory.path).")
+        let model = try TrainingNotebookModel(repository: MemoryJournalRepository(journal: SampleJournal.makeWeek(relativeTo: date)), isSample: true, now: { date })
+        try render(TrainingNotebookView(model: model), to: directory.appendingPathComponent("senda-week.png"))
+        _ = model.openDay(model.today)
+        _ = model.addExercise("cable-row")
+        _ = model.selectExercise("bench")
+        try render(TrainingNotebookView(model: model), to: directory.appendingPathComponent("senda-day.png"))
+        try render(TrainingNotebookView(model: model), to: directory.appendingPathComponent("senda-draft.png"))
+        try render(TrainingExercisePicker(model: model, close: {}), to: directory.appendingPathComponent("senda-picker.png"))
+        try render(TrainingNotebookView(model: model), to: directory.appendingPathComponent("senda-compact.png"), width: 320, height: 568)
+        _ = model.repeatLastSet()
+        try render(TrainingNotebookView(model: model), to: directory.appendingPathComponent("senda-exception.png"))
+        try render(TrainingNotebookView(model: model), to: directory.appendingPathComponent("senda-recorded.png"))
+        print("Rendered actual SwiftUI week, day, picker and compact-phone states to \(directory.path).")
     }
 
     private static func openLivePreview() throws {
         _ = NSApplication.shared
         NSApp.setActivationPolicy(.regular)
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("senda-live-preview/journal.json")
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("senda-weekly-live-preview/journal.json")
         let repository = FileJournalRepository(url: url)
         if !FileManager.default.fileExists(atPath: url.path) {
-            try repository.save(SampleJournal.make())
+            try repository.save(SampleJournal.makeWeek())
         }
-        let model = try LoggerModel(repository: repository, isSample: true)
-        let host = NSHostingView(rootView: NotebookView(model: model)
+        let session = TrainingSession(repository: repository, isSample: true)
+        let host = NSHostingView(rootView: TrainingSessionView(session: session)
             .environment(\.colorScheme, .light)
             .frame(minWidth: 320, minHeight: 568))
         let height = max(640, min(820, (NSScreen.main?.visibleFrame.height ?? 890) - 70))
@@ -65,8 +66,8 @@ struct SendaPreview {
         NSApp.run()
     }
 
-    private static func render(_ model: LoggerModel, to url: URL, width: CGFloat = 393, height: CGFloat = 820) throws {
-        let view = NotebookView(model: model)
+    private static func render<Content: View>(_ content: Content, to url: URL, width: CGFloat = 393, height: CGFloat = 820) throws {
+        let view = content
             .frame(width: width, height: height)
             .environment(\.locale, Locale(identifier: "en_US"))
             .environment(\.colorScheme, .light)

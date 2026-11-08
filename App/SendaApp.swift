@@ -15,13 +15,13 @@ struct SendaApp: App {
 
 private struct JournalRootView: View {
     @Environment(\.scenePhase) private var scenePhase
-    @State private var model: LoggerModel?
+    @State private var session: TrainingSession?
     @State private var openingError: String?
 
     var body: some View {
         Group {
-            if let model {
-                NotebookView(model: model)
+            if let session {
+                TrainingSessionView(session: session)
             } else if let openingError {
                 VStack(alignment: .leading, spacing: 20) {
                     Text("Your journal couldn’t be opened.")
@@ -37,9 +37,9 @@ private struct JournalRootView: View {
                 ProgressView("Opening journal…")
             }
         }
-        .task { if model == nil && openingError == nil { openJournal() } }
+        .task { if session == nil && openingError == nil { openJournal() } }
         .onChange(of: scenePhase) { _, phase in
-            if phase != .active { model?.flushRecovery() }
+            if phase != .active { session?.suspend() }
         }
     }
 
@@ -48,7 +48,7 @@ private struct JournalRootView: View {
             let sample = ProcessInfo.processInfo.arguments.contains("--sample-data")
             let repository: any JournalRepository
             if sample {
-                repository = MemoryJournalRepository(journal: try SampleJournal.make())
+                repository = MemoryJournalRepository(journal: try SampleJournal.makeWeek())
             } else {
                 let support = try FileManager.default.url(for: .applicationSupportDirectory,
                     in: .userDomainMask, appropriateFor: nil, create: true)
@@ -62,7 +62,7 @@ private struct JournalRootView: View {
                 #endif
                 repository = FileJournalRepository(url: support.appendingPathComponent(journalPath))
             }
-            model = try LoggerModel(repository: repository, isSample: sample)
+            session = TrainingSession(repository: repository, isSample: sample)
             openingError = nil
         } catch { openingError = error.localizedDescription }
     }

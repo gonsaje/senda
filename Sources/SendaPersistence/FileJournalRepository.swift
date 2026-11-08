@@ -18,6 +18,7 @@ import SendaDomain
         let customExercises: [Exercise]?
         let trainingEnabled: Bool?
         let training: TrainingWorkspace?
+        let legacyBase: EntryWorkspace?
     }
 
     public func loadSnapshot() throws -> JournalSnapshot {
@@ -33,7 +34,7 @@ import SendaDomain
             guard let enabled = envelope.trainingEnabled, enabled == (envelope.training != nil) else { throw StorageError.missingTrainingWorkspace }
         }
         return try JournalSnapshot(journal: envelope.journal, workspace: version == 1 ? nil : envelope.workspace,
-            customExercises: version >= 3 ? envelope.customExercises : nil, training: version == 4 ? envelope.training : nil).validated()
+            customExercises: version >= 3 ? envelope.customExercises : nil, training: version == 4 ? envelope.training : nil, legacyBase: version == 4 ? envelope.legacyBase : nil).validated()
     }
 
     public func saveSnapshot(_ snapshot: JournalSnapshot) throws {
@@ -42,7 +43,7 @@ import SendaDomain
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(Envelope(version: 4, journal: snapshot.journal, workspace: snapshot.workspace,
                                                customExercises: snapshot.customExercises ?? [],
-                                               trainingEnabled: snapshot.training != nil, training: snapshot.training))
+                                               trainingEnabled: snapshot.training != nil, training: snapshot.training, legacyBase: snapshot.legacyBase))
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try writer(data, url)
     }

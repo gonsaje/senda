@@ -174,7 +174,9 @@ public struct JournalSnapshot: Codable, Equatable, Sendable {
     public var workspace: EntryWorkspace?
     public var customExercises: [Exercise]?
     public var training: TrainingWorkspace?
-    public init(journal: Journal = Journal(), workspace: EntryWorkspace? = nil, customExercises: [Exercise]? = nil, training: TrainingWorkspace? = nil) {
+    public var legacyBase: EntryWorkspace?
+    public init(journal: Journal = Journal(), workspace: EntryWorkspace? = nil, customExercises: [Exercise]? = nil, training: TrainingWorkspace? = nil, legacyBase: EntryWorkspace? = nil) {
+        self.legacyBase = legacyBase
         self.training = training
         self.journal = journal; self.workspace = workspace
         self.customExercises = customExercises?.isEmpty == false ? customExercises : nil
@@ -182,7 +184,8 @@ public struct JournalSnapshot: Codable, Equatable, Sendable {
     public func validated() throws -> JournalSnapshot {
         _ = try journal.validated()
         let exercises = try ExerciseLibrary.validated(custom: customExercises ?? [])
-        guard training == nil || workspace == nil else { throw TrainingError.invalidWorkspace }
+        guard (training == nil || (workspace == nil && legacyBase == nil)), (legacyBase == nil || workspace != nil) else { throw TrainingError.invalidWorkspace }
+        _ = try legacyBase?.validated(against: journal, exercises: exercises)
         _ = try workspace?.validated(against: journal, exercises: exercises)
         _ = try training?.validated(against: journal, exercises: exercises)
         var result = self

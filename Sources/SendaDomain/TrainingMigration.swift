@@ -3,6 +3,7 @@ import Foundation
 public extension TrainingWorkspace {
     static func requiresLegacyReview(_ snapshot: JournalSnapshot) -> Bool {
         guard snapshot.training == nil, let old = snapshot.workspace else { return false }
+        if snapshot.legacyBase != nil { return true }
         if old.editor != nil || (old.numberInputDirty && old.selectedField == .sets) { return true }
         return old.sessions.values.contains { if case .editing = $0 { true } else { false } }
     }

@@ -27,6 +27,17 @@ import SendaPersistence
         #expect(try store.loadSnapshot().journal.batches[0].values[0].weight == 14_000)
         #expect(try store.loadSnapshot().workspace?.editor == nil)
     }
+    @Test func reviewInputSurvivesReopeningBeforeConfirmation() throws {
+        let source = try original()
+        let store = try MemoryJournalRepository(snapshot: source)
+        let recovery = try LegacyRecoveryModel(repository: store)
+        let logger = try #require(recovery.logger)
+        logger.typeEditedSet(at: 0, field: .weight, text: "14.")
+        #expect(recovery.flushRecovery())
+        let reopened = try LegacyRecoveryModel(repository: store)
+        #expect(reopened.logger?.editor?.inputs[0].weight == "14.")
+        #expect(try store.loadSnapshot().journal == source.journal)
+    }
     @Test func cancellingRecoveredEditorLeavesPerformedHistoryUntouched() throws {
         let source = try original()
         let store = try MemoryJournalRepository(snapshot: source)

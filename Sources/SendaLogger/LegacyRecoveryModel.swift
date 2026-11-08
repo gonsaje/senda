@@ -16,13 +16,14 @@ import SendaPersistence
         self.repository = repository
         let source = try repository.loadSnapshot().validated()
         guard let workspace = source.workspace else { throw TrainingError.legacyReview }
-        base = workspace
+        base = source.legacyBase ?? workspace
         try prepare(source)
     }
     public var reviewsSetCount: Bool {
         logger?.editor == nil && logger?.selectedField == .sets
     }
     @discardableResult public func accept() -> Bool {
+        if isComplete { return true }
         do {
             guard let memory else { return false }
             var candidate = try memory.loadSnapshot()
@@ -53,11 +54,23 @@ import SendaPersistence
                 case .sets: workspace.numberInputText = String(values.count)
                 }
             }
-            candidate.workspace = workspace
+            candidate.workspace = workspace; candidate.legacyBase = nil
             try repository.saveSnapshot(candidate)
             base = workspace; errorMessage = nil
             try prepare(candidate)
             return true
+        } catch { errorMessage = error.localizedDescription; return false }
+    }
+    @discardableResult public func flushRecovery() -> Bool {
+        if isComplete { return true }
+        do {
+            guard let memory else { return false }
+            var candidate = try memory.loadSnapshot()
+            let persisted = try repository.loadSnapshot()
+            if !TrainingWorkspace.requiresLegacyReview(candidate) || candidate.journal != persisted.journal { return accept() }
+            candidate.legacyBase = base
+            try repository.saveSnapshot(candidate)
+            errorMessage = nil; return true
         } catch { errorMessage = error.localizedDescription; return false }
     }
     @discardableResult public func discard() -> Bool {
@@ -72,9 +85,15 @@ import SendaPersistence
             isComplete = true; logger = nil; return
         }
         if workspace.editor == nil && !(workspace.numberInputDirty && workspace.selectedField == .sets) {
-            let pending = workspace.sessions.keys.sorted().first {
-                if case .editing = workspace.sessions[$0]! { true } else { false }
-            }!
+            let pending = { () -> String? in
+                if case .editing = workspace.sessions[workspace.selectedExerciseID]! { return workspace.selectedExerciseID }
+                return workspace.sessions.keys.sorted().first { if case .editing = workspace.sessions[$0]! { true } else { false } }
+            }()
+            guard let pending else {
+                memory = try MemoryJournalRepository(snapshot: source)
+                logger = try LoggerModel(repository: memory!)
+                _ = accept(); return
+            }
             if pending != workspace.selectedExerciseID {
                 workspace.selectedExerciseID = pending; workspace.selectedField = .weight; workspace.selectedSetIndex = nil
                 if case .editing(let edit) = workspace.sessions[pending]! {

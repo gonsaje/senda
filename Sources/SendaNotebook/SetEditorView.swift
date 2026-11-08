@@ -4,6 +4,8 @@ import SendaLogger
 
 struct SetEditorView: View {
     @Bindable var model: LoggerModel
+    var onCancel: (() -> Void)? = nil
+    var onConfirm: (() -> Void)? = nil
     private var targetDate: Date? {
         let id: UUID
         switch model.editor?.source {
@@ -50,7 +52,7 @@ struct SetEditorView: View {
         .background(NotebookStyle.ivory).foregroundStyle(NotebookStyle.ink)
         .safeAreaInset(edge: .top, spacing: 0) {
             HStack {
-                Button("Cancel") { model.cancelSetEdits() }.frame(minHeight: 44).accessibilityIdentifier("cancel-set-edits")
+                Button("Cancel") { if let onCancel { onCancel() } else { model.cancelSetEdits() } }.frame(minHeight: 44).accessibilityIdentifier("cancel-set-edits")
                 Spacer()
                 VStack(alignment: .trailing, spacing: 2) {
                     Text(model.exercise.name).font(.system(size: 23, weight: .regular, design: .serif).italic())
@@ -59,7 +61,7 @@ struct SetEditorView: View {
             }.padding(.horizontal, 24).padding(.top, 8).background(NotebookStyle.ivory)
         }
         .safeAreaInset(edge: .bottom) {
-            RecordButton(title: "Done") { model.confirmSetEdits() }
+            RecordButton(title: "Done") { if model.confirmSetEdits() { onConfirm?() } }
                 .disabled(!model.canConfirmSetEdits).opacity(model.canConfirmSetEdits ? 1 : 0.45)
                 .accessibilityIdentifier("confirm-set-edits")
                 .padding(.horizontal, 24).padding(.vertical, 12).background(NotebookStyle.ivory)

@@ -4,6 +4,7 @@ import SendaLogger
 
 struct NumericDock: View {
     @Bindable var model: LoggerModel
+    var onComplete: (() -> Void)? = nil
     @FocusState private var typing: Bool
     private var field: NumericField { model.selectedField }
     var body: some View {
@@ -23,7 +24,7 @@ struct NumericDock: View {
                 } else { Text(field.label).font(.caption).foregroundStyle(NotebookStyle.quiet) }
                 Spacer(minLength: 4)
                 if model.isEditingRecorded {
-                    Button("Cancel") { model.cancelEditing(); typing = false }.font(.caption).frame(minHeight: 36)
+                    Button("Cancel") { model.cancelEditing(); typing = false; onComplete?() }.font(.caption).frame(minHeight: 36)
                         .accessibilityIdentifier("cancel-entry-changes")
                 } else {
                     if typing || !model.numberInputIsValid {
@@ -53,7 +54,7 @@ struct NumericDock: View {
                     .font(.caption).foregroundStyle(NotebookStyle.clay)
             }
             RecordButton(title: model.isEditingRecorded ? "Done" : "Record \(model.recordSetCount) \(model.recordSetCount == 1 ? "set" : "sets")") {
-                if model.isEditingRecorded { if model.finishEditing() { typing = false } }
+                if model.isEditingRecorded { if model.finishEditing() { typing = false; onComplete?() } }
                 else if model.record() { typing = false }
             }
             .disabled(!model.numberInputIsValid).opacity(model.numberInputIsValid ? 1 : 0.45)
@@ -75,7 +76,7 @@ struct NumericDock: View {
             .accessibilityIdentifier(increasing ? "dock-increase" : "dock-decrease")
     }
     private func finish() {
-        if model.isEditingRecorded { if model.finishEditing() { typing = false } }
+        if model.isEditingRecorded { if model.finishEditing() { typing = false; onComplete?() } }
         else if model.closeNumberEditor() { typing = false }
     }
 }
