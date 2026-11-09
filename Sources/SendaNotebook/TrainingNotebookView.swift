@@ -24,10 +24,21 @@ public struct TrainingNotebookView: View {
 
 enum TrainingText {
     static var utc: Calendar { var c = Calendar(identifier: .gregorian); c.timeZone = TimeZone(secondsFromGMT: 0)!; return c }
-    static func date(_ day: TrainingDay, format: String) -> String {
-        let formatter = DateFormatter(); formatter.locale = .current; formatter.calendar = utc; formatter.timeZone = utc.timeZone
+    static func date(_ day: TrainingDay, format: String, locale: Locale = .current) -> String {
+        let formatter = DateFormatter(); formatter.locale = locale; formatter.calendar = utc; formatter.timeZone = utc.timeZone
         formatter.dateFormat = format
         return formatter.string(from: day.date(in: utc))
+    }
+    static func weekMonths(first: TrainingDay, last: TrainingDay, today: TrainingDay, abbreviated: Bool, locale: Locale = .current) -> String {
+        let month = abbreviated ? "LLL" : "LLLL"
+        let firstYear = first.rawValue.prefix(4), lastYear = last.rawValue.prefix(4)
+        if first.rawValue.prefix(7) == last.rawValue.prefix(7) {
+            return date(first, format: month + (firstYear == today.rawValue.prefix(4) ? "" : " yyyy"), locale: locale)
+        }
+        if firstYear == lastYear {
+            return date(first, format: month, locale: locale) + " – " + date(last, format: month + (lastYear == today.rawValue.prefix(4) ? "" : " yyyy"), locale: locale)
+        }
+        return date(first, format: month + " yyyy", locale: locale) + " – " + date(last, format: month + " yyyy", locale: locale)
     }
     static func set(_ values: SetValues, unit: WeightUnit) -> String { "\(unit.text(for: values.weight)) \(unit.symbol) × \(values.reps)" }
 }
@@ -42,18 +53,7 @@ struct TrainingWeekView: View {
             VStack(alignment: .leading, spacing: 22) {
                 TrainingWordmark()
                 Text("Your week").font(NotebookTypography.heading(37))
-                HStack {
-                    Button { model.changeWeek(-1) } label: { Image(systemName: "chevron.left").frame(width: 44, height: 44) }
-                        .accessibilityLabel("Previous week").accessibilityIdentifier("previous-week")
-                    Spacer(minLength: 0)
-                    if let last = model.weekDays.last {
-                        Text("\(TrainingText.date(model.workspace.visibleWeek, format: "MMM d"))–\(TrainingText.date(last, format: String(model.workspace.visibleWeek.rawValue.prefix(7)) == String(last.rawValue.prefix(7)) ? "d" : "MMM d"))")
-                            .font(.title3.weight(.semibold)).accessibilityIdentifier("week-range")
-                    }
-                    Spacer(minLength: 0)
-                    Button { model.changeWeek(1) } label: { Image(systemName: "chevron.right").frame(width: 44, height: 44) }
-                        .accessibilityLabel("Next week").accessibilityIdentifier("next-week")
-                }.foregroundStyle(NotebookStyle.ink)
+                TrainingWeekNavigation(model: model)
                 VStack(spacing: 0) {
                     Rectangle().fill(NotebookStyle.rule).frame(height: 0.5)
                     ForEach(model.weekDays, id: \.self) { day in
@@ -86,7 +86,12 @@ struct TrainingWeekView: View {
                 }
                 Text("\(model.trainingDayCount) training days · \(model.weekSetCount) sets")
                     .font(.body).foregroundStyle(NotebookStyle.quiet).accessibilityIdentifier("week-summary")
-                if let error = model.errorMessage { TrainingSaveError(model: model, message: error) }
+                if let error = model.errorMessage {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(error).foregroundStyle(NotebookStyle.clay)
+                        Text("Try the same action again.").foregroundStyle(NotebookStyle.quiet)
+                    }.font(.callout)
+                }
             }
             .padding(.horizontal, 24).padding(.vertical, 24).frame(maxWidth: 560).frame(maxWidth: .infinity)
             .disabled(swipe.isHorizontal)

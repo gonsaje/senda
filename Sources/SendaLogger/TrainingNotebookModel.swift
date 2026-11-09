@@ -164,6 +164,13 @@ public struct TrainingPerformanceReference: Equatable, Sendable {
         revealRowID = nil
         return commit { state in try finalize(&state); state.training!.selectedDay = nil; state.training!.undo = nil }
     }
+    @discardableResult public func showCurrentWeek() -> Bool {
+        commit { state in
+            try finalize(&state)
+            state.training!.visibleWeek = try today.week()[0]
+            state.training!.selectedDay = nil; state.training!.undo = nil
+        }
+    }
     @discardableResult public func changeWeek(_ direction: Int) -> Bool {
         commit { state in
             try finalize(&state)
