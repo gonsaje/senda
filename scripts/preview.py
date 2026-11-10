@@ -29,14 +29,52 @@ figure{margin:0;width:min(100%,393px)}figcaption{margin:0 0 10px;font-size:13px}
 small{font-size:12px}#status{float:right;font-size:12px}</style></head><body>
 <header><span id="status">Updating…</span><h1>senda</h1><p>Live preview — updates as I work.</p>
 <small>Actual SwiftUI screen, rendered on this Mac at phone size. For interactive controls, use the “Senda — Live preview” window.</small></header>
-<main><figure><figcaption>Week</figcaption><img data-file="senda-week.png"></figure>
+<main><figure><figcaption>Exercise picker · search and results first</figcaption><img data-file="senda-picker-refined.png"></figure>
+<figure><figcaption>Exercise picker · compact</figcaption><img data-file="senda-picker-refined-compact.png"></figure>
+<figure><figcaption>Active filters · removable</figcaption><img data-file="senda-picker-filtered.png"></figure>
+<figure><figcaption>Multiple exercises · workout order</figcaption><img data-file="senda-picker-multiple.png"></figure>
+<figure><figcaption>Profile · details and settings</figcaption><img data-file="senda-profile-complete-compact.png"></figure>
+<figure><figcaption>Workout · revised hierarchy</figcaption><img data-file="senda-ux-working.png"></figure>
+<figure><figcaption>Workout · compact phone</figcaption><img data-file="senda-ux-working-compact.png"></figure>
+<figure><figcaption>Drop set · one entry, multiple stages</figcaption><img data-file="senda-ux-drop.png"></figure>
+<figure><figcaption>Drop set · saved history</figcaption><img data-file="senda-ux-drop-history.png"></figure>
+<figure><figcaption>Learn · form cues first</figcaption><img data-file="senda-ux-learn.png"></figure>
+<figure><figcaption>Set type</figcaption><img data-file="senda-set-type-default.png"></figure>
+<figure><figcaption>Set type choices</figcaption><img data-file="senda-set-type-picker.png"></figure>
+<figure><figcaption>Working, Warm-up &amp; Drop</figcaption><img data-file="senda-set-types.png"></figure>
+<figure><figcaption>Set type · compact</figcaption><img data-file="senda-set-type-default-compact.png"></figure>
+<figure><figcaption>Sets · save while editing</figcaption><img data-file="senda-autosave-editing.png"></figure>
+<figure><figcaption>Sets · compact</figcaption><img data-file="senda-autosave-saved-compact.png"></figure>
+<figure><figcaption>Incomplete value · saved input</figcaption><img data-file="senda-autosave-needs-value.png"></figure>
+<figure><figcaption>Learn · visual library</figcaption><img data-file="senda-learn.png"></figure>
+<figure><figcaption>Exercise form &amp; muscles</figcaption><img data-file="senda-learn-bench-full.png"></figure>
+<figure><figcaption>Muscles · back &amp; legs</figcaption><img data-file="senda-learn-deadlift-full.png"></figure>
+<figure><figcaption>Learn · compact layout</figcaption><img data-file="senda-learn-bench-compact-full.png"></figure>
+<figure><figcaption>Week</figcaption><img data-file="senda-week.png"></figure>
+<figure><figcaption>Workout plan &amp; recorded sets</figcaption><img data-file="senda-plan-day-full.png"></figure>
+<figure><figcaption>Exercise plan</figcaption><img data-file="senda-plan-editor.png"></figure>
+<figure><figcaption>Set type &amp; reps left</figcaption><img data-file="senda-set-details-editor.png"></figure>
+<figure><figcaption>Next workout · build reps</figcaption><img data-file="senda-next-build-reps.png"></figure>
+<figure><figcaption>Trends overview</figcaption><img data-file="senda-trends.png"></figure>
+<figure><figcaption>Trends · full page</figcaption><img data-file="senda-trends-full.png"></figure>
+<figure><figcaption>Trends · compact</figcaption><img data-file="senda-trends-compact.png"></figure>
+<figure><figcaption>Trends · no recorded sets</figcaption><img data-file="senda-trends-empty-compact.png"></figure>
 <figure><figcaption>Day</figcaption><img data-file="senda-day.png"></figure>
 <figure><figcaption>Profile</figcaption><img data-file="senda-profile.png"></figure>
 <figure><figcaption>Learn</figcaption><img data-file="senda-learn.png"></figure>
 <figure><figcaption>Exercise form</figcaption><img data-file="senda-form-guide.png"></figure>
 <figure><figcaption>Day exercises</figcaption><img data-file="senda-day-exercises.png"></figure>
 <figure><figcaption>Add exercise</figcaption><img data-file="senda-picker.png"></figure>
-<figure><figcaption>Weight editor</figcaption><img data-file="senda-dial.png"></figure></main>
+<figure><figcaption>Weight editor</figcaption><img data-file="senda-dial.png"></figure>
+<figure><figcaption>Last values as a draft</figcaption><img data-file="senda-next-set-values.png"></figure>
+<figure><figcaption>Reuse a previous workout</figcaption><img data-file="senda-workout-reuse.png"></figure>
+<figure><figcaption>Hidden recorded exercises</figcaption><img data-file="senda-hidden-exercises.png"></figure>
+<figure><figcaption>Settings &amp; backup</figcaption><img data-file="senda-settings-backup.png"></figure>
+<figure><figcaption>Your details</figcaption><img data-file="senda-profile-details.png"></figure>
+<figure><figcaption>Validated backup summary</figcaption><img data-file="senda-backup-review.png"></figure>
+<figure><figcaption>Exercise progress</figcaption><img data-file="senda-progress-exercises.png"></figure>
+<figure><figcaption>12-week exercise trend</figcaption><img data-file="senda-progress-bench.png"></figure>
+<figure><figcaption>Bodyweight progress</figcaption><img data-file="senda-progress-bodyweight.png"></figure></main>
 <script>let previous='';async function refresh(){try{let s=await(await fetch('/status.json',{cache:'no-store'})).json();
 document.querySelector('#status').textContent=s.building?'Updating preview…':'Preview ready';
 let stamp=JSON.stringify(s.files);if(stamp!==previous){previous=stamp;document.querySelectorAll('img').forEach(i=>{let f=i.dataset.file;if(s.files[f])i.src='/'+f+'?v='+s.files[f]})}}catch(e){}}
@@ -64,7 +102,7 @@ threading.Thread(target=server.serve_forever, daemon=True).start()
 print('Browser preview: http://127.0.0.1:8765', flush=True)
 
 def fingerprint():
-    paths = [root / 'Package.swift', *sorted((root / 'Sources').rglob('*.swift'))]
+    paths = [root / 'Package.swift', *sorted(p for p in (root / 'Sources').rglob('*') if p.is_file())]
     return tuple((str(p), p.stat().st_mtime_ns, p.stat().st_size) for p in paths)
 
 try:
