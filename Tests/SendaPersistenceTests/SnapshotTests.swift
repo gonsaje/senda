@@ -41,7 +41,7 @@ struct SnapshotTests {
         #expect(try Data(contentsOf: url) == bytes)
         try store.saveSnapshot(JournalSnapshot(journal: journal, workspace: workspace()))
         let object = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
-        #expect(object["version"] as? Int == 4)
+        #expect(object["version"] as? Int == 7)
         var reloaded = try store.loadSnapshot().journal
         _ = try reloaded.record(request, at: Date())
         #expect(reloaded.batches.count == 1, "Migration retains action receipts")

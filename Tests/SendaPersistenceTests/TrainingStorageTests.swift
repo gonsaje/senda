@@ -11,7 +11,7 @@ import SendaDomain
             exerciseIDs: ["bench"], selectedExerciseID: "bench", rows: ["bench": [TrainingRow(weight: "31.", reps: "", unit: .pounds, weightIsDirty: true)]]
         )])
     }
-    @Test func formatFourPersistsIncompleteRowsAndJournalOnlySavesRetainThem() throws {
+    @Test func formatSevenPersistsIncompleteRowsAndJournalOnlySavesRetainThem() throws {
         let url = location(); defer { try? FileManager.default.removeItem(at: url) }
         let repository = FileJournalRepository(url: url)
         let snapshot = JournalSnapshot(training: workspace())
@@ -20,7 +20,7 @@ import SendaDomain
         try repository.save(Journal())
         #expect(try repository.loadSnapshot().training == snapshot.training)
         let data = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
-        #expect(data["version"] as? Int == 4)
+        #expect(data["version"] as? Int == 7)
         #expect(data["trainingEnabled"] as? Bool == true)
     }
     @Test func missingEnabledWorkspaceIsRejectedWithoutRewriting() throws {
@@ -43,4 +43,19 @@ import SendaDomain
         #expect(throws: (any Error).self) { try failing.saveSnapshot(JournalSnapshot(training: workspace())) }
         #expect(try Data(contentsOf: url) == bytes)
     }
+    @Test func pendingCorrectionPersistsAfterFocusClearsWithoutChangingJournal() throws {
+        let url = location(); defer { try? FileManager.default.removeItem(at: url) }
+        let repository = FileJournalRepository(url: url)
+        var journal = Journal()
+        let set = try journal.record(DraftBatch(exerciseID: "bench", sets: [SetValues(weight: 13_500, reps: 10)]), at: Date()).sets[0]
+        var training = workspace()
+        training.days[day.rawValue]!.rows["bench"] = [TrainingRow(weight: "31.", reps: "10", unit: .pounds,
+            canonicalWeight: 13_500, weightIsDirty: true, performedSetID: set.id, pendingCorrection: true)]
+        let snapshot = JournalSnapshot(journal: journal, training: training)
+        try repository.saveSnapshot(snapshot)
+        let loaded = try repository.loadSnapshot()
+        #expect(loaded == snapshot && loaded.journal == journal && loaded.training?.focus == nil)
+        #expect(loaded.training?.days[day.rawValue]?.rows["bench"]?.first?.pendingCorrection == true)
+    }
+
 }
