@@ -11,12 +11,18 @@ public struct TrainingSessionView: View {
                 LegacyTrainingRecoveryView(recovery: recovery, finished: session.open)
             } else if let model = session.notebook { TrainingNotebookView(model: model) }
             else {
-                VStack(alignment: .leading, spacing: 20) {
-                    Text("Your notebook couldn’t be opened.").font(.system(.largeTitle, design: .serif))
-                    Text(session.openingError ?? "Try opening it again.")
-                    Text("Your saved file has been left untouched.").font(.callout)
-                    Button("Try again", action: session.open).frame(minHeight: 44)
-                }.padding(28).frame(maxWidth: .infinity, maxHeight: .infinity)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 20) {
+                        Text("Your notebook couldn’t be opened.").font(NotebookTypography.heading(31)).accessibilityAddTraits(.isHeader)
+                        Text(session.openingError ?? "Try opening it again.")
+                        Text("Your saved file has been preserved. Save a copy before restoring a backup.").font(.callout)
+                        Button("Try again", action: session.open).frame(minHeight: 44)
+                        NotebookBackupTools(previousBackup: { try session.previousBackupData() },
+                            previousOriginalFiles: { try session.previousOriginalFilesData() },
+                            originalJournal: { try session.originalJournalData() },
+                            restore: { archive in session.restoreBackup(archive) ? nil : session.backupErrorMessage ?? "Could not restore the backup." })
+                    }.padding(28).frame(maxWidth: 560).frame(maxWidth: .infinity)
+                }
             }
         }.background(NotebookStyle.ivory).foregroundStyle(NotebookStyle.ink).tint(NotebookStyle.clay).buttonStyle(.plain)
     }

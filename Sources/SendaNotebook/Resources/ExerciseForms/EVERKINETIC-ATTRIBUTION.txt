@@ -1,0 +1,10 @@
+Everkinetic exercise illustrations
+Creator: Greg Priday / Everkinetic
+Source: https://github.com/everkinetic/data
+Source revision: 446bb9a3d0c3beb6b84f7c9d77dfc8af707a2ab6
+License: Creative Commons Attribution-ShareAlike 4.0 International (CC BY-SA 4.0)
+License URL: https://creativecommons.org/licenses/by-sa/4.0/
+Full license: EVERKINETIC-LICENSE.md in the same bundle.
+Changes: Original PNGs are redistributed without pixel changes. Filenames changed for bundling.
+No endorsement by Greg Priday, Everkinetic or Creative Commons is implied.
+Exact source files and checksums: EVERKINETIC-MANIFEST.json in the same bundle.

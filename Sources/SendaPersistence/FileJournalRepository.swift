@@ -27,21 +27,21 @@ import SendaDomain
         catch let error as CocoaError where error.code == .fileReadNoSuchFile { return JournalSnapshot() }
         let decoder = JSONDecoder()
         let version = try decoder.decode(Header.self, from: data).version
-        guard (1...4).contains(version) else { throw StorageError.unsupportedVersion(version) }
+        guard (1...7).contains(version) else { throw StorageError.unsupportedVersion(version) }
         let envelope = try decoder.decode(Envelope.self, from: data)
         if version >= 3, envelope.customExercises == nil { throw StorageError.missingExerciseLibrary }
-        if version == 4 {
+        if version >= 4 {
             guard let enabled = envelope.trainingEnabled, enabled == (envelope.training != nil) else { throw StorageError.missingTrainingWorkspace }
         }
         return try JournalSnapshot(journal: envelope.journal, workspace: version == 1 ? nil : envelope.workspace,
-            customExercises: version >= 3 ? envelope.customExercises : nil, training: version == 4 ? envelope.training : nil, legacyBase: version == 4 ? envelope.legacyBase : nil).validated()
+            customExercises: version >= 3 ? envelope.customExercises : nil, training: version >= 4 ? envelope.training : nil, legacyBase: version >= 4 ? envelope.legacyBase : nil).validated()
     }
 
     public func saveSnapshot(_ snapshot: JournalSnapshot) throws {
         let snapshot = try snapshot.validated()
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let data = try encoder.encode(Envelope(version: 4, journal: snapshot.journal, workspace: snapshot.workspace,
+        let data = try encoder.encode(Envelope(version: 7, journal: snapshot.journal, workspace: snapshot.workspace,
                                                customExercises: snapshot.customExercises ?? [],
                                                trainingEnabled: snapshot.training != nil, training: snapshot.training, legacyBase: snapshot.legacyBase))
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)

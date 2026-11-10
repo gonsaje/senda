@@ -2,6 +2,12 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# Respect an explicit Xcode choice; use the standard installation when only
+# standalone Command Line Tools are selected on a newly configured Mac.
+if [[ -z "${DEVELOPER_DIR:-}" && -d /Applications/Xcode.app/Contents/Developer ]] && ! xcodebuild -version >/dev/null 2>&1; then
+    export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
+fi
+
 if ! xcodebuild -version >/dev/null 2>&1 || ! xcrun --find simctl >/dev/null 2>&1; then
     echo "iPhone tests require full Xcode and an installed iOS simulator runtime." >&2
     exit 1
@@ -61,4 +67,5 @@ xcodebuild test \
     -derivedDataPath "$result_root/DerivedData" \
     -resultBundlePath "$result_root/Senda.xcresult" \
     -parallel-testing-enabled NO \
-    CODE_SIGNING_ALLOWED=NO
+    CODE_SIGNING_ALLOWED=NO \
+    "$@"

@@ -1,0 +1,44 @@
+{
+	"configurations": [
+		{
+			"type": "swift",
+			"request": "launch",
+			"args": [],
+			"cwd": "${workspaceFolder:senda}",
+			"name": "Debug senda-sample",
+			"target": "senda-sample",
+			"configuration": "debug",
+			"preLaunchTask": "swift: Build Debug senda-sample"
+		},
+		{
+			"type": "swift",
+			"request": "launch",
+			"args": [],
+			"cwd": "${workspaceFolder:senda}",
+			"name": "Release senda-sample",
+			"target": "senda-sample",
+			"configuration": "release",
+			"preLaunchTask": "swift: Build Release senda-sample"
+		},
+		{
+			"type": "swift",
+			"request": "launch",
+			"args": [],
+			"cwd": "${workspaceFolder:senda}",
+			"name": "Debug senda-preview",
+			"target": "senda-preview",
+			"configuration": "debug",
+			"preLaunchTask": "swift: Build Debug senda-preview"
+		},
+		{
+			"type": "swift",
+			"request": "launch",
+			"args": [],
+			"cwd": "${workspaceFolder:senda}",
+			"name": "Release senda-preview",
+			"target": "senda-preview",
+			"configuration": "release",
+			"preLaunchTask": "swift: Build Release senda-preview"
+		}
+	]
+}
