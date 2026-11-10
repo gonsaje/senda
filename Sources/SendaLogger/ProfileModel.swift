@@ -13,6 +13,9 @@ import SendaPersistence
         do { details = try repository.load().validated(); openingError = nil; errorMessage = nil }
         catch { openingError = error.localizedDescription }
     }
+    @discardableResult public func saveName(_ name: String) -> Bool {
+        save(name: name, email: details.email)
+    }
     @discardableResult public func save(name: String, email: String) -> Bool {
         guard openingError == nil else { errorMessage = openingError; return false }
         do {

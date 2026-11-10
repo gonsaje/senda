@@ -116,7 +116,8 @@ import SendaPersistence
         let m = try model()
         #expect(m.openDay(day)); #expect(m.addExercise("bench"))
         try enter(m, weight: "135", reps: "10")
-        #expect(m.loggedSetCount(for: "bench", on: day) == 0)
+        #expect(m.loggedSetCount(for: "bench", on: day) == 1)
+        #expect(m.focus?.field == .reps)
         #expect(m.finishEditing())
         #expect(m.newSet())
         #expect(m.loggedSetCount(for: "bench", on: day) == 1)
@@ -173,13 +174,17 @@ import SendaPersistence
         #expect(m.summary(for: day).setCount == 2)
     }
 
-    @Test func completeRowsCountOnlyWhenEditingFinishesAndRemainDaySpecific() throws {
+    @Test func completeRowsCountImmediatelyWhileEditingAndRemainDaySpecific() throws {
         let m = try model()
         #expect(m.openDay(day)); #expect(m.addExercise("bench"))
         #expect(m.rows.count == 1 && m.rows[0].weight.isEmpty && m.rows[0].reps.isEmpty)
         try enter(m, weight: "135", reps: "10")
-        #expect(m.summary(for: day).setCount == 0)
+        #expect(m.summary(for: day).setCount == 1)
+        let row = try #require(m.rows.first), focus = try #require(m.focus)
+        #expect(row.performedSetID != nil && m.rowStatus(for: row) == .recorded)
+        #expect(focus.rowID == row.id && focus.field == .reps)
         #expect(m.finishEditing())
+        #expect(m.rows[0].performedSetID == row.performedSetID && m.focus == nil)
         #expect(m.summary(for: day).setCount == 1)
         let yesterday = try day.adding(days: -1)
         #expect(m.openDay(yesterday))
@@ -218,7 +223,7 @@ import SendaPersistence
         #expect(m.rows[0].performedSetID == first)
         #expect(m.summary(for: day).setCount == 1)
     }
-    @Test func incompleteCorrectionUnrecordsButKeepsInputAndRecompletionIsFresh() throws {
+    @Test func incompleteCorrectionKeepsHistoryAndRecompletionKeepsIdentity() throws {
         let m = try model()
         #expect(m.openDay(day)); #expect(m.addExercise("bench"))
         try enter(m, weight: "1", reps: "10"); #expect(m.finishEditing())
@@ -226,10 +231,11 @@ import SendaPersistence
         #expect(m.selectInput(row.id, field: .weight))
         m.typeInput("", focus: try #require(m.focus))
         #expect(m.finishEditing())
-        #expect(m.rows[0].id == row.id && m.rows[0].performedSetID == nil)
-        #expect(m.summary(for: day).setCount == 0)
+        #expect(m.rows[0].id == row.id && m.rows[0].performedSetID == original)
+        #expect(m.summary(for: day).setCount == 1)
+        #expect(m.journal.reference(to: original)?.set.values == SetValues(weight: 100, reps: 10))
         try enter(m, weight: "2", reps: "10"); #expect(m.finishEditing())
-        #expect(m.rows[0].performedSetID != original)
+        #expect(m.rows[0].performedSetID == original)
         #expect(m.summary(for: day).setCount == 1)
     }
     @Test func unitSwitchAndEchoPreservePoundsAndOldFocusCallbacksAreIgnored() throws {
@@ -253,22 +259,27 @@ import SendaPersistence
         #expect(m.openDay(day)); #expect(m.addExercise("bench"))
         try enter(m, weight: "200", reps: "5")
         #expect(m.lastReference?.values.weight == 13_500)
-        #expect(m.personalBest?.values.weight == 13_500)
+        #expect(m.personalBest?.values.weight == 20_000)
+        #expect(m.focus?.field == .reps)
         #expect(m.finishEditing())
         #expect(m.personalBest?.values.weight == 20_000)
         #expect(m.lastReference?.values.weight == 13_500)
     }
-    @Test func failedCommitDoesNotPublishHistoryAndCanRetry() throws {
+    @Test func failedEditingClosureKeepsAutomaticallySavedHistoryAndCanRetry() throws {
         let store = TrainingFailureStore()
         let m = try model(store)
         #expect(m.openDay(day)); #expect(m.addExercise("bench"))
         try enter(m, weight: "135", reps: "10")
+        let row = try #require(m.rows.first), saved = try store.loadSnapshot()
+        #expect(m.summary(for: day).setCount == 1 && row.performedSetID != nil)
         store.reject = true
         #expect(!m.finishEditing())
-        #expect(m.journal.batches.isEmpty && m.rows[0].weight == "135")
+        #expect(m.journal == saved.journal && m.rows[0] == row && m.focus != nil)
+        #expect(try store.loadSnapshot() == saved)
         store.reject = false
         #expect(m.finishEditing())
         #expect(m.summary(for: day).setCount == 1)
+        #expect(m.rows[0].performedSetID == row.performedSetID && m.focus == nil)
     }
     @Test func unitSwitchAfterDeletionKeepsUndoAndExactCanonicalValues() throws {
         let m = try model()

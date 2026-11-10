@@ -11,16 +11,18 @@ import SendaPersistence
         #expect(model.selectInput(row.id, field: .weight)); model.typeInput(weight, focus: try #require(model.focus))
         #expect(model.selectInput(row.id, field: .reps)); model.typeInput(reps, focus: try #require(model.focus))
     }
-    @Test func sectionSwitchFinishesValidSetAndKeepsDayContext() throws {
+    @Test func sectionSwitchClosesEditingAndKeepsAutomaticallySavedSetAndDayContext() throws {
         let model = try TrainingNotebookModel(repository: MemoryJournalRepository())
         try enter(model, weight: "135", reps: "10")
-        #expect(model.personalRecords.isEmpty)
-        let day = model.selectedDay
+        #expect(model.personalRecords.first?.reference.values == SetValues(weight: 13_500, reps: 10))
+        let day = model.selectedDay, setID = try #require(model.rows.first?.performedSetID)
+        #expect(model.focus != nil)
         #expect(model.selectSection(.profile))
         #expect(model.section == .profile && model.selectedDay == day && model.focus == nil)
         #expect(model.personalRecords.first?.reference.values == SetValues(weight: 13_500, reps: 10))
         #expect(model.selectSection(.learn)); #expect(model.selectSection(.log))
         #expect(model.rows.count == 1 && model.rows[0].weight == "135")
+        #expect(model.rows[0].performedSetID == setID)
     }
     @Test func unfinishedInputSurvivesSectionSwitchAndReopeningOutsideProgress() throws {
         let store = MemoryJournalRepository()
@@ -32,17 +34,19 @@ import SendaPersistence
         #expect(reopened.rows[0].weight == "31." && reopened.rows[0].reps == "8")
         #expect(reopened.journal.batches.isEmpty)
     }
-    @Test func failedSectionSwitchRetainsFocusAndRetryRecordsOnlyOnce() throws {
+    @Test func failedSectionSwitchRetainsSavedRecordAndFocusThenRetryClosesEditing() throws {
         let store = DockFailureStore()
         let model = try TrainingNotebookModel(repository: store)
         try enter(model, weight: "135", reps: "10")
-        let focus = model.focus
+        let focus = model.focus, saved = try store.loadSnapshot(), setID = model.rows.first?.performedSetID
         store.reject = true
         #expect(!model.selectSection(.profile))
-        #expect(model.section == .log && model.focus == focus && model.personalRecords.isEmpty)
+        #expect(model.section == .log && model.focus == focus)
+        #expect(model.personalRecords.first?.reference.values == SetValues(weight: 13_500, reps: 10))
+        #expect(try store.loadSnapshot() == saved)
         store.reject = false
         #expect(model.selectSection(.profile))
-        #expect(model.journal.batches.count == 1)
+        #expect(model.journal.batches.count == 1 && model.rows.first?.performedSetID == setID && model.focus == nil)
         #expect(model.selectSection(.profile))
         #expect(model.journal.batches.count == 1)
     }
@@ -71,23 +75,26 @@ import SendaPersistence
         #expect(model.personalRecords[0].reference.values.weight == 13_500)
         #expect(try TrainingNotebookModel(repository: store).workspace.preferredUnit == .kilograms)
     }
-    @Test func recordRetryOpensTheSourceInsteadOfOnlyDismissingItsError() throws {
+    @Test func recordRetryOpensReadOnlySourceWithoutMovingTheWorkout() throws {
         let store = DockFailureStore()
         let model = try TrainingNotebookModel(repository: store)
         try enter(model, weight: "135", reps: "10"); #expect(model.finishEditing())
         let sourceDay = model.selectedDay
         let record = try #require(model.personalRecords.first)
-        #expect(model.changeDay(1)); #expect(model.selectSection(.profile))
+        #expect(model.changeDay(1)); #expect(model.addExercise("squat"))
+        let currentDay = model.selectedDay
+        #expect(model.selectInput(try #require(model.rows.first).id, field: .weight))
+        model.typeInput("31.", focus: try #require(model.focus))
         store.reject = true
         #expect(!model.openPersonalRecord(record))
-        #expect(model.section == .profile && model.selectedDay != sourceDay)
+        #expect(!model.isProgressPresented && model.selectedDay == currentDay)
         store.reject = false
         #expect(model.retryProfileAction())
-        #expect(model.section == .log && model.selectedDay == sourceDay)
-        #expect(model.exercise?.id == "bench" && model.journal.batches.count == 1)
+        #expect(model.isProgressPresented && model.selectedDay == currentDay && model.progressSessionDay == sourceDay)
+        #expect(model.exercise?.id == "squat" && model.rows.first?.weight == "31." && model.journal.batches.count == 1)
         #expect(model.errorMessage == nil)
     }
-    @Test func recordDrilldownOpensOriginalSetAndRestoresRemovedTab() throws {
+    @Test func recordDrilldownRestoresRemovedTabOnlyWhenExplicitlyEditing() throws {
         let model = try TrainingNotebookModel(repository: MemoryJournalRepository())
         try enter(model, weight: "135", reps: "10"); #expect(model.finishEditing())
         let record = try #require(model.personalRecords.first)
@@ -95,6 +102,9 @@ import SendaPersistence
         #expect(model.removeExercise("bench"))
         #expect(model.selectSection(.profile))
         #expect(model.openPersonalRecord(record))
+        #expect(model.section == .profile && model.isProgressPresented && model.exercise == nil)
+        #expect(model.progressSetID == record.reference.setID)
+        #expect(model.editRecordedSession(for: "bench", on: try #require(model.progressSessionDay), setID: record.reference.setID))
         #expect(model.section == .log && model.exercise?.id == "bench" && model.revealRowID == rowID)
         #expect(model.rows[0].performedSetID == record.reference.setID)
     }

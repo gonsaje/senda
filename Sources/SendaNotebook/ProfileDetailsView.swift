@@ -2,81 +2,71 @@ import SwiftUI
 import SendaDomain
 import SendaLogger
 
-struct ProfileDetailsView: View {
+public struct ProfileDetailsView: View {
     @Bindable var profile: ProfileModel
     let close: () -> Void
     @State private var name: String
-    @State private var email: String
-    init(profile: ProfileModel, close: @escaping () -> Void) {
+    @FocusState private var nameFocused: Bool
+
+    public init(profile: ProfileModel, close: @escaping () -> Void) {
         self.profile = profile; self.close = close
-        _name = State(initialValue: profile.details.name); _email = State(initialValue: profile.details.email)
+        _name = State(initialValue: profile.details.name)
     }
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                HStack {
-                    Button("Cancel", action: close).frame(minHeight: 44)
-                    Spacer()
-                    Button("Done") { if profile.save(name: name, email: email) { close() } }
-                        .fontWeight(.semibold).frame(minHeight: 44).accessibilityIdentifier("profile-save")
-                }
-                Text("Account details").font(NotebookTypography.heading(31))
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Name").font(.subheadline).foregroundStyle(NotebookStyle.quiet)
-                    TextField("Your name", text: $name).textContentType(.name).frame(minHeight: 44)
-                        .accessibilityIdentifier("profile-name")
-                    Rectangle().fill(NotebookStyle.rule).frame(height: 0.5)
-                }
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Email · optional").font(.subheadline).foregroundStyle(NotebookStyle.quiet)
-                    TextField("Email address", text: $email).textContentType(.emailAddress).autocorrectionDisabled().frame(minHeight: 44)
-                        #if os(iOS)
-                        .keyboardType(.emailAddress).textInputAutocapitalization(.never)
-                        #endif
-                        .accessibilityIdentifier("profile-email")
-                    Rectangle().fill(NotebookStyle.rule).frame(height: 0.5)
-                }
-                Text("Your details stay on this device.").font(.subheadline).foregroundStyle(NotebookStyle.quiet)
-                if let error = profile.errorMessage { Text(error).font(.callout).foregroundStyle(NotebookStyle.clay) }
-            }.padding(24).frame(maxWidth: 560).frame(maxWidth: .infinity)
+
+    public var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Button(action: close) {
+                    Text("Cancel").frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+                }.accessibilityIdentifier("profile-cancel")
+                Spacer(minLength: 8)
+                Button(action: save) {
+                    Text("Done").fontWeight(.semibold).frame(minWidth: 44, minHeight: 44)
+                        .contentShape(Rectangle())
+                }.accessibilityIdentifier("profile-save")
+            }
+            .padding(.horizontal, 24).padding(.vertical, 8)
+            .frame(maxWidth: 560).frame(maxWidth: .infinity)
+            Rectangle().fill(NotebookStyle.rule).frame(height: 0.5).accessibilityHidden(true)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("Your name").font(NotebookTypography.heading(31))
+                        .accessibilityAddTraits(.isHeader)
+                        .fixedSize(horizontal: false, vertical: true)
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Name · optional").font(.subheadline).foregroundStyle(NotebookStyle.quiet)
+                        TextField("Your name", text: $name).textContentType(.name).frame(minHeight: 44)
+                            .focused($nameFocused).submitLabel(.done)
+                            .onSubmit(save)
+                            .accessibilityLabel("Name, optional")
+                            .accessibilityIdentifier("profile-name")
+                        Rectangle().fill(NotebookStyle.rule).frame(height: 0.5).accessibilityHidden(true)
+                        if let error = profile.errorMessage {
+                            Text(error).font(.callout).foregroundStyle(NotebookStyle.clay)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .accessibilityIdentifier("profile-save-error")
+                        }
+                    }
+                    Text("Saved on this device and included in full backups.")
+                        .font(.subheadline).foregroundStyle(NotebookStyle.quiet)
+                        .fixedSize(horizontal: false, vertical: true)
+                }.padding(24).frame(maxWidth: 560).frame(maxWidth: .infinity)
+            }
+            .clipped()
+            .scrollDismissesKeyboard(.interactively)
+            .accessibilityIdentifier("profile-details-scroll")
         }
         .textFieldStyle(.plain).background(NotebookStyle.ivory).foregroundStyle(NotebookStyle.ink)
         .tint(NotebookStyle.clay).buttonStyle(.plain).scrollIndicators(.never)
-        .accessibilityIdentifier("profile-details-scroll")
     }
-}
 
-struct TrainingSettingsView: View {
-    @Bindable var model: TrainingNotebookModel
-    let close: () -> Void
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                HStack {
-                    Text("Settings").font(NotebookTypography.heading(31))
-                    Spacer()
-                    Button("Done", action: close).frame(minHeight: 44).accessibilityIdentifier("close-settings")
-                }
-                Text("Weight units").font(.headline)
-                HStack(spacing: 8) {
-                    ForEach(WeightUnit.allCases, id: \.self) { unit in
-                        let selected = model.workspace.preferredUnit == unit
-                        Button { model.setPreferredUnit(unit) } label: {
-                            HStack(spacing: 8) {
-                                Text(unit.symbol).monospacedDigit()
-                                if selected { Image(systemName: "checkmark").font(.caption) }
-                            }.frame(minWidth: 80, minHeight: 48)
-                                .background(selected ? NotebookStyle.olive.opacity(0.10) : .clear, in: RoundedRectangle(cornerRadius: 7))
-                        }
-                        .foregroundStyle(selected ? NotebookStyle.clay : NotebookStyle.ink)
-                        .accessibilityAddTraits(selected ? .isSelected : []).accessibilityIdentifier("preference-\(unit.symbol)")
-                    }
-                }
-                Text("Used for progress and new workouts.").font(.subheadline).foregroundStyle(NotebookStyle.quiet)
-                if let error = model.errorMessage { ProfileActionError(model: model, message: error) }
-            }.padding(24).frame(maxWidth: 560).frame(maxWidth: .infinity)
-        }.background(NotebookStyle.ivory).tint(NotebookStyle.clay).buttonStyle(.plain).scrollIndicators(.never)
-            .accessibilityIdentifier("settings-scroll")
+    private func save() {
+        if profile.saveName(name) {
+            nameFocused = false
+            close()
+        } else if let error = profile.errorMessage {
+            TrainingAccessibility.announce(error)
+        }
     }
 }
 
@@ -87,7 +77,9 @@ struct ProfileActionError: View {
         VStack(alignment: .leading, spacing: 4) {
             Text(message).font(.callout).foregroundStyle(NotebookStyle.clay)
             if model.canRetryProfileAction {
-                Button("Try again") { model.retryProfileAction() }.frame(minHeight: 44)
+                Button { model.retryProfileAction() } label: {
+                    Text("Try again").frame(minHeight: 44).contentShape(Rectangle())
+                }
                     .accessibilityIdentifier("retry-profile-action")
             }
         }

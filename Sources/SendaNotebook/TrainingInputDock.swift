@@ -5,53 +5,165 @@ import SendaLogger
 struct TrainingInputDock: View {
     @Bindable var model: TrainingNotebookModel
     let focus: TrainingFocus
+    var beginInteraction: () -> Void = {}
     @FocusState private var typing: Bool
+    @AccessibilityFocusState(for: .voiceOver) private var editorFocused: Bool
+    @Environment(\.dynamicTypeSize) private var textSize
+    @ScaledMetric(relativeTo: .largeTitle) private var numeralSize: CGFloat = 31
+    private var index: Int { model.setPosition(for: focus.rowID)?.setIndex ?? 1 }
+    private var setContext: String {
+        let base = "Set \(index)"
+        guard let position = model.setPosition(for: focus.rowID), position.isDropSet else { return base }
+        return "\(base) · \(position.stageIndex == 1 ? "Start" : "Drop \(position.stageIndex - 1)")"
+    }
+    private var fieldLabel: String { focus.field == .weight ? "Weight (\(model.unit.symbol))" : "Reps" }
+    private var headerLayout: AnyLayout {
+        textSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 0))
+            : AnyLayout(HStackLayout(spacing: 8))
+    }
+    private var isLastRow: Bool { model.rows.last?.id == focus.rowID }
+    private var canStartNextSet: Bool {
+        guard let row = model.focusedRow else { return false }
+        return model.rowStatus(for: row) == .recorded && model.errorMessage == nil && !model.canRetrySave
+    }
+    private var inputAccessibilityValue: String {
+        let text = model.inputText(for: focus)
+        guard !text.isEmpty else { return "Not entered" }
+        let unit: String
+        if focus.field == .weight {
+            unit = model.unit == .pounds ? (text == "1" ? "pound" : "pounds") : (text == "1" ? "kilogram" : "kilograms")
+        } else {
+            unit = text == "1" ? "rep" : "reps"
+        }
+        return "\(text) \(unit)"
+    }
     var body: some View {
         VStack(spacing: 8) {
             Rectangle().fill(NotebookStyle.rule).frame(height: 0.5)
-            HStack(spacing: 8) {
-                let index = (model.rows.firstIndex { $0.id == focus.rowID } ?? 0) + 1
-                Text("\(model.exercise?.name ?? "") · Set \(index)").font(.caption).foregroundStyle(NotebookStyle.quiet)
-                    .lineLimit(1).minimumScaleFactor(0.7)
-                Spacer(minLength: 0)
-                if focus.field == .weight {
-                    Button("Next") { model.selectInput(focus.rowID, field: .reps) }.frame(minWidth: 40, minHeight: 44)
+            headerLayout {
+                Text(textSize.isAccessibilitySize ? setContext : "\(model.exercise?.name ?? "") · \(setContext)")
+                    .font(textSize.isAccessibilitySize ? .caption2 : .caption).foregroundStyle(NotebookStyle.quiet)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("input-set-context")
+                HStack(spacing: 8) {
+                    if !textSize.isAccessibilitySize { Spacer(minLength: 0) }
+                    if focus.field == .weight {
+                        if typing && !textSize.isAccessibilitySize {
+                            Button { typing = false } label: {
+                                Image(systemName: "keyboard.chevron.compact.down")
+                                    .frame(width: 44, height: 44).contentShape(Rectangle())
+                            }
+                            .accessibilityLabel("Use weight dial")
+                            .accessibilityHint("Close the keyboard without changing the value")
+                            .accessibilityIdentifier("input-use-dial")
+                        }
+                        Button { beginInteraction(); model.selectInput(focus.rowID, field: .reps) } label: {
+                            Text("Reps →").font(.subheadline.weight(.medium)).foregroundStyle(NotebookStyle.clay)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+                        }
+                        .accessibilityLabel("Edit reps")
+                        .accessibilityHint("Edit reps for \(setContext.lowercased())")
                         .accessibilityIdentifier("input-next")
-                }
-                Button("Done") { model.finishEditing() }.font(.subheadline.weight(.medium)).frame(minWidth: 42, minHeight: 44)
-                    .accessibilityIdentifier("input-done")
-            }
-            HStack(spacing: 16) {
-                step(false)
-                TextField(focus.field == .weight ? model.unit.symbol : "Reps", text: Binding(
-                    get: { model.inputText(for: focus) }, set: { model.typeInput($0, focus: focus) }))
-                    .font(.system(size: 31, weight: .medium).monospacedDigit()).multilineTextAlignment(.center)
-                    .textFieldStyle(.plain).numericKeyboard(decimal: focus.field == .weight).focused($typing)
-                    .frame(minHeight: 48)
-                    .submitLabel(focus.field == .weight ? .next : .done)
-                    .onSubmit {
-                        if focus.field == .weight { model.selectInput(focus.rowID, field: .reps) }
-                        else { model.finishEditing() }
+                    } else if isLastRow {
+                        Button {
+                            beginInteraction()
+                            if model.newSet(keyboard: typing) {
+                                TrainingAccessibility.announce("New set. Enter \(model.exercise?.requiresWeight == false ? "reps" : "weight").")
+                            }
+                        } label: {
+                            Text("Next set").font(.subheadline.weight(.medium)).fixedSize(horizontal: false, vertical: true)
+                                .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+                        }
+                        .disabled(!canStartNextSet)
+                        .foregroundStyle(canStartNextSet ? NotebookStyle.clay : NotebookStyle.quiet)
+                        .accessibilityHint("Start another working set with blank values")
+                        .accessibilityIdentifier("input-next-set")
                     }
-                    .accessibilityLabel(focus.field == .weight ? "Weight in \(model.unit.symbol)" : "Reps")
-                    .accessibilityIdentifier("set-input")
-                step(true)
+                    if textSize.isAccessibilitySize { Spacer(minLength: 8) }
+                    Button(action: finishEditing) {
+                        Text("Done").font(.subheadline.weight(.medium)).fixedSize(horizontal: false, vertical: true)
+                            .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+                    }
+                    .accessibilityHint("Close the number editor")
+                    .accessibilityIdentifier("input-done")
+                }
             }
-            if focus.field == .weight {
+            Text(fieldLabel).font(.caption.weight(.medium)).foregroundStyle(NotebookStyle.quiet)
+                .frame(maxWidth: .infinity, alignment: .center)
+                .accessibilityIdentifier("input-field-label")
+            if textSize.isAccessibilitySize {
+                valueInput
+                HStack {
+                    step(false)
+                    Spacer(minLength: 8)
+                    step(true)
+                }
+            } else {
+                HStack(spacing: 16) {
+                    step(false)
+                    valueInput
+                    step(true)
+                }
+            }
+            // Typing and the large step controls retain the same adjustments at
+            // accessibility sizes without taking another line of entry space.
+            if focus.field == .weight && !typing && !textSize.isAccessibilitySize {
                 TrainingWeightRuler(value: model.focusedRow?.parsedWeight ?? model.focusedRow?.canonicalWeight ?? 0,
-                                    unit: model.unit, beginInteraction: { typing = false }) {
+                                    unit: model.unit, beginInteraction: { beginInteraction(); typing = false }) {
                     model.setInputWeight($0, focus: focus)
                 }
             }
         }
         .padding(.horizontal, 24).padding(.bottom, 12).frame(maxWidth: 560).frame(maxWidth: .infinity)
         .background(NotebookStyle.ivory).foregroundStyle(NotebookStyle.ink)
-        .task { await Task.yield(); if !Task.isCancelled { typing = focus.keyboard } }
+        .task {
+            await Task.yield()
+            if !Task.isCancelled { typing = focus.keyboard; editorFocused = true }
+        }
+    }
+    private var valueInput: some View {
+                TextField("", text: Binding(
+                    get: { model.inputText(for: focus) }, set: { beginInteraction(); model.typeInput($0, focus: focus) }))
+                    .font(.system(size: numeralSize, weight: .medium).monospacedDigit()).multilineTextAlignment(.center)
+                    .textFieldStyle(.plain).numericKeyboard(decimal: focus.field == .weight).focused($typing)
+                    .frame(maxWidth: .infinity, minHeight: 48)
+                    .submitLabel(focus.field == .weight ? .next : .done)
+                    .onSubmit {
+                        if focus.field == .weight { beginInteraction(); model.selectInput(focus.rowID, field: .reps) }
+                        else { finishEditing() }
+                    }
+                    .accessibilityLabel("\(setContext), \(focus.field == .weight ? "weight in \(model.unit.symbol)" : "reps")")
+                    .accessibilityHint("Type a value or use the increase and decrease buttons")
+                    .accessibilityFocused($editorFocused)
+                    .accessibilityIdentifier("set-input")
+                    .simultaneousGesture(TapGesture().onEnded { beginInteraction() })
+    }
+    private func finishEditing() {
+        beginInteraction()
+        guard model.finishEditing(), let row = model.rows.first(where: { $0.id == focus.rowID }) else { return }
+        let message: String
+        switch model.rowStatus(for: row) {
+        case .empty: message = "\(setContext) needs values."
+        case .unfinished: message = "Input saved. Enter valid values to complete the set."
+        case .recorded: message = "\(setContext) saved."
+        case .pendingCorrection: message = "Input saved. Last saved values are unchanged."
+        }
+        TrainingAccessibility.announce(message)
     }
     private func step(_ increasing: Bool) -> some View {
-        Button { if model.stepInput(increasing: increasing, focus: focus) { typing = false } } label: {
+        Button {
+            beginInteraction()
+            if model.stepInput(increasing: increasing, focus: focus) {
+                typing = false
+                if model.errorMessage == nil { TrainingAccessibility.announce(inputAccessibilityValue) }
+            }
+        } label: {
             Image(systemName: increasing ? "plus" : "minus").font(.system(size: 22, weight: .light)).frame(width: 50, height: 48)
-        }.accessibilityLabel(increasing ? "Increase value" : "Decrease value")
+                .contentShape(Rectangle())
+        }.accessibilityLabel("\(increasing ? "Increase" : "Decrease") \(focus.field == .weight ? "weight in \(model.unit.symbol)" : "reps")")
+            .accessibilityValue(inputAccessibilityValue)
             .accessibilityIdentifier(increasing ? "input-increase" : "input-decrease")
     }
 }
@@ -63,6 +175,7 @@ struct TrainingWeightRuler: View {
     var update: (Int) -> Void
     @State private var position: Int?
     @State private var start: Int?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     init(value: Int, unit: WeightUnit, beginInteraction: @escaping () -> Void, update: @escaping (Int) -> Void) {
         self.value = value; self.unit = unit; self.beginInteraction = beginInteraction; self.update = update
         _position = State(initialValue: Self.tick(value, unit))
@@ -97,9 +210,14 @@ struct TrainingWeightRuler: View {
             if start == nil { beginInteraction(); start = nearest }
             move(start ?? nearest, gesture.translation.width)
         }.onEnded { gesture in
-            withAnimation(.easeOut(duration: 0.25)) { move(start ?? nearest, gesture.predictedEndTranslation.width) }
+            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.25)) {
+                move(start ?? nearest, reduceMotion ? gesture.translation.width : gesture.predictedEndTranslation.width)
+            }
             start = nil
         })
+        .transaction { transaction in
+            if reduceMotion { transaction.animation = nil; transaction.disablesAnimations = true }
+        }
         .accessibilityElement(children: .ignore).accessibilityLabel("Weight dial in \(unit.symbol)")
         .accessibilityValue("\(unit.text(for: value)) \(unit.symbol)")
         .accessibilityAdjustableAction { direction in

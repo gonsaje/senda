@@ -6,58 +6,97 @@ import UIKit
 #endif
 
 private enum TrainingDaySheet: String, Identifiable {
-    case picker, exercises
+    case picker, exercises, reuse
     var id: String { rawValue }
+}
+
+private struct TrainingPendingSheet {
+    let destination: TrainingDaySheet
+    let day: TrainingDay
+    let exerciseID: String?
+    let rowIDs: [UUID]
+}
+
+private struct TrainingFocusedRowLayout: Equatable {
+    let focusID: UUID
+    let height: CGFloat
+}
+
+private enum TrainingFocusedRowPreference: PreferenceKey {
+    static let defaultValue: TrainingFocusedRowLayout? = nil
+    static func reduce(value: inout TrainingFocusedRowLayout?, nextValue: () -> TrainingFocusedRowLayout?) {
+        value = nextValue() ?? value
+    }
 }
 
 struct TrainingDayView: View {
     @Bindable var model: TrainingNotebookModel
     let day: TrainingDay
     @State private var presentedSheet: TrainingDaySheet?
+    @State private var pendingSheet: TrainingPendingSheet?
+    @State private var planContext: TrainingMetadataContext?
+    @State private var measuredFocusLayout: TrainingFocusedRowLayout?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var textSize
     var body: some View {
         ScrollViewReader { scroll in
             ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack {
-                        weekButton
-                        Spacer(minLength: 12)
-                        if day == model.today { Text("Today").font(.callout).foregroundStyle(NotebookStyle.clay).fixedSize() }
-                    }
-                    dateNavigation.padding(.bottom, 2).id("day-header")
-                    TrainingExerciseTabs(model: model, day: day,
-                        add: { if model.finishEditing() { presentedSheet = .picker } },
-                        showAll: { if model.finishEditing() { presentedSheet = .exercises } })
+                VStack(alignment: .leading, spacing: 8) {
+                    dayNavigation.id("day-header")
                     if let exercise = model.exercise {
-                        HStack(alignment: .center, spacing: 12) {
-                            Text(exercise.name).font(NotebookTypography.heading(36, italic: true)).lineLimit(2).minimumScaleFactor(0.7)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .accessibilityIdentifier("entry-exercise")
-                            unitMenu
-                        }.padding(.top, 4)
-                        if model.lastReference != nil || model.personalBest != nil { TrainingReferenceBanners(model: model) }
-                        TrainingSetRows(model: model).id("\(day.rawValue)/\(exercise.id)")
+                        exerciseNavigation(exercise)
+                        TrainingReferenceBanners(model: model, beginNavigation: { pendingSheet = nil }, editPlan: {
+                            pendingSheet = nil
+                            planContext = TrainingMetadataContext(day: day, exerciseID: exercise.id, rowIDs: model.rows.map(\.id))
+                        })
+                        TrainingSetRows(model: model, beginInteraction: { pendingSheet = nil }).id("\(day.rawValue)/\(exercise.id)")
                         TrainingSaveStatus(model: model).id("\(day.rawValue)/\(exercise.id)")
+                        if model.focus == nil && model.errorMessage == nil {
+                            TrainingNextWorkoutFeedback(model: model, day: day, exercise: exercise)
+                        }
                     } else {
-                        Button { if model.finishEditing() { presentedSheet = .picker } } label: { Label("Add exercise", systemImage: "plus").frame(minHeight: 52) }
-                            .foregroundStyle(NotebookStyle.clay).accessibilityIdentifier("empty-add-exercise")
+                        HStack(spacing: 4) { exerciseSelector; addExerciseButton }
+                        VStack(alignment: .leading, spacing: 4) {
+                            Button { requestSheet(.picker) } label: { Label("Add exercise", systemImage: "plus").frame(minHeight: 52) }
+                                .foregroundStyle(NotebookStyle.clay).accessibilityIdentifier("empty-add-exercise")
+                            if !model.reusableWorkouts.isEmpty {
+                                Button { requestSheet(.reuse) } label: {
+                                    Label("Use a previous workout", systemImage: "arrow.clockwise").frame(minHeight: 44)
+                                }.foregroundStyle(NotebookStyle.clay)
+                                    .accessibilityHint("Choose exercises from an earlier day without copying recorded sets")
+                                    .accessibilityIdentifier("reuse-workout")
+                            }
+                        }
                     }
-                    if let error = model.errorMessage { TrainingSaveError(model: model, message: error) }
                 }
                 .padding(.horizontal, 24).padding(.top, 2).padding(.bottom, 28)
                 .frame(maxWidth: 560).frame(maxWidth: .infinity)
                 .id("day-top")
             }
+            .clipped()
             .accessibilityIdentifier("day-scroll")
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 VStack(spacing: 0) {
-                    if let focus = model.focus { TrainingInputDock(model: model, focus: focus).id(focus.id) }
-                    else if let label = model.undoLabel {
-                        HStack {
-                            Text(label).font(.subheadline)
-                            Spacer()
-                            Button("Undo") { model.undoChange() }.underline().frame(minHeight: 44).accessibilityIdentifier("undo-set-change")
+                    if let error = model.errorMessage {
+                        TrainingSaveError(model: model, message: error, retrySucceeded: presentPendingSheet)
+                            .padding(.horizontal, 24).padding(.top, 8)
+                            .padding(.bottom, model.focus == nil ? 12 : 0)
+                    }
+                    if let focus = model.focus {
+                        TrainingInputDock(model: model, focus: focus, beginInteraction: { pendingSheet = nil }).id(focus.id)
+                    }
+                    else if model.errorMessage == nil, let label = model.undoLabel {
+                        Button {
+                            pendingSheet = nil
+                            if model.undoChange() { TrainingAccessibility.announce("Change undone.") }
+                        } label: {
+                            Text("Undo last change").underline()
+                                .frame(maxWidth: .infinity, minHeight: 44)
+                                .contentShape(Rectangle())
                         }
+                        .foregroundStyle(NotebookStyle.ink)
+                        .accessibilityValue(label)
+                        .accessibilityIdentifier("undo-set-change")
                         .padding(.horizontal, 18).padding(.vertical, 5)
                         .background(NotebookStyle.olive.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
                         .padding(.horizontal, 24).padding(.bottom, 12)
@@ -71,36 +110,176 @@ struct TrainingDayView: View {
                 case .exercises:
                     TrainingDayExerciseList(model: model, day: day, close: { presentedSheet = nil },
                         add: { presentedSheet = .picker })
+                case .reuse:
+                    TrainingWorkoutReusePicker(model: model, close: { presentedSheet = nil })
                 }
             }
-            .task(id: model.focus?.id) {
-                if let row = model.focus?.rowID {
-                    await Task.yield()
-                    withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) { scroll.scrollTo(row, anchor: .center) }
+            .sheet(item: $planContext) { context in
+                TrainingPlanEditor(model: model, context: context, close: { planContext = nil })
+            }
+            .onPreferenceChange(TrainingFocusedRowPreference.self) { layout in
+                measuredFocusLayout = layout
+            }
+            .task(id: measuredFocusLayout) {
+                // Measure first, then let field anchors and the dock inset settle.
+                // This also reveals a restored editor on its first layout.
+                await Task.yield()
+                guard !Task.isCancelled, let focus = model.focus,
+                      measuredFocusLayout?.focusID == focus.id else { return }
+                withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) {
+                    scroll.scrollTo("\(focus.rowID)/\(focus.field.rawValue)", anchor: .center)
                 }
             }
             .task(id: model.revealRowID) { if let id = model.revealRowID { await Task.yield(); scroll.scrollTo(id, anchor: .center) } }
             #if canImport(UIKit)
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
-                if let row = model.focus?.rowID { scroll.scrollTo(row, anchor: .center) }
+                if let focus = model.focus { scroll.scrollTo("\(focus.rowID)/\(focus.field.rawValue)", anchor: .center) }
             }
             #endif
             .onChange(of: day) { _, _ in
+                pendingSheet = nil
                 presentedSheet = nil
+                planContext = nil
                 if model.revealRowID == nil { scroll.scrollTo("day-top", anchor: .top) }
             }
+            .onChange(of: model.rows) { _, _ in reconcilePendingSheet() }
+            .onChange(of: model.focus?.id) { _, _ in reconcilePendingSheet() }
+            .onChange(of: model.canRetrySave) { _, _ in reconcilePendingSheet() }
+            .onChange(of: model.errorMessage) { _, _ in reconcilePendingSheet() }
+            .onChange(of: model.exercise?.id) { _, _ in pendingSheet = nil; planContext = nil }
+            .onChange(of: model.section) { _, _ in pendingSheet = nil }
         }.background(NotebookStyle.ivory)
     }
 
+    private func requestSheet(_ destination: TrainingDaySheet) {
+        pendingSheet = nil
+        if model.finishEditing() { presentedSheet = destination }
+        else {
+            pendingSheet = TrainingPendingSheet(destination: destination, day: day,
+                exerciseID: model.exercise?.id, rowIDs: model.rows.map(\.id))
+        }
+    }
+    private func presentPendingSheet() {
+        guard let request = pendingSheet else { return }
+        pendingSheet = nil
+        guard model.section == .log, model.selectedDay == request.day, model.focus == nil,
+              model.errorMessage == nil, !model.canRetrySave,
+              model.exercise?.id == request.exerciseID, model.rows.map(\.id) == request.rowIDs else { return }
+        presentedSheet = request.destination
+    }
+    private func reconcilePendingSheet() {
+        guard let request = pendingSheet else { return }
+        guard model.section == .log, model.selectedDay == request.day,
+              model.exercise?.id == request.exerciseID, model.rows.map(\.id) == request.rowIDs else {
+            pendingSheet = nil
+            return
+        }
+        if model.errorMessage == nil, !model.canRetrySave {
+            if model.focus == nil { presentPendingSheet() }
+            else { pendingSheet = nil }
+        }
+    }
+
+    private var dayNavigation: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                weekButton
+                Spacer(minLength: 8)
+                todayControl
+            }
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) {
+                    dayHeading.fixedSize()
+                    Spacer(minLength: 0)
+                    dateControls.fixedSize()
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    dayHeading
+                    HStack {
+                        Spacer(minLength: 0)
+                        dateControls.fixedSize()
+                    }
+                }
+            }
+        }
+        .padding(.bottom, 8)
+    }
+
+    private var dayHeading: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            weekdayTitle
+            dateTitle(day == model.today ? "MMM d" : "MMM d, yyyy")
+            if day != model.today {
+                Text(day < model.today ? "Past training day" : "Future training day")
+                    .font(.caption).foregroundStyle(NotebookStyle.quiet)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("historical-day-context")
+            }
+        }
+    }
+
+    @ViewBuilder private var todayControl: some View {
+        if day == model.today {
+            Text("Today").font(.callout).foregroundStyle(NotebookStyle.clay)
+        } else {
+            Button("Go to today") {
+                pendingSheet = nil
+                if model.openToday() { TrainingAccessibility.announce("Today, \(TrainingText.date(model.today, format: "MMM d, yyyy")).") }
+            }
+            .font(.subheadline.weight(.medium)).frame(minWidth: 44, minHeight: 44)
+            .accessibilityHint("Keep this day's unfinished input here and open today")
+            .accessibilityIdentifier("go-to-today")
+        }
+    }
+
+    @ViewBuilder private func exerciseNavigation(_ exercise: Exercise) -> some View {
+        if textSize >= .xxxLarge {
+            VStack(alignment: .leading, spacing: 0) {
+                exerciseSelector
+                HStack(spacing: 4) {
+                    unitMenu
+                    Spacer(minLength: 8)
+                    progressButton(exercise)
+                    addExerciseButton
+                }
+            }
+        } else {
+            HStack(spacing: 4) {
+                exerciseSelector.frame(maxWidth: .infinity, alignment: .leading)
+                progressButton(exercise)
+                unitMenu
+                addExerciseButton
+            }
+        }
+    }
+
+    private var exerciseSelector: some View {
+        TrainingExerciseMenu(model: model, day: day,
+            showAll: { requestSheet(.exercises) }, beginNavigation: { pendingSheet = nil })
+    }
+    private func progressButton(_ exercise: Exercise) -> some View {
+        Button { pendingSheet = nil; model.openProgress(for: exercise.id) } label: {
+            Image(systemName: "chart.xyaxis.line").padding(8).frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+        }
+        .foregroundStyle(NotebookStyle.clay)
+        .accessibilityLabel("View \(exercise.name) progress")
+        .accessibilityIdentifier("exercise-progress")
+    }
+    private var addExerciseButton: some View {
+        Button { requestSheet(.picker) } label: {
+            Image(systemName: "plus").font(.title2).padding(8).frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+        }.foregroundStyle(NotebookStyle.clay).accessibilityLabel("Add exercise").accessibilityIdentifier("add-exercise")
+    }
     private var weekButton: some View {
-        Button { model.showWeek() } label: { Label("Week", systemImage: "chevron.left").frame(minHeight: 44) }
-            .accessibilityIdentifier("back-to-week")
+        Button { pendingSheet = nil; model.showWeek() } label: {
+            Label("Week", systemImage: "chevron.left").font(.subheadline).fixedSize(horizontal: true, vertical: true).frame(minHeight: 44).contentShape(Rectangle())
+        }.accessibilityIdentifier("back-to-week")
     }
 
     private var unitMenu: some View {
         Menu {
             ForEach(WeightUnit.allCases, id: \.self) { unit in
-                Button { model.changeUnit(unit) } label: {
+                Button { pendingSheet = nil; model.changeUnit(unit) } label: {
                     if unit == model.unit {
                         Label(unit == .pounds ? "Pounds (lb)" : "Kilograms (kg)", systemImage: "checkmark")
                     } else { Text(unit == .pounds ? "Pounds (lb)" : "Kilograms (kg)") }
@@ -118,118 +297,168 @@ struct TrainingDayView: View {
         .accessibilityIdentifier("weight-unit-menu")
     }
 
-    private var dateNavigation: some View {
-        HStack(spacing: 8) {
-            ViewThatFits(in: .horizontal) {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    weekdayTitle.fixedSize()
-                    dateTitle().fixedSize()
-                }
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    weekdayTitle.fixedSize()
-                    dateTitle("MMM d").fixedSize()
-                }
-                VStack(alignment: .leading, spacing: 2) {
-                    weekdayTitle
-                    dateTitle()
-                }
-            }.frame(maxWidth: .infinity, alignment: .leading)
-            HStack(spacing: 0) {
-                Button { model.changeDay(-1) } label: {
-                    Image(systemName: "chevron.left").frame(width: 44, height: 44)
-                }
-                .disabled((try? day.adding(days: -1)) == nil)
-                .accessibilityLabel("Previous day").accessibilityIdentifier("previous-day")
-                Button { model.changeDay(1) } label: {
-                    Image(systemName: "chevron.right").frame(width: 44, height: 44)
-                }
-                .disabled((try? day.adding(days: 1)) == nil)
-                .accessibilityLabel("Next day").accessibilityIdentifier("next-day")
+    private var dateControls: some View {
+        HStack(spacing: 0) {
+            Button { pendingSheet = nil; model.changeDay(-1) } label: {
+                Image(systemName: "chevron.left").padding(8).frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
             }
+            .disabled((try? day.adding(days: -1)) == nil)
+            .accessibilityLabel("Previous day").accessibilityIdentifier("previous-day")
+            Button { pendingSheet = nil; model.changeDay(1) } label: {
+                Image(systemName: "chevron.right").padding(8).frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+            }
+            .disabled((try? day.adding(days: 1)) == nil)
+            .accessibilityLabel("Next day").accessibilityIdentifier("next-day")
         }
     }
 
     private var weekdayTitle: some View {
         Text(TrainingText.date(day, format: "EEEE"))
-            .font(NotebookTypography.heading(28, relativeTo: .title2))
+            .font(NotebookTypography.heading(18, relativeTo: .headline))
             .fixedSize(horizontal: false, vertical: true)
-            .accessibilityLabel(TrainingText.date(day, format: "EEEE, MMM d"))
+            .accessibilityAddTraits(.isHeader)
             .accessibilityIdentifier("day-title")
     }
 
     private func dateTitle(_ format: String = "MMM d, yyyy") -> some View {
         Text(TrainingText.date(day, format: format))
             .font(.caption).foregroundStyle(NotebookStyle.quiet)
-            .accessibilityLabel(TrainingText.date(day, format: "MMM d, yyyy"))
+            .accessibilityValue(format == "MMM d" ? TrainingText.date(day, format: "yyyy") : "")
             .accessibilityIdentifier("day-date")
     }
 }
 
+private struct TrainingSetDetailsRequest: Identifiable {
+    let context: TrainingMetadataContext
+    let row: TrainingRow
+    let index: Int
+    var id: UUID { row.id }
+}
+
 struct TrainingReferenceBanners: View {
     @Bindable var model: TrainingNotebookModel
+    var beginNavigation: () -> Void = {}
+    let editPlan: () -> Void
+    @State private var expanded = false
+    @Environment(\.dynamicTypeSize) private var textSize
     var body: some View {
-        VStack(spacing: 6) {
-            if let last = model.lastReference { banner("Last", last, id: "last-reference") }
+        VStack(alignment: .leading, spacing: 0) {
+            if textSize >= .xxxLarge {
+                TrainingPlanSummary(model: model, edit: editPlan)
+                if hasReferences { disclosure }
+            } else {
+                HStack(spacing: 12) {
+                    TrainingPlanSummary(model: model, edit: editPlan).frame(maxWidth: .infinity, alignment: .leading)
+                    if hasReferences { disclosure.fixedSize(horizontal: true, vertical: false) }
+                }
+            }
+            if expanded { references }
+        }
+        .onChange(of: model.focus?.rowID) { _, rowID in if rowID != nil { expanded = false } }
+    }
+    private var hasReferences: Bool { model.lastReference != nil || model.personalBest != nil }
+    private var disclosure: some View {
+        Button { expanded.toggle() } label: {
+            HStack(spacing: 6) {
+                Text(model.lastReference != nil ? (model.personalBest != nil ? "Previous / PR" : "Previous") : "PR")
+                    .font(.caption.weight(.medium))
+                Image(systemName: expanded ? "chevron.up" : "chevron.down").font(.caption)
+            }.frame(minHeight: 44).contentShape(Rectangle())
+        }
+        .foregroundStyle(NotebookStyle.quiet)
+        .accessibilityLabel(model.lastReference != nil ? "Previous workout top set\(model.personalBest != nil ? " and personal best" : "")" : "Personal best")
+        .accessibilityValue(expanded ? "Expanded" : "Collapsed")
+        .accessibilityIdentifier("toggle-entry-references")
+    }
+    private var references: some View {
+        VStack(spacing: 0) {
+            if let last = model.lastReference { banner("Previous workout · top set", last, id: "last-reference") }
             if let best = model.personalBest { banner("PR", best, id: "personal-best-reference") }
         }
     }
     private func banner(_ label: String, _ reference: TrainingPerformanceReference, id: String) -> some View {
-        Button { model.openReference(reference) } label: {
-            HStack(alignment: .firstTextBaseline, spacing: 12) {
-                Text(label).font(.caption.weight(.medium)).foregroundStyle(NotebookStyle.quiet).frame(width: 30, alignment: .leading)
-                Text(TrainingText.set(reference.values, unit: model.unit)).font(.system(size: 15).monospacedDigit())
-                Spacer(minLength: 0)
-                Text(TrainingText.date(reference.day, format: "MMM d")).font(.caption).foregroundStyle(NotebookStyle.quiet).fixedSize()
-            }.padding(.horizontal, 12).padding(.vertical, 9).frame(maxWidth: .infinity, minHeight: 44)
-                .background(NotebookStyle.olive.opacity(0.045), in: RoundedRectangle(cornerRadius: 6))
+        Button { beginNavigation(); model.openReference(reference) } label: {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(label).font(.caption.weight(.medium)).foregroundStyle(NotebookStyle.quiet)
+                    .fixedSize(horizontal: false, vertical: true)
+                if textSize.isAccessibilitySize {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(TrainingText.set(reference.values, unit: model.unit)).font(.subheadline.monospacedDigit())
+                            .fixedSize(horizontal: false, vertical: true)
+                        Text(TrainingText.date(reference.day, format: "MMM d, yyyy"))
+                            .font(.caption).foregroundStyle(NotebookStyle.quiet)
+                    }
+                } else {
+                    HStack(alignment: .firstTextBaseline, spacing: 12) {
+                        Text(TrainingText.set(reference.values, unit: model.unit)).font(.subheadline.monospacedDigit())
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 0)
+                        Text(TrainingText.date(reference.day, format: "MMM d, yyyy"))
+                            .font(.caption).foregroundStyle(NotebookStyle.quiet).fixedSize()
+                    }
+                }
+            }.padding(.vertical, 8).frame(maxWidth: .infinity, minHeight: 44).contentShape(Rectangle())
+                .overlay(alignment: .bottom) { Rectangle().fill(NotebookStyle.rule).frame(height: 0.5) }
         }.accessibilityLabel("\(label), \(TrainingText.date(reference.day, format: "MMM d")), \(TrainingText.set(reference.values, unit: model.unit))")
-            .accessibilityHint("Open this training day").accessibilityIdentifier(id)
+            .accessibilityHint("View saved sets for this day").accessibilityIdentifier(id)
     }
 }
 
 struct TrainingSetRows: View {
     @Bindable var model: TrainingNotebookModel
+    var beginInteraction: () -> Void = {}
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var textSize
+    @ScaledMetric(relativeTo: .title2) private var numeralSize: CGFloat = 24
     @State private var highlightedRow: UUID?
     @State private var revealedRowID: UUID?
+    @State private var detailsRequest: TrainingSetDetailsRequest?
+    @State private var typeRequest: TrainingSetDetailsRequest?
+    @State private var availableWidth: CGFloat = 345
+    private var usesStackedRows: Bool { textSize >= .xxxLarge }
+    private var usesCompactRows: Bool { !usesStackedRows && (availableWidth < 340 || textSize >= .xLarge) }
+    private var usesLabeledValues: Bool { usesStackedRows || usesCompactRows }
+    private var setActionsLayout: AnyLayout {
+        usesStackedRows
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 0))
+            : AnyLayout(HStackLayout(spacing: 0))
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 6) {
-                Text("Set").frame(width: 20, alignment: .leading)
-                Text("Weight").frame(maxWidth: .infinity)
-                Text("Reps").frame(width: 60)
-                Color.clear.frame(width: 44, height: 1)
-            }.font(.caption.weight(.medium)).foregroundStyle(NotebookStyle.quiet).padding(.bottom, 6)
+            columnHeadings
             Rectangle().fill(NotebookStyle.rule).frame(height: 0.5)
-            ForEach(Array(model.rows.enumerated()), id: \.element.id) { index, row in
-                VStack(spacing: 0) {
-                    SwipeableSetRow(id: row.id, index: index + 1, revealedRowID: $revealedRowID,
-                                    highlighted: highlightedRow == row.id, delete: { model.deleteSet(row.id) }) {
-                        HStack(spacing: 6) {
-                            Text("\(index + 1)").font(.subheadline.monospacedDigit()).foregroundStyle(NotebookStyle.quiet).frame(width: 20, alignment: .leading)
-                            cell(row.weight.isEmpty ? (model.exercise?.requiresWeight == false ? "BW" : "—") : row.weight, row: row, field: .weight)
-                                .frame(maxWidth: .infinity)
-                            cell(row.reps.isEmpty ? "—" : row.reps, row: row, field: .reps).frame(width: 60)
-                        }
-                    }
+            ForEach(Array(model.setEntries.enumerated()), id: \.element.id) { offset, entry in
+                if let first = entry.rows.first {
+                    entryView(entry, first: first, index: offset + 1)
                     Rectangle().fill(NotebookStyle.rule).frame(height: 0.5)
-                }.id(row.id)
-                    .transition(reduceMotion ? .identity : .opacity.combined(with: .offset(y: 6)))
-            }
-            HStack {
-                Button { model.newSet() } label: { Label("New set", systemImage: "plus").frame(minHeight: 48) }
-                    .accessibilityIdentifier("new-set")
-                Spacer(minLength: 8)
-                if model.canRepeat {
-                    Button("Repeat last set") {
-                        if model.repeatLastSet() { highlightedRow = model.rows.last?.id }
-                    }.frame(minHeight: 48).accessibilityIdentifier("repeat-set")
                 }
-            }.font(.subheadline).foregroundStyle(NotebookStyle.clay).padding(.top, 5)
+            }
+            // Preserve each action's identity when Larger Text changes the layout.
+            setActionsLayout {
+                newSetButton
+                Spacer(minLength: usesStackedRows ? 0 : 8)
+                repeatButton
+            }.frame(maxWidth: .infinity, alignment: .leading)
+                .font(.subheadline).foregroundStyle(NotebookStyle.clay).padding(.top, 5)
+        }
+        .background {
+            GeometryReader { geometry in
+                Color.clear.onAppear { availableWidth = geometry.size.width }
+                    .onChange(of: geometry.size.width) { _, width in availableWidth = width }
+            }
         }
         .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: model.rows.map(\.id))
         .onChange(of: model.focus?.id) { _, _ in revealedRowID = nil }
         .onChange(of: model.rows.map(\.id)) { _, _ in revealedRowID = nil }
+        .sheet(item: $detailsRequest) { request in
+            TrainingSetDetailsEditor(model: model, context: request.context, row: request.row, index: request.index,
+                                     close: { detailsRequest = nil })
+        }
+        .sheet(item: $typeRequest) { request in
+            TrainingSetTypePicker(model: model, context: request.context, row: request.row, index: request.index,
+                                  close: { typeRequest = nil })
+        }
         .task(id: highlightedRow) {
             guard highlightedRow != nil else { return }
             try? await Task.sleep(for: .milliseconds(650))
@@ -237,42 +466,324 @@ struct TrainingSetRows: View {
             withAnimation(reduceMotion ? nil : .easeOut(duration: 0.55)) { highlightedRow = nil }
         }
     }
+
+    @ViewBuilder private var columnHeadings: some View {
+        if usesLabeledValues {
+            Text("Sets").font(.headline).accessibilityAddTraits(.isHeader)
+                .frame(maxWidth: .infinity, alignment: .leading).padding(.bottom, 8)
+        } else {
+            HStack(spacing: 6) {
+                independentColumnHeading(Text("Set")).frame(width: 24, alignment: .leading)
+                independentColumnHeading(Text("Type")).frame(width: 100)
+                independentColumnHeading(Text("Weight (\(model.unit.symbol))")).frame(maxWidth: .infinity)
+                independentColumnHeading(Text("Reps")).frame(width: 54)
+                Color.clear.frame(width: 44, height: 1)
+            }.font(.subheadline.weight(.medium)).foregroundStyle(NotebookStyle.quiet).padding(.bottom, 6)
+                .accessibilityElement(children: .contain)
+        }
+    }
+
+    private func independentColumnHeading(_ title: Text) -> some View {
+        title.accessibilityAddTraits(.isHeader)
+    }
+
+    private func entryView(_ entry: TrainingSetEntry, first: TrainingRow, index: Int) -> some View {
+        SwipeableSetRow(id: entry.id, index: index, revealedRowID: $revealedRowID,
+                        highlighted: entry.rows.contains { $0.id == highlightedRow },
+                        effort: TrainingSetDetailsText.effort(first.repsInReserve),
+                        includesDropStages: entry.rows.count > 1,
+                        editEffort: { presentDetails(first, index: index) },
+                        delete: { beginInteraction(); return model.deleteSet(first.id) }) {
+            VStack(alignment: .leading, spacing: 0) {
+                if entry.isDropSet {
+                    setHeading(first, index: index)
+                    ForEach(Array(entry.rows.enumerated()), id: \.element.id) { stageOffset, row in
+                        dropStage(row, index: index, stage: stageOffset)
+                    }
+                    Button {
+                        beginInteraction(); revealedRowID = nil
+                        if model.addDropStage(to: first.id) {
+                            TrainingAccessibility.announce("Drop added to set \(index). Enter its weight and reps.")
+                        }
+                    } label: {
+                        Label("Add drop", systemImage: "plus").frame(minHeight: 44)
+                    }
+                    .font(.subheadline).foregroundStyle(NotebookStyle.clay)
+                    .padding(.leading, usesLabeledValues ? 0 : 26)
+                    .accessibilityLabel("Add drop to set \(index)")
+                    .accessibilityHint("Add another weight and reps stage to this drop set")
+                    .accessibilityIdentifier("row-\(index)-add-drop")
+                } else {
+                    ordinaryRow(first, index: index)
+                        .id(first.id).background { focusMeasurement(first) }
+                }
+            }.frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .transition(reduceMotion ? .identity : .opacity.combined(with: .offset(y: 6)))
+    }
+
+    @ViewBuilder private func setHeading(_ row: TrainingRow, index: Int) -> some View {
+        if usesStackedRows {
+            Text("Set \(index)").font(.subheadline.weight(.medium))
+                .foregroundStyle(NotebookStyle.quiet).padding(.top, 10).accessibilityAddTraits(.isHeader)
+                .accessibilityRespondsToUserInteraction(false)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Type").font(.caption).foregroundStyle(NotebookStyle.quiet).accessibilityHidden(true)
+                typeButton(row, index: index)
+            }.padding(.top, 8).padding(.bottom, 4)
+        } else if usesCompactRows {
+            typeButton(row, index: index, includesSetNumber: true).padding(.top, 4)
+        } else {
+            HStack(spacing: 6) {
+                Text("\(index)").font(.subheadline.monospacedDigit()).foregroundStyle(NotebookStyle.quiet)
+                    .frame(width: 24, alignment: .leading)
+                    .accessibilityLabel("Set \(index)").accessibilityAddTraits(.isHeader)
+                    .accessibilityRespondsToUserInteraction(false)
+                typeButton(row, index: index).frame(width: 100)
+                Spacer(minLength: 0)
+            }.frame(minHeight: 56)
+        }
+    }
+
+    @ViewBuilder private func ordinaryRow(_ row: TrainingRow, index: Int) -> some View {
+        if usesLabeledValues {
+            setHeading(row, index: index)
+            labeledValues(row)
+        } else {
+            HStack(spacing: 6) {
+                Text("\(index)").font(.subheadline.monospacedDigit()).foregroundStyle(NotebookStyle.quiet)
+                    .frame(width: 24, alignment: .leading)
+                    .accessibilityLabel("Set \(index)").accessibilityAddTraits(.isHeader)
+                    .accessibilityRespondsToUserInteraction(false)
+                typeButton(row, index: index).frame(width: 100)
+                cell(weightText(row), row: row, field: .weight).frame(maxWidth: .infinity)
+                cell(row.reps.isEmpty ? "—" : row.reps, row: row, field: .reps).frame(width: 54)
+            }
+        }
+        stateContext(row).padding(.leading, usesLabeledValues ? 0 : 26)
+    }
+
+    private func dropStage(_ row: TrainingRow, index: Int, stage: Int) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if stage > 0 { Rectangle().fill(NotebookStyle.rule.opacity(0.65)).frame(height: 0.5) }
+            if usesLabeledValues {
+                stageLabel(row, index: index, stage: stage)
+                labeledValues(row)
+            } else {
+                HStack(spacing: 6) {
+                    Color.clear.frame(width: 24, height: 1)
+                    stageLabel(row, index: index, stage: stage).frame(width: 100, alignment: .leading)
+                    cell(weightText(row), row: row, field: .weight).frame(maxWidth: .infinity)
+                    cell(row.reps.isEmpty ? "—" : row.reps, row: row, field: .reps).frame(width: 54)
+                }
+            }
+            stateContext(row).padding(.leading, usesLabeledValues ? 0 : 26)
+        }
+        .id(row.id).background { focusMeasurement(row) }
+    }
+
+    @ViewBuilder private func labeledValues(_ row: TrainingRow) -> some View {
+        if usesStackedRows {
+            stackedCell(row, field: .weight)
+            stackedCell(row, field: .reps)
+        } else {
+            HStack(alignment: .top, spacing: 12) {
+                stackedCell(row, field: .weight)
+                stackedCell(row, field: .reps)
+            }
+        }
+    }
+
+    @ViewBuilder private func stageLabel(_ row: TrainingRow, index: Int, stage: Int) -> some View {
+        if stage == 0 {
+            Text("Start").font(.caption.weight(.medium)).foregroundStyle(NotebookStyle.quiet)
+                .padding(.leading, 12).padding(.top, usesLabeledValues ? 8 : 0)
+                .accessibilityIdentifier("row-\(index)-start")
+        } else {
+            Menu {
+                Button(TrainingSetDetailsText.effort(row.repsInReserve)) { presentDetails(row, index: index) }
+                    .accessibilityIdentifier("row-\(index)-drop-\(stage)-details")
+                Button(role: .destructive) {
+                    beginInteraction(); revealedRowID = nil
+                    if model.deleteDropStage(row.id) { TrainingAccessibility.announce("Drop \(stage) removed from set \(index).") }
+                } label: { Label("Remove drop", systemImage: "minus.circle") }
+                    .accessibilityIdentifier("row-\(index)-drop-\(stage)-remove")
+            } label: {
+                HStack(spacing: 5) {
+                    Text("Drop \(stage)").fixedSize(horizontal: false, vertical: true)
+                    Image(systemName: "chevron.down").font(.system(size: 9, weight: .medium)).accessibilityHidden(true)
+                }.font(.subheadline.weight(.medium)).padding(.leading, 12)
+                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading).contentShape(Rectangle())
+            }
+            .menuStyle(.borderlessButton).menuIndicator(.hidden).foregroundStyle(NotebookStyle.clay)
+            .accessibilityLabel("Set \(index), drop \(stage) actions")
+            .accessibilityIdentifier("row-\(index)-drop-\(stage)-actions")
+        }
+    }
+
+    @ViewBuilder private func focusMeasurement(_ row: TrainingRow) -> some View {
+        if let focus = model.focus, focus.rowID == row.id {
+            GeometryReader { geometry in
+                Color.clear.preference(key: TrainingFocusedRowPreference.self,
+                    value: TrainingFocusedRowLayout(focusID: focus.id, height: geometry.size.height))
+            }
+        }
+    }
+
+    private var newSetButton: some View {
+        Button { beginInteraction(); model.newSet() } label: {
+            Label("New set", systemImage: "plus").frame(minHeight: 48).contentShape(Rectangle())
+        }
+        .accessibilityIdentifier("new-set")
+    }
+    @ViewBuilder private var repeatButton: some View {
+        if model.canRepeat {
+            Button {
+                beginInteraction()
+                if model.repeatLastSet() {
+                    highlightedRow = model.rows.last?.id
+                    TrainingAccessibility.announce("Set repeated and saved.")
+                }
+            } label: {
+                Text("Repeat last set").frame(minHeight: 48).contentShape(Rectangle())
+            }.accessibilityIdentifier("repeat-set")
+        }
+    }
+    private func weightText(_ row: TrainingRow) -> String {
+        row.weight.isEmpty ? (model.exercise?.requiresWeight == false ? "BW" : "—") : row.weight
+    }
+    private func typeButton(_ row: TrainingRow, index: Int, includesSetNumber: Bool = false) -> some View {
+        Button {
+            beginInteraction(); revealedRowID = nil
+            guard let day = model.selectedDay, let exercise = model.exercise else { return }
+            typeRequest = TrainingSetDetailsRequest(
+                context: TrainingMetadataContext(day: day, exerciseID: exercise.id, rowIDs: model.rows.map(\.id)),
+                row: row, index: index)
+        } label: {
+            if includesSetNumber {
+                HStack(spacing: 6) {
+                    Text("Set \(index)").font(.subheadline.monospacedDigit())
+                        .foregroundStyle(NotebookStyle.quiet).frame(width: 48, alignment: .leading)
+                    typeButtonLabel(row)
+                }.contentShape(Rectangle())
+            } else {
+                typeButtonLabel(row)
+            }
+        }.foregroundStyle(NotebookStyle.clay)
+            .accessibilityLabel(includesSetNumber
+                ? "Set \(index), \(TrainingSetTypeText.buttonTitle(row.kind))"
+                : "\(TrainingSetTypeText.buttonTitle(row.kind)), set \(index) type")
+            .accessibilityHint("Choose Warm-up, Working set, or Drop set. Changes save when selected.")
+            .accessibilityIdentifier("row-\(index)-type")
+    }
+    private func typeButtonLabel(_ row: TrainingRow) -> some View {
+        Text(TrainingSetTypeText.buttonTitle(row.kind))
+            .font(.subheadline.weight(.medium)).fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, minHeight: 44)
+            .padding(.horizontal, 6).contentShape(Rectangle())
+            .overlay { RoundedRectangle(cornerRadius: 5).strokeBorder(NotebookStyle.clay.opacity(0.65), lineWidth: 1) }
+    }
+    private func stackedCell(_ row: TrainingRow, field: NumericField) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(field == .weight ? "Weight (\(model.unit.symbol))" : "Reps")
+                .font(.subheadline).foregroundStyle(NotebookStyle.quiet).accessibilityAddTraits(.isHeader).accessibilityRespondsToUserInteraction(false)
+            cell(field == .weight ? weightText(row) : row.reps.isEmpty ? "—" : row.reps, row: row, field: field)
+        }.frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, usesCompactRows ? 2 : 4)
+    }
+    @ViewBuilder private func stateContext(_ row: TrainingRow) -> some View {
+        let status = model.rowStatus(for: row)
+        VStack(alignment: .leading, spacing: 3) {
+            if status == .pendingCorrection, let saved = model.recordedValues(for: row) {
+                Text("Last saved: \(TrainingText.set(saved, unit: model.unit))")
+                    .font(.caption.monospacedDigit()).foregroundStyle(NotebookStyle.quiet)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("\(rowIdentifier(row))-recorded-value")
+            }
+            if status != .empty, let hint = completionHint(row) {
+                Text(hint).font(.caption).foregroundStyle(NotebookStyle.quiet)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("\(rowIdentifier(row))-status")
+            }
+            if status == .pendingCorrection {
+                Button("Restore saved values") {
+                    beginInteraction()
+                    if model.discardCorrection(row.id) { TrainingAccessibility.announce("Saved values restored.") }
+                }.font(.subheadline).foregroundStyle(NotebookStyle.clay).frame(minWidth: 44, minHeight: 44)
+                    .accessibilityHint("Replace the incomplete input with this stage's last saved weight and reps")
+                    .accessibilityIdentifier("\(rowIdentifier(row))-discard-edit")
+            }
+            if status == .empty, !isChildStage(row), let previous = model.previousRecordedSet(before: row.id) {
+                Text("Last set: \(TrainingText.set(previous.values, unit: row.unit)) · \(TrainingText.date(previous.day, format: "MMM d"))")
+                    .font(.caption.monospacedDigit()).foregroundStyle(NotebookStyle.quiet)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button("Use last values") {
+                    beginInteraction()
+                    if model.prefillSet(row.id) { TrainingAccessibility.announce("Last values saved to \(positionLabel(row).lowercased()).") }
+                }.font(.subheadline).foregroundStyle(NotebookStyle.clay).frame(minWidth: 44, minHeight: 44)
+                    .accessibilityHint("Save the last set's weight and reps here")
+                    .accessibilityIdentifier("prefill-\(rowIdentifier(row))")
+            }
+            if let reserve = row.repsInReserve {
+                Text(TrainingSetDetailsText.effort(reserve)).font(.caption).foregroundStyle(NotebookStyle.quiet)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityLabel("\(positionLabel(row)), \(TrainingSetDetailsText.effort(reserve))")
+                    .accessibilityIdentifier("\(rowIdentifier(row))-effort")
+            }
+        }.padding(.bottom, hasContext(row) ? 8 : 0)
+    }
+    private func hasContext(_ row: TrainingRow) -> Bool {
+        let status = model.rowStatus(for: row)
+        return row.repsInReserve != nil || status == .pendingCorrection ||
+            (status != .empty && completionHint(row) != nil) ||
+            (status == .empty && !isChildStage(row) && model.previousRecordedSet(before: row.id) != nil)
+    }
+    private func presentDetails(_ row: TrainingRow, index: Int) {
+        beginInteraction(); revealedRowID = nil
+        guard let day = model.selectedDay, let exercise = model.exercise else { return }
+        detailsRequest = TrainingSetDetailsRequest(
+            context: TrainingMetadataContext(day: day, exerciseID: exercise.id, rowIDs: model.rows.map(\.id)),
+            row: row, index: index)
+    }
+    private func completionHint(_ row: TrainingRow) -> String? {
+        var fields: [String] = []
+        if row.parsedWeight == nil && (model.exercise?.requiresWeight != false || !row.weight.isEmpty) { fields.append("weight") }
+        if NumericField.reps.parse(row.reps) == nil { fields.append("reps") }
+        return fields.isEmpty ? nil : "Enter valid \(fields.joined(separator: " and "))."
+    }
+    private func isChildStage(_ row: TrainingRow) -> Bool {
+        (model.setPosition(for: row.id)?.stageIndex ?? 1) > 1
+    }
+    private func rowIdentifier(_ row: TrainingRow) -> String {
+        guard let position = model.setPosition(for: row.id) else { return "row-1" }
+        let base = "row-\(position.setIndex)"
+        return position.stageIndex > 1 ? "\(base)-drop-\(position.stageIndex - 1)" : base
+    }
+    private func positionLabel(_ row: TrainingRow) -> String {
+        guard let position = model.setPosition(for: row.id) else { return "Set 1" }
+        let base = "Set \(position.setIndex)"
+        guard position.isDropSet else { return base }
+        return "\(base), \(position.stageIndex == 1 ? "start" : "drop \(position.stageIndex - 1)")"
+    }
     private func cell(_ text: String, row: TrainingRow, field: NumericField) -> some View {
-        let index = (model.rows.firstIndex { $0.id == row.id } ?? 0) + 1
-        return Button { model.selectInput(row.id, field: field) } label: {
-            Text(text).font(.system(size: 24).monospacedDigit()).lineLimit(1).minimumScaleFactor(0.5)
-                .frame(maxWidth: .infinity, minHeight: 56)
+        Button { beginInteraction(); model.selectInput(row.id, field: field) } label: {
+            Text(text).font(.system(size: numeralSize).monospacedDigit())
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, minHeight: usesCompactRows ? 48 : 56, alignment: usesLabeledValues ? .leading : .center)
+                .contentShape(Rectangle())
                 .foregroundStyle(model.focus?.rowID == row.id && model.focus?.field == field ? NotebookStyle.clay : NotebookStyle.ink)
         }
-        .accessibilityLabel("Set \(index), \(text) \(field == .weight ? model.unit.symbol : "reps")")
-        .accessibilityIdentifier("row-\(index)-\(field.rawValue)")
+        .accessibilityLabel("\(positionLabel(row)), \(text) \(field == .weight ? model.unit.symbol : "reps")")
+        .accessibilityHint("Edit \(field == .weight ? "weight" : "reps")")
+        .accessibilityIdentifier("\(rowIdentifier(row))-\(field.rawValue)")
+        .id("\(row.id)/\(field.rawValue)")
     }
 }
 
 private struct TrainingSaveStatus: View {
     @Bindable var model: TrainingNotebookModel
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var receipt: UUID?
-    private var showSaved: Bool { receipt != nil && model.focus == nil && model.errorMessage == nil }
     var body: some View {
-        HStack(spacing: 7) {
-            Image(systemName: showSaved ? "checkmark" : "circle.fill")
-                .font(.system(size: showSaved ? 9 : 5, weight: .medium))
-                .foregroundStyle(showSaved ? NotebookStyle.olive : NotebookStyle.quiet)
-                .frame(width: 10).accessibilityHidden(true)
-            Text(showSaved ? "Saved" : model.saveStatus).font(.caption).foregroundStyle(NotebookStyle.quiet)
-                .contentTransition(.opacity)
-        }
-        .accessibilityElement(children: .combine).accessibilityIdentifier("save-status")
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: showSaved)
-        .onChange(of: model.journal) { _, _ in
-            if model.errorMessage == nil { receipt = UUID() }
-        }
-        .task(id: receipt) {
-            guard receipt != nil else { return }
-            try? await Task.sleep(for: .milliseconds(1600))
-            guard !Task.isCancelled else { return }
-            receipt = nil
-        }
+        Text(model.saveStatus).font(.caption)
+            .foregroundStyle(NotebookStyle.ink.opacity(0.72))
+            .accessibilityIdentifier("save-status")
     }
 }

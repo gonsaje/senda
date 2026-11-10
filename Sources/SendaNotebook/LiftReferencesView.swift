@@ -27,7 +27,6 @@ struct LiftReferencesView: View {
         .padding(.horizontal, 12).padding(.vertical, 11)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(NotebookStyle.clay.opacity(0.055))
-        .overlay(alignment: .leading) { Rectangle().fill(NotebookStyle.clay).frame(width: 2) }
     }
 
     private func row(_ label: String, value: String) -> some View {

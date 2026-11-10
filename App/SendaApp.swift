@@ -48,9 +48,11 @@ private struct JournalRootView: View {
             let sample = ProcessInfo.processInfo.arguments.contains("--sample-data")
             let repository: any JournalRepository
             let profileRepository: any ProfileRepository
+            let restoreStore: (any NotebookRestoreStore)?
             if sample {
                 repository = MemoryJournalRepository(journal: try SampleJournal.makeWeek())
                 profileRepository = MemoryProfileRepository()
+                restoreStore = nil
             } else {
                 let support = try FileManager.default.url(for: .applicationSupportDirectory,
                     in: .userDomainMask, appropriateFor: nil, create: true)
@@ -64,9 +66,11 @@ private struct JournalRootView: View {
                 #endif
                 let journalURL = support.appendingPathComponent(journalPath)
                 repository = FileJournalRepository(url: journalURL)
-                profileRepository = FileProfileRepository(url: journalURL.deletingLastPathComponent().appendingPathComponent("profile.json"))
+                let profileURL = journalURL.deletingLastPathComponent().appendingPathComponent("profile.json")
+                profileRepository = FileProfileRepository(url: profileURL)
+                restoreStore = FileNotebookRestoreStore(journalURL: journalURL, profileURL: profileURL)
             }
-            session = TrainingSession(repository: repository, isSample: sample, profileRepository: profileRepository)
+            session = TrainingSession(repository: repository, isSample: sample, profileRepository: profileRepository, restoreStore: restoreStore)
             openingError = nil
         } catch { openingError = error.localizedDescription }
     }

@@ -2,111 +2,52 @@ import SwiftUI
 import SendaDomain
 import SendaLogger
 
-struct TrainingExerciseTabs: View {
+struct TrainingExerciseMenu: View {
     @Bindable var model: TrainingNotebookModel
     let day: TrainingDay
-    var add: () -> Void
     var showAll: () -> Void
-    @State private var visibleTabID: String?
-    @State private var contentFrame: CGRect = .zero
-    @ScaledMetric(relativeTo: .body) private var lineHeight: CGFloat = 22
-    @Environment(\.layoutDirection) private var layoutDirection
-    @Namespace private var viewportSpace
-
-    private var tabHeight: CGFloat { max(48, lineHeight + 22) }
+    var beginNavigation: () -> Void = {}
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: 6) {
-            GeometryReader { viewport in
-                let canOverflow = !model.tabs.isEmpty && contentFrame.width > viewport.size.width + 1
-                let leftOverflow = canOverflow && contentFrame.minX < -1
-                let rightOverflow = canOverflow && contentFrame.maxX > viewport.size.width + 1
-                ScrollView(.horizontal) {
-                    HStack(spacing: 8) {
-                        ForEach(model.tabs) { exercise in
-                            tab(exercise).id(exercise.id)
-                        }
-                    }
-                    .scrollTargetLayout()
-                    .padding(.horizontal, 5).padding(.top, 12)
-                    .background {
-                        GeometryReader { content in
-                            let frame = content.frame(in: .named(viewportSpace))
-                            Color.clear
-                                .onAppear { contentFrame = frame }
-                                .onChange(of: frame) { _, value in contentFrame = value }
-                        }
-                    }
+        Menu {
+            ForEach(model.tabs) { exercise in
+                let selected = model.exercise?.id == exercise.id
+                Button { beginNavigation(); model.selectExercise(exercise.id) } label: {
+                    if selected { Label(exercise.name, systemImage: "checkmark") }
+                    else { Text(exercise.name) }
                 }
-                .scrollIndicators(.never)
-                .scrollPosition(id: $visibleTabID, anchor: .center)
-                .coordinateSpace(name: viewportSpace)
-                .overlay(alignment: .leading) {
-                    if layoutDirection == .leftToRight ? leftOverflow : rightOverflow { edgeShadow(leading: true) }
-                }
-                .overlay(alignment: .trailing) {
-                    if layoutDirection == .leftToRight ? rightOverflow : leftOverflow { edgeShadow(leading: false) }
-                }
-                .accessibilityIdentifier("exercise-tabs")
+                .font(.body.weight(selected ? .semibold : .regular))
+                .accessibilityAddTraits(selected ? .isSelected : [])
+                .accessibilityIdentifier("exercise-\(exercise.id)")
             }
-            HStack(spacing: 2) {
-                if model.tabs.count > 1 {
-                    Button(action: showAll) {
-                        HStack(spacing: 5) {
-                            Text("All \(model.tabs.count)").monospacedDigit()
-                            Image(systemName: "list.bullet")
-                        }.font(.caption).fixedSize()
-                            .padding(.horizontal, 4).frame(minWidth: 44, minHeight: tabHeight)
-                            .contentShape(Rectangle())
+            Divider()
+            Button(action: showAll) {
+                Label("All \(model.indexedExercises(on: day).count) exercises", systemImage: "list.bullet")
+            }.accessibilityIdentifier("all-exercises")
+            if !model.tabs.isEmpty {
+                Menu("Hide an exercise") {
+                    ForEach(model.tabs) { exercise in
+                        Button(exercise.name) { beginNavigation(); model.removeExercise(exercise.id) }
+                            .accessibilityHint("Keep recorded sets and unfinished input in all exercises")
+                            .accessibilityIdentifier("hide-exercise-\(exercise.id)")
                     }
-                    .accessibilityLabel("View all \(model.tabs.count) exercises")
-                    .accessibilityIdentifier("all-exercises")
-                }
-                Button(action: add) {
-                    Image(systemName: "plus").font(.title2).frame(width: 44, height: tabHeight)
-                        .contentShape(Rectangle())
-                }
-                .accessibilityLabel("Add exercise").accessibilityIdentifier("add-exercise")
-            }.foregroundStyle(NotebookStyle.clay)
-        }
-        .frame(height: tabHeight + 12)
-        .background(alignment: .bottom) {
-            Rectangle().fill(NotebookStyle.rule).frame(height: 0.5)
-        }
-        .clipped()
-        .onChange(of: day) { _, _ in visibleTabID = model.exercise?.id }
-        .onChange(of: model.exercise?.id) { _, id in visibleTabID = id }
-        .onAppear { visibleTabID = model.exercise?.id }
-    }
-
-    private func tab(_ exercise: Exercise) -> some View {
-        let selected = model.exercise?.id == exercise.id
-        return Button { model.selectExercise(exercise.id) } label: {
-            Text(exercise.name).font(.body.weight(selected ? .semibold : .regular))
-                .lineLimit(1).frame(maxWidth: 180)
-                .padding(.horizontal, 14).padding(.vertical, 8)
-            .frame(minWidth: 64, minHeight: tabHeight)
-            .background {
-                if selected {
-                    UnevenRoundedRectangle(topLeadingRadius: 7, topTrailingRadius: 7)
-                        .fill(NotebookStyle.ivory)
-                        .shadow(color: NotebookStyle.ink.opacity(0.22), radius: 3, x: 0, y: -1)
-                }
+                }.accessibilityIdentifier("hide-exercise-menu")
             }
+        } label: {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(model.exercise?.name ?? "Exercises")
+                    .font(NotebookTypography.heading(27, italic: true))
+                    .fixedSize(horizontal: false, vertical: true)
+                Image(systemName: "chevron.down").font(.caption).accessibilityHidden(true)
+            }
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
             .contentShape(Rectangle())
         }
-        .foregroundStyle(selected ? NotebookStyle.clay : NotebookStyle.ink)
-        .accessibilityLabel(exercise.name)
-        .accessibilityAddTraits(selected ? .isSelected : [])
-        .accessibilityIdentifier("exercise-\(exercise.id)")
-        .contextMenu { Button("Remove from day", role: .destructive) { model.removeExercise(exercise.id) } }
-    }
-
-    private func edgeShadow(leading: Bool) -> some View {
-        let leftEdge = leading == (layoutDirection == .leftToRight)
-        return Rectangle().fill(NotebookStyle.ivory).frame(width: 3)
-            .shadow(color: NotebookStyle.ink.opacity(0.30), radius: 5, x: leftEdge ? 3 : -3, y: 0)
-            .frame(width: 16, alignment: leading ? .leading : .trailing)
-            .clipped().allowsHitTesting(false).accessibilityHidden(true)
+        .menuStyle(.borderlessButton).menuIndicator(.hidden)
+        .foregroundStyle(NotebookStyle.ink)
+        .accessibilityAddTraits(.isHeader)
+        .accessibilityLabel(model.exercise?.name ?? "Exercises")
+        .accessibilityHint("Switch exercise, view all exercises, or hide an exercise from this menu")
+        .accessibilityIdentifier("entry-exercise")
     }
 }
