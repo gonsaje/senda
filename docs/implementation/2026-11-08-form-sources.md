@@ -2,6 +2,8 @@
 
 Checked 2026-11-08. The app contains original short summaries, not copied photographs or videos. Sources open only on explicit tap; guide text is bundled for offline use. Guides specify the seated dumbbell curl, lying leg curl, seated machine calf raise and cable triceps pressdown variants where the exercise name is broad. Custom movements have no inferred guide.
 
+Updated 2026-11-09: Learn also bundles original Everkinetic illustrations under CC BY-SA 4.0 for 15 matching variations. No ACE photographs are copied. The [artwork source, license and coverage notes](2026-11-09-learn-artwork.md) identify every bundled image and the five variations without matching illustrations. [Anatomy notes](2026-11-09-learn-anatomy.md) cover the separate read-only muscle maps.
+
 - [bench](https://www.acefitness.org/resources/everyone/exercise-library/5/chest-press/)
 - [deadlift](https://www.acefitness.org/resources/everyone/exercise-library/6/deadlift/)
 - [squat](https://www.acefitness.org/resources/everyone/exercise-library/11/back-squat/)
