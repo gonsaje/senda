@@ -5,6 +5,7 @@ import SendaLogger
 struct TrainingExerciseMenu: View {
     @Bindable var model: TrainingNotebookModel
     let day: TrainingDay
+    var addExercise: () -> Void
     var showAll: () -> Void
     var beginNavigation: () -> Void = {}
 
@@ -20,7 +21,10 @@ struct TrainingExerciseMenu: View {
                 .accessibilityAddTraits(selected ? .isSelected : [])
                 .accessibilityIdentifier("exercise-\(exercise.id)")
             }
-            Divider()
+            if !model.tabs.isEmpty { Divider() }
+            Button(action: addExercise) {
+                Label("Add exercise", systemImage: "plus")
+            }.accessibilityIdentifier("add-exercise")
             Button(action: showAll) {
                 Label("All \(model.indexedExercises(on: day).count) exercises", systemImage: "list.bullet")
             }.accessibilityIdentifier("all-exercises")
@@ -36,18 +40,23 @@ struct TrainingExerciseMenu: View {
         } label: {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text(model.exercise?.name ?? "Exercises")
-                    .font(NotebookTypography.heading(27, italic: true))
+                    .font(NotebookTypography.heading(32, italic: true, relativeTo: .largeTitle))
+                    .foregroundStyle(NotebookStyle.ink)
+                    .multilineTextAlignment(.leading)
                     .fixedSize(horizontal: false, vertical: true)
-                Image(systemName: "chevron.down").font(.caption).accessibilityHidden(true)
+                Image(systemName: "chevron.down")
+                    .font(.caption)
+                    .foregroundStyle(NotebookStyle.quiet)
+                    .accessibilityHidden(true)
             }
-            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            .frame(minWidth: 44, maxWidth: .infinity, minHeight: 44, alignment: .leading)
             .contentShape(Rectangle())
         }
         .menuStyle(.borderlessButton).menuIndicator(.hidden)
         .foregroundStyle(NotebookStyle.ink)
         .accessibilityAddTraits(.isHeader)
         .accessibilityLabel(model.exercise?.name ?? "Exercises")
-        .accessibilityHint("Switch exercise, view all exercises, or hide an exercise from this menu")
+        .accessibilityHint("Switch, add, view, or hide exercises")
         .accessibilityIdentifier("entry-exercise")
     }
 }

@@ -100,6 +100,7 @@ struct TrainingWeekView: View {
                         let summary = model.summary(for: day)
                         let categories = summary.muscleGroups.map(\.rawValue)
                         let unfinished = model.unfinishedSetCount(for: day)
+                        let emphasizedAction = day == model.today || unfinished > 0
                         let needsValues = unfinished > 0 ? ", \(unfinished) \(unfinished == 1 ? "set needs" : "sets need") values" : ""
                         Button { model.openDay(day) } label: {
                             HStack(alignment: .center, spacing: 12) {
@@ -111,7 +112,8 @@ struct TrainingWeekView: View {
                                 VStack(alignment: .leading, spacing: 4) {
                                     if summary.setCount == 0 {
                                         Label(unfinished > 0 ? "Continue workout" : "Start workout", systemImage: unfinished > 0 ? "pencil" : "plus")
-                                            .font(.title3).foregroundStyle(NotebookStyle.clay)
+                                            .font(emphasizedAction ? .title3 : .body)
+                                            .foregroundStyle(emphasizedAction ? NotebookStyle.clay : NotebookStyle.quiet)
                                     } else { Text(categories.joined(separator: " · ")).font(.title3.weight(.semibold)).fixedSize(horizontal: false, vertical: true) }
                                     if unfinished > 0 {
                                         Text("\(unfinished) \(unfinished == 1 ? "set needs" : "sets need") values\(summary.setCount > 0 ? " · Continue" : "")")

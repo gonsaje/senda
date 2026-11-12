@@ -10,12 +10,12 @@ struct TrainingNextWorkoutFeedback: View {
     var body: some View {
         let guidance = model.nextWorkoutGuidance(for: exercise.id, on: day)
         if guidance.status != .noPlan {
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 4) {
                 Text("Next workout").font(.subheadline.weight(.semibold)).accessibilityAddTraits(.isHeader)
                 Text(TrainingNextWorkoutText.make(guidance, exercise: exercise, unit: model.unit))
-                    .font(.subheadline).foregroundStyle(NotebookStyle.quiet)
+                    .font(.footnote).foregroundStyle(NotebookStyle.quiet)
                     .fixedSize(horizontal: false, vertical: true)
-                if let referenceDay = guidance.referenceDay {
+                if let referenceDay = guidance.referenceDay, referenceDay != day {
                     Text("Based on \(ProgressFormatting.date(referenceDay, format: "MMM d, yyyy", calendar: model.calendar)) · Saved working sets")
                         .font(.caption).foregroundStyle(NotebookStyle.quiet)
                         .fixedSize(horizontal: false, vertical: true)

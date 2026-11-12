@@ -28,24 +28,22 @@ struct TrainingPlanSummary: View {
     }
     @ViewBuilder private var details: some View {
         if let plan {
-            VStack(alignment: .leading, spacing: 3) {
-                Text("\(completedWorkingSets) of \(plan.workingSets) working")
-                    .font(.subheadline.weight(.medium).monospacedDigit())
-                Text("\(TrainingPlanText.repRange(plan)) reps")
-                    .font(.caption).foregroundStyle(NotebookStyle.quiet)
-            }.fixedSize(horizontal: false, vertical: true)
-                .accessibilityElement(children: .combine)
+            Text("\(completedWorkingSets) of \(plan.workingSets) working · \(TrainingPlanText.repRange(plan)) reps")
+                .font(.footnote.monospacedDigit())
+                .foregroundStyle(NotebookStyle.quiet)
+                .fixedSize(horizontal: false, vertical: true)
                 .accessibilityLabel("\(completedWorkingSets) of \(plan.workingSets) working sets, \(TrainingPlanText.repRange(plan)) reps")
                 .accessibilityIdentifier("working-set-completion")
         }
     }
     private var editButton: some View {
         Button(action: edit) {
-            Text(plan == nil ? "Add plan" : "Plan").font(.subheadline.weight(.medium))
+            Text(plan == nil ? "Add plan" : "Plan")
+                .font((plan == nil ? Font.subheadline : .footnote).weight(.medium))
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
         }
-            .foregroundStyle(NotebookStyle.clay)
+            .foregroundStyle(plan == nil ? NotebookStyle.clay : NotebookStyle.quiet)
             .accessibilityHint("Change this workout's set target and rep range")
             .accessibilityIdentifier("edit-exercise-plan")
     }

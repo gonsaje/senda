@@ -9,20 +9,17 @@ struct TrainingWeekNavigation: View {
             if textSize.isAccessibilitySize {
                 stackedHeader
             } else {
-                ViewThatFits(in: .horizontal) {
-                    inlineHeader(abbreviated: false)
-                    inlineHeader(abbreviated: true)
-                    stackedHeader
+                HStack(alignment: .top, spacing: 8) {
+                    ViewThatFits(in: .horizontal) {
+                        title(abbreviated: false).fixedSize()
+                        title(abbreviated: true).fixedSize()
+                        title(abbreviated: true)
+                    }.frame(maxWidth: .infinity, alignment: .leading)
+                    // Keep the controls outside the changing month-label alternatives.
+                    controls
                 }
             }
         }.foregroundStyle(NotebookStyle.ink)
-    }
-    private func inlineHeader(abbreviated: Bool) -> some View {
-        HStack(spacing: 8) {
-            title(abbreviated: abbreviated).fixedSize()
-            Spacer(minLength: 0)
-            controls
-        }
     }
     private var stackedHeader: some View {
         VStack(alignment: .leading, spacing: 4) {
