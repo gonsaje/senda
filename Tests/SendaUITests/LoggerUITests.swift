@@ -76,6 +76,9 @@ final class LoggerUITests: XCTestCase {
     func testPickerSearchReturnDismissesKeyboardAndKeepsResults() throws {
         let app = launch()
         _ = openDay(0, in: app)
+        XCTAssertFalse(app.descendants(matching: .any).matching(identifier: "entry-exercise").firstMatch.exists)
+        XCTAssertEqual(app.buttons.matching(NSPredicate(format: "label == %@", "Add exercise")).count, 1)
+        XCTAssertFalse(app.buttons["reuse-workout"].exists)
         tap("add-exercise", in: app)
         let search = element("exercise-search", in: app)
         search.tap(); search.typeText("Cable")
@@ -309,6 +312,7 @@ final class LoggerUITests: XCTestCase {
         let app = launch()
         tap("dock-profile", in: app)
         attach("Profile overview", app)
+        tap("profile-settings", in: app)
         tap("profile-weight-units", in: app)
         attach("Profile weight units", app)
         XCTAssertFalse(app.buttons["export-backup"].exists)
@@ -335,11 +339,48 @@ final class LoggerUITests: XCTestCase {
     }
 
     @MainActor
+    func testStrengthGoalCompletesFromLoggedSetAndPersists() throws {
+        continueAfterFailure = false
+        let app = launch()
+        _ = openDay(0, in: app)
+        add("Bench", id: "bench", in: app)
+        enter(weight: "135", reps: "8", in: app)
+        tap("input-done", in: app)
+        tap("dock-profile", in: app)
+        tap("add-strength-goal", in: app)
+        tap("strength-goal-exercise", in: app)
+        tap("strength-goal-exercise-bench", in: app)
+        let weight = element("strength-goal-weight", in: app)
+        weight.tap(); weight.typeText("145")
+        let reps = element("strength-goal-reps", in: app)
+        reps.tap(); reps.typeText("8")
+        tap("save-strength-goal", in: app)
+        let goal = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "strength-goal-")).firstMatch
+        XCTAssertTrue(goal.waitForExistence(timeout: 5))
+        XCTAssertTrue(goal.label.contains("145 lb"))
+        XCTAssertTrue(goal.label.contains("135 lb"))
+        let goalID = goal.identifier
+        XCTAssertFalse(app.descendants(matching: .any).matching(identifier: "completed-strength-goals").firstMatch.exists)
+        attach("Active strength goal", app)
+        tap("dock-log", in: app)
+        tap("row-1-weight", in: app); replace("145", in: app); tap("input-done", in: app)
+        tap("dock-profile", in: app)
+        XCTAssertTrue(element("completed-strength-goals", in: app).exists)
+        XCTAssertTrue(element(goalID, in: app).label.contains("145 lb"))
+        app.terminate(); app.launch()
+        tap("dock-profile", in: app)
+        XCTAssertTrue(element("completed-strength-goals", in: app).exists)
+        XCTAssertTrue(element(goalID, in: app).exists)
+        attach("Completed strength goal", app)
+    }
+
+    @MainActor
     func testLargestTextProfileDestinationsAndNameActionsStayReachable() throws {
         continueAfterFailure = false
         let app = launch(extra: ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
         tap("dock-profile", in: app)
         attach("Larger Text Profile", app)
+        tap("profile-settings", in: app)
         tap("profile-details", in: app)
         let name = reveal("profile-name", in: app)
         name.tap(); name.typeText("Alexandra")
@@ -384,7 +425,7 @@ final class LoggerUITests: XCTestCase {
     @MainActor
     func testInvalidProfileNameKeepsRawTextAndExposesSaveError() throws {
         let app = launch()
-        tap("dock-profile", in: app); tap("profile-details", in: app)
+        tap("dock-profile", in: app); tap("profile-settings", in: app); tap("profile-details", in: app)
         let name = element("profile-name", in: app)
         let invalidName = String(repeating: "J", count: 81)
         name.tap(); name.typeText(invalidName)
@@ -451,6 +492,54 @@ final class LoggerUITests: XCTestCase {
     }
 
     @MainActor
+    func testLargestTextWorkoutHeaderKeepsDatesAndArrowsReadable() {
+        let app = launch(extra: ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
+        _ = openDay(0, in: app)
+        let goToToday = app.buttons["go-to-today"]
+        if goToToday.exists {
+            XCTAssertTrue(goToToday.isHittable)
+            goToToday.tap()
+        }
+
+        let title = element("day-title", in: app)
+        let date = element("day-date", in: app)
+        let previous = element("previous-day", in: app)
+        let next = element("next-day", in: app)
+        let scroll = app.scrollViews["day-scroll"]
+        func assertHeader() {
+            for item in [title, date, previous, next] {
+                XCTAssertTrue(scroll.frame.contains(item.frame), "\(item.identifier) extends beyond the workout")
+                XCTAssertTrue(item.isHittable, "\(item.identifier) is obscured")
+            }
+            XCTAssertLessThanOrEqual(title.frame.maxY, date.frame.minY)
+            XCTAssertLessThanOrEqual(date.frame.maxY, previous.frame.minY)
+            for arrow in [previous, next] {
+                XCTAssertGreaterThanOrEqual(arrow.frame.width, 44)
+                XCTAssertGreaterThanOrEqual(arrow.frame.height, 44)
+            }
+        }
+
+        assertHeader()
+        XCTAssertFalse(app.descendants(matching: .any).matching(identifier: "entry-exercise").firstMatch.exists)
+        let addExercise = element("add-exercise", in: app)
+        XCTAssertLessThanOrEqual(max(previous.frame.maxY, next.frame.maxY), addExercise.frame.minY)
+        XCTAssertTrue(addExercise.isHittable)
+        XCTAssertGreaterThanOrEqual(addExercise.frame.height, 44 - 0.01)
+        attach("Today's workout header at the largest text size", app)
+        let today = date.label
+        for (arrow, day) in [(previous, "Past"), (next, "Future")] {
+            arrow.tap()
+            XCTAssertNotEqual(date.label, today)
+            XCTAssertFalse(app.staticTexts["\(day) training day"].exists)
+            assertHeader()
+            attach("\(day) workout header at the largest text size", app)
+            XCTAssertTrue(goToToday.isHittable)
+            goToToday.tap()
+            XCTAssertEqual(date.label, today)
+        }
+    }
+
+    @MainActor
     func testPopulatedWorkoutPassesAccessibilityAudit() throws {
         guard #available(iOS 17.0, *) else { throw XCTSkip("Accessibility audits require iOS 17 or later.") }
         let app = launch()
@@ -476,7 +565,7 @@ final class LoggerUITests: XCTestCase {
     func testBackupSettingsPassAccessibilityAudit() throws {
         guard #available(iOS 17.0, *) else { throw XCTSkip("Accessibility audits require iOS 17 or later.") }
         let app = launch()
-        tap("dock-profile", in: app); tap("profile-backup", in: app)
+        tap("dock-profile", in: app); tap("profile-settings", in: app); tap("profile-backup", in: app)
         _ = element("export-backup", in: app)
         attach("Backup settings accessibility audit", app)
         try auditAccessibility(in: app)
@@ -603,7 +692,9 @@ final class LoggerUITests: XCTestCase {
         XCTAssertTrue(element("row-1-weight", in: app).label.contains("10 kg"))
         changeUnit("lb", in: app)
         XCTAssertTrue(element("row-1-weight", in: app).label.contains("22.05 lb"))
-        tap("repeat-set", in: app)
+        let repeatSet = reveal("repeat-set", in: app)
+        XCTAssertGreaterThanOrEqual(repeatSet.frame.height, 44 - 0.01)
+        repeatSet.tap()
         XCTAssertTrue(element("row-2-reps", in: app).label.contains("12 reps"))
         XCTAssertGreaterThanOrEqual(element("undo-set-change", in: app).frame.height, 44)
         tap("undo-set-change", in: app)
@@ -812,8 +903,9 @@ final class LoggerUITests: XCTestCase {
         tap("close-exercise-picker", in: app)
         let selector = element("entry-exercise", in: app)
         XCTAssertGreaterThanOrEqual(selector.frame.height, 44)
-        XCTAssertEqual(element("add-exercise", in: app).frame.midY, selector.frame.midY, accuracy: 2)
+        XCTAssertFalse(app.descendants(matching: .any).matching(identifier: "add-exercise").firstMatch.exists)
         tap("entry-exercise", in: app)
+        XCTAssertTrue(element("add-exercise", in: app).isHittable)
         XCTAssertTrue(element("exercise-\(customID)", in: app).isSelected)
         XCTAssertTrue(element("exercise-bench", in: app).exists)
         tap("exercise-\(customID)", in: app)
@@ -956,6 +1048,7 @@ final class LoggerUITests: XCTestCase {
             tap("hide-exercise-menu", in: app)
             tap("hide-exercise-" + id, in: app)
         }
+        XCTAssertTrue(reveal("entry-exercise", in: app).isHittable)
         tap("all-exercises", in: app)
         XCTAssertTrue(element("day-exercise-deadlift", in: app).label.localizedCaseInsensitiveContains("hidden"))
         tap("day-exercise-deadlift", in: app)
@@ -1006,7 +1099,9 @@ final class LoggerUITests: XCTestCase {
         XCTAssertTrue(element("week-month", in: app).exists)
         _ = openDay(0, in: app)
         add("Bench", id: "bench", in: app)
-        tap("new-set", in: app)
+        let newSet = reveal("new-set", in: app)
+        XCTAssertGreaterThanOrEqual(newSet.frame.height, 44 - 0.01)
+        newSet.tap()
         XCTAssertTrue(element("input-done", in: app).isHittable)
         XCTAssertTrue(element("input-next", in: app).isHittable)
         XCTAssertGreaterThanOrEqual(element("input-next", in: app).frame.width, 44)
@@ -1023,7 +1118,7 @@ final class LoggerUITests: XCTestCase {
         attach("Large text automatic entry", app)
         tap("input-done", in: app)
         changeUnit("kg", in: app)
-        XCTAssertTrue(element("weight-unit-menu", in: app).label.contains("kg"))
+        XCTAssertEqual(element("weight-unit-toggle", in: app).value as? String, "Kilograms")
         let originalDate = element("day-date", in: app).label
         tap("next-day", in: app)
         XCTAssertNotEqual(element("day-date", in: app).label, originalDate)
@@ -1115,6 +1210,7 @@ final class LoggerUITests: XCTestCase {
         enter(weight: "31.", reps: "8", in: app)
         tap("dock-profile", in: app)
         assertProfileDestinations(in: app)
+        tap("profile-settings", in: app)
         tap("profile-details", in: app)
         let name = element("profile-name", in: app)
         name.tap(); name.typeText("Jae")
@@ -1124,6 +1220,7 @@ final class LoggerUITests: XCTestCase {
         tap("profile-weight-units", in: app)
         tap("preference-kg", in: app)
         tap("close-settings", in: app)
+        tap("close-profile-settings", in: app)
         tap("dock-learn", in: app)
         let search = element("learn-search", in: app)
         search.tap(); search.typeText("Bench")
@@ -1139,8 +1236,9 @@ final class LoggerUITests: XCTestCase {
         tap("input-done", in: app)
         app.terminate(); app.launch()
         tap("dock-profile", in: app)
-        XCTAssertTrue(element("profile-details", in: app).label.contains("Jae"))
         assertProfileDestinations(in: app)
+        tap("profile-settings", in: app)
+        XCTAssertTrue(element("profile-details", in: app).label.contains("Jae"))
         tap("profile-weight-units", in: app)
         XCTAssertTrue(element("preference-kg", in: app).isSelected)
         attach("Local profile and unit setting", app)
@@ -1150,6 +1248,7 @@ final class LoggerUITests: XCTestCase {
     func testBackupSettingsExposeExportAndValidatedRestoreActions() throws {
         let app = launch()
         tap("dock-profile", in: app)
+        tap("profile-settings", in: app)
         XCTAssertTrue(element("profile-storage-explanation", in: app).exists)
         tap("profile-weight-units", in: app)
         XCTAssertTrue(element("preference-lb", in: app).exists)
@@ -1178,9 +1277,9 @@ final class LoggerUITests: XCTestCase {
         let originalDate = element("day-date", in: app).label
         tap("exercise-progress", in: app)
         XCTAssertTrue(app.scrollViews["progress-scroll"].exists)
-        XCTAssertTrue(element("progress-range-12", in: app).isSelected)
-        tap("progress-range-8", in: app)
-        XCTAssertTrue(element("progress-range-8", in: app).isSelected)
+        XCTAssertTrue(element("progress-range-3m", in: app).isSelected)
+        tap("progress-range-1m", in: app)
+        XCTAssertTrue(element("progress-range-1m", in: app).isSelected)
         let sessionID = "progress-session-" + String(day.dropFirst(4))
         for _ in 0..<10 {
             if app.buttons[sessionID].exists { break }
@@ -1375,16 +1474,23 @@ final class LoggerUITests: XCTestCase {
         XCTAssertEqual(picker.value as? String, "Bench")
         XCTAssertTrue(element("trends-strength-chart", in: app).label.contains("Bench"))
         XCTAssertTrue(element("trends-strength-latest", in: app).label.contains("145 lb"))
+        tap("trends-strength-previous-day", in: app)
+        XCTAssertTrue(element("trends-strength-latest", in: app).label.contains("135 lb"))
+        tap("trends-strength-next-day", in: app)
+        XCTAssertTrue(element("trends-strength-latest", in: app).label.contains("145 lb"))
+        element("trends-strength-chart", in: app)
+            .coordinate(withNormalizedOffset: CGVector(dx: 0.28, dy: 0.45)).tap()
+        XCTAssertFalse(element("trends-strength-latest", in: app).label.contains("145 lb"))
         picker.tap()
         tap("trends-strength-exercise-overhead-press", in: app)
         XCTAssertEqual(picker.value as? String, "Overhead press")
         XCTAssertTrue(element("trends-strength-chart", in: app).label.contains("Overhead press"))
         XCTAssertTrue(element("trends-strength-latest", in: app).label.contains("65 lb"))
         attach("Strength Trends selected exercise", app)
-        tap("trends-range-8", in: app)
+        tap("trends-range-1m", in: app)
         XCTAssertEqual(picker.value as? String, "Overhead press")
-        XCTAssertTrue(element("trends-range-8", in: app).isSelected)
-        tap("trends-range-12", in: app)
+        XCTAssertTrue(element("trends-range-1m", in: app).isSelected)
+        tap("trends-range-3m", in: app)
         picker.tap(); tap("trends-strength-exercise-bench", in: app)
         tap("trends-strength-history", in: app)
         XCTAssertTrue(app.scrollViews["progress-scroll"].exists)
@@ -1426,15 +1532,19 @@ final class LoggerUITests: XCTestCase {
         tap("dock-trends", in: app)
         XCTAssertTrue(element("dock-trends", in: app).isSelected)
         XCTAssertTrue(app.scrollViews["trends-scroll"].exists)
-        XCTAssertTrue(element("trends-range-12", in: app).isSelected)
-        tap("trends-range-8", in: app)
-        XCTAssertTrue(element("trends-range-8", in: app).isSelected)
+        XCTAssertTrue(element("trends-range-3m", in: app).isSelected)
+        for range in ["1m", "3m", "6m", "1y"] {
+            let identifier = "trends-range-\(range)"
+            tap(identifier, in: app)
+            XCTAssertTrue(element(identifier, in: app).isSelected)
+        }
         XCTAssertTrue(element("trends-period-summary", in: app).exists)
         tap("trends-exercise-bench", in: app)
         XCTAssertTrue(app.scrollViews["progress-scroll"].exists)
-        XCTAssertTrue(element("progress-range-8", in: app).isSelected)
+        XCTAssertTrue(element("progress-range-1y", in: app).isSelected)
         tap("progress-close", in: app)
         XCTAssertTrue(app.scrollViews["trends-scroll"].exists)
+        XCTAssertTrue(element("trends-range-1y", in: app).isSelected)
         tap("dock-log", in: app)
         XCTAssertEqual(element("day-date", in: app).label, originalDate)
         XCTAssertEqual(element("entry-exercise", in: app).label, "Bench")
@@ -1533,7 +1643,7 @@ final class LoggerUITests: XCTestCase {
         tap("trends-history", in: app)
         XCTAssertTrue(element("progress-search", in: app).exists)
         tap("progress-exercise-bench", in: app)
-        XCTAssertTrue(reveal("progress-range-12", in: app).isSelected)
+        XCTAssertTrue(reveal("progress-range-3m", in: app).isSelected)
         attach("Larger Text exercise history range", app)
         tap("progress-close", in: app)
         XCTAssertTrue(app.scrollViews["trends-scroll"].exists)
@@ -1574,7 +1684,9 @@ final class LoggerUITests: XCTestCase {
         XCTAssertTrue(element("dock-profile", in: app).isSelected)
         attach("Profile Largest Text bottom bar", app)
         assertProfileDestinations(in: app)
+        tap("profile-settings", in: app)
         tap("profile-weight-units", in: app); tap("preference-kg", in: app); tap("close-settings", in: app)
+        tap("close-profile-settings", in: app)
         tap("dock-learn", in: app)
         let search = element("learn-search", in: app)
         search.tap(); search.typeText("Bench\n")
@@ -1604,7 +1716,7 @@ final class LoggerUITests: XCTestCase {
     }
 
     @MainActor private func assertProfileDestinations(in app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
-        for id in ["profile-details", "profile-weight-units", "profile-backup"] {
+        for id in ["profile-settings", "add-strength-goal"] {
             XCTAssertTrue(element(id, in: app, file: file, line: line).exists, file: file, line: line)
         }
         for id in ["training-records", "big-three-total", "profile-progress"] {
@@ -1642,8 +1754,12 @@ final class LoggerUITests: XCTestCase {
         tap("input-next", in: app); replace(reps, in: app)
     }
     @MainActor private func changeUnit(_ symbol: String, in app: XCUIApplication) {
-        tap("weight-unit-menu", in: app)
-        tap("day-unit-\(symbol)", in: app)
+        let toggle = reveal("weight-unit-toggle", in: app)
+        let expected = symbol == "kg" ? "Kilograms" : "Pounds"
+        let original = symbol == "kg" ? "Pounds" : "Kilograms"
+        XCTAssertEqual(toggle.value as? String, original)
+        toggle.tap()
+        XCTAssertEqual(toggle.value as? String, expected)
     }
     @MainActor private func replace(_ value: String, in app: XCUIApplication) {
         let field = element("set-input", in: app)
@@ -1670,7 +1786,7 @@ final class LoggerUITests: XCTestCase {
             if id.hasPrefix("row-") && id.hasSuffix("-details"), let index = id.split(separator: "-").dropFirst().first {
                 let menu = id.contains("-drop-") ? String(id.dropLast("-details".count)) + "-actions" : "set-\(index)-actions"
                 reveal(menu, in: app, file: file, line: line).tap()
-            } else if id == "all-exercises" || id == "hide-exercise-menu" {
+            } else if ["add-exercise", "all-exercises", "hide-exercise-menu"].contains(id) {
                 reveal("entry-exercise", in: app, file: file, line: line).tap()
             }
         }
@@ -1702,6 +1818,8 @@ final class LoggerUITests: XCTestCase {
         let reuse = app.scrollViews["workout-reuse-scroll"]
         let custom = app.scrollViews["custom-exercise-scroll"]
         let dayIndex = app.scrollViews["day-exercises-scroll"]
+        let profileSettings = app.scrollViews["profile-settings-scroll"]
+        let goalEditor = app.scrollViews["strength-goal-editor-scroll"]
         let details = app.scrollViews["profile-details-scroll"]
         let settings = app.scrollViews["settings-scroll"]
         let progress = app.scrollViews["progress-scroll"]
@@ -1711,7 +1829,7 @@ final class LoggerUITests: XCTestCase {
         let trends = app.scrollViews["trends-scroll"]
         let profile = app.scrollViews["profile-scroll"]
         let learn = app.scrollViews["learn-scroll"]
-        let sheetScroll = [picker, filters, reuse, custom, dayIndex, details, settings, progress, planEditor, setDetailsEditor, setTypePicker].first { $0.exists }
+        let sheetScroll = [picker, filters, reuse, custom, dayIndex, profileSettings, goalEditor, details, settings, progress, planEditor, setDetailsEditor, setTypePicker].first { $0.exists }
         let scroll = sheetScroll ?? [trends, profile, learn, app.scrollViews.firstMatch].first { $0.exists } ?? app.scrollViews.firstMatch
         let inPageContent = sheetScroll == nil && (trends.exists || profile.exists || learn.exists) && scroll.descendants(matching: .any).matching(identifier: id).firstMatch.exists
         let inSheetContent = sheetScroll != nil && scroll.descendants(matching: .any).matching(identifier: id).firstMatch.exists
