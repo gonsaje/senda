@@ -50,8 +50,13 @@ private struct JournalRootView: View {
             let profileRepository: any ProfileRepository
             let restoreStore: (any NotebookRestoreStore)?
             if sample {
-                repository = MemoryJournalRepository(journal: try SampleJournal.makeWeek())
-                profileRepository = MemoryProfileRepository()
+                repository = MemoryJournalRepository(journal: try SampleJournal.makeTwelveWeeks())
+                let sampleProfile = MemoryProfileRepository()
+                try sampleProfile.save(ProfileDetails(goals: [
+                    StrengthGoal(exerciseID: "bench", target: SetValues(weight: 15_500, reps: 8)),
+                    StrengthGoal(exerciseID: "deadlift", target: SetValues(weight: 21_500, reps: 5))
+                ]))
+                profileRepository = sampleProfile
                 restoreStore = nil
             } else {
                 let support = try FileManager.default.url(for: .applicationSupportDirectory,

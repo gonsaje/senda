@@ -17,9 +17,26 @@ import SendaPersistence
         save(name: name, email: details.email)
     }
     @discardableResult public func save(name: String, email: String) -> Bool {
+        persist(ProfileDetails(name: name, email: email, goals: details.goals))
+    }
+    @discardableResult public func saveGoal(_ goal: StrengthGoal) -> Bool {
+        var candidate = details
+        if let index = candidate.goals.firstIndex(where: { $0.id == goal.id }) {
+            candidate.goals[index] = goal
+        } else {
+            candidate.goals.append(goal)
+        }
+        return persist(candidate)
+    }
+    @discardableResult public func removeGoal(_ id: UUID) -> Bool {
+        var candidate = details
+        candidate.goals.removeAll { $0.id == id }
+        return persist(candidate)
+    }
+    private func persist(_ next: ProfileDetails) -> Bool {
         guard openingError == nil else { errorMessage = openingError; return false }
         do {
-            let candidate = try ProfileDetails(name: name, email: email).validated()
+            let candidate = try next.validated()
             try repository.save(candidate)
             details = candidate; errorMessage = nil
             return true

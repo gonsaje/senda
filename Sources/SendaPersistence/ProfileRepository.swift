@@ -22,11 +22,13 @@ import SendaDomain
         do { data = try Data(contentsOf: url) }
         catch let error as CocoaError where error.code == .fileReadNoSuchFile { return ProfileDetails() }
         let envelope = try JSONDecoder().decode(Envelope.self, from: data)
-        guard envelope.version == 1 else { throw ProfileStorageError.unsupportedVersion }
+        guard (1...2).contains(envelope.version) else { throw ProfileStorageError.unsupportedVersion }
         return try envelope.details.validated()
     }
     public func save(_ details: ProfileDetails) throws {
-        let data = try JSONEncoder().encode(Envelope(version: 1, details: details.validated()))
+        let profile = try details.validated()
+        let version = profile.goals.isEmpty ? 1 : 2
+        let data = try JSONEncoder().encode(Envelope(version: version, details: profile))
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try writer(data, url)
     }

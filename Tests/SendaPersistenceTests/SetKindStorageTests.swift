@@ -149,7 +149,7 @@ import SendaDomain
         try bytes.write(to: url)
         #expect(throws: StorageError.unsupportedVersion(8)) { try FileJournalRepository(url: url).loadSnapshot() }
         #expect(try Data(contentsOf: url) == bytes)
-        let backup = Data(#"{"format":"senda-backup","version":5,"snapshot":{"kind":"future-kind"}}"#.utf8)
-        #expect(throws: NotebookBackupError.unsupportedVersion(5)) { try NotebookBackupCodec.decode(backup) }
+        let backup = Data(#"{"format":"senda-backup","version":6,"snapshot":{"kind":"future-kind"}}"#.utf8)
+        #expect(throws: NotebookBackupError.unsupportedVersion(6)) { try NotebookBackupCodec.decode(backup) }
     }
 }

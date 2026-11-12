@@ -28,6 +28,23 @@ import SendaPersistence
         #expect(notebook.profile.openingError == nil)
         #expect(notebook.profile.save(name: "Jae", email: ""))
     }
+    @Test func goalUpdatesPreserveIdentityAndFailedRemovalKeepsSavedGoal() {
+        let store = ProfileFailureStore()
+        let profile = ProfileModel(repository: store)
+        let goal = StrengthGoal(exerciseID: "bench", target: SetValues(weight: 15_500, reps: 8))
+        #expect(profile.saveGoal(goal))
+        let edited = StrengthGoal(id: goal.id, exerciseID: goal.exerciseID, target: SetValues(weight: 16_000, reps: 8))
+        #expect(profile.saveGoal(edited))
+        #expect(profile.saveName("Jae"))
+        #expect(profile.details.goals == [edited])
+        store.rejectWrites = true
+        #expect(!profile.removeGoal(goal.id))
+        #expect(profile.errorMessage != nil)
+        #expect(ProfileModel(repository: store).details == profile.details)
+        store.rejectWrites = false
+        #expect(profile.removeGoal(goal.id))
+        #expect(profile.details.goals.isEmpty && profile.details.name == "Jae")
+    }
     @Test func invalidDetailsNeverReachPersistence() {
         let store = ProfileFailureStore()
         let profile = ProfileModel(repository: store)

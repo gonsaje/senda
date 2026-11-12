@@ -64,7 +64,7 @@ public struct NotebookArchive: Codable, Equatable, Sendable {
                 throw NotebookBackupError.incompatibleFormat
             }
             let version = try box.decode(Int.self, forKey: .version)
-            guard (1...4).contains(version) else { throw NotebookBackupError.unsupportedVersion(version) }
+            guard (1...5).contains(version) else { throw NotebookBackupError.unsupportedVersion(version) }
             self = try NotebookArchive(snapshot: box.decode(SnapshotPayload.self, forKey: .snapshot).snapshot,
                 profile: box.decode(ProfileDetails.self, forKey: .profile), createdAt: box.decode(Date.self, forKey: .createdAt)).validated()
         } catch let error as NotebookBackupError {
@@ -78,7 +78,7 @@ public struct NotebookArchive: Codable, Equatable, Sendable {
         let archive = try validated()
         var box = encoder.container(keyedBy: CodingKeys.self)
         try box.encode("senda-backup", forKey: .format)
-        try box.encode(4, forKey: .version)
+        try box.encode(archive.profile.goals.isEmpty ? 4 : 5, forKey: .version)
         try box.encode(archive.createdAt, forKey: .createdAt)
         try box.encode(SnapshotPayload(archive.snapshot), forKey: .snapshot)
         try box.encode(archive.profile, forKey: .profile)

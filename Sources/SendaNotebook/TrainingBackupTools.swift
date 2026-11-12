@@ -55,7 +55,7 @@ struct NotebookBackupTools: View {
                 action("Save full backup", icon: "square.and.arrow.up", identifier: "export-backup") {
                     prepareExport(.backup, data: exportBackup)
                 }
-                Text("A full backup includes recorded workouts, custom exercises, unfinished rows, units, your optional local name, and any profile details saved by earlier versions. Senda does not encrypt backup files.")
+                Text("A full backup includes recorded workouts, lift goals, custom exercises, unfinished rows, units, your optional local name, and any profile details saved by earlier versions. Senda does not encrypt backup files.")
                     .font(.subheadline).foregroundStyle(NotebookStyle.quiet).fixedSize(horizontal: false, vertical: true)
             }
             if let exportCSV {
@@ -295,6 +295,7 @@ public struct NotebookRestorePreview: View {
             summary("Recorded workout days", value: String(recordedDays))
             summary("Recorded sets", value: String(recordedSets))
             summary("Custom exercises", value: String(snapshot.customExercises?.count ?? 0))
+            summary("Lift goals", value: String(archive.profile.goals.count))
             summary("Unfinished rows", value: String(unfinishedRows))
             let unit = snapshot.training?.preferredUnit ?? snapshot.workspace?.weightUnit ?? .pounds
             summary("Weight units", value: unit == .pounds ? "Pounds (lb)" : "Kilograms (kg)")
