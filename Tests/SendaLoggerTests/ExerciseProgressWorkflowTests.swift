@@ -30,7 +30,7 @@ import SendaPersistence
         try enter(model, weight: "31.", reps: "8")
         #expect(model.openProgress(for: "bench"))
         let snapshot = model.snapshot, writes = store.writeCount
-        model.progressRange = .eightWeeks
+        model.progressRange = .oneMonth
         model.progressExerciseID = "push-up"
         _ = model.snapshot.progress(for: model.exercise("bench"), range: model.progressRange, through: model.today, calendar: model.calendar)
         #expect(model.dismissProgress())
@@ -86,9 +86,9 @@ import SendaPersistence
     @Test func restoreClosesOldProgressAndResetsItsSelection() throws {
         let model = try TrainingNotebookModel(repository: MemoryJournalRepository())
         let archive = try NotebookBackupCodec.decode(model.backupData())
-        #expect(model.openProgress(for: "bench")); model.progressRange = .eightWeeks
+        #expect(model.openProgress(for: "bench")); model.progressRange = .oneMonth
         #expect(model.restoreBackup(archive))
-        #expect(!model.isProgressPresented && model.progressExerciseID == nil && model.progressRange == .twelveWeeks)
+        #expect(!model.isProgressPresented && model.progressExerciseID == nil && model.progressRange == .threeMonths)
     }
     @Test func unknownExerciseCannotOpenAMisleadingProgressDetail() throws {
         let model = try TrainingNotebookModel(repository: MemoryJournalRepository())

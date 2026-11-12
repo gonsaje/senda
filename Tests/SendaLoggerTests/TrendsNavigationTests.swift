@@ -46,7 +46,7 @@ import SendaPersistence
         let store = TrendsNavigationFailureStore(), model = try TrainingNotebookModel(repository: store)
         try enter(model); #expect(model.selectSection(.trends))
         let before = model.snapshot, writes = store.writes
-        model.progressRange = .eightWeeks
+        model.progressRange = .oneYear
         _ = model.snapshot.trends(range: model.progressRange, through: model.today, calendar: model.calendar, exercises: model.exercises)
         #expect(model.snapshot == before && store.writes == writes)
     }

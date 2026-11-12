@@ -16,11 +16,11 @@ struct TrainingTrendsTests {
 
     @Test func emptyOverviewHasCalendarWeeksAndComparableElapsedWeek() throws {
         let result = JournalSnapshot().trends(through: day("2026-11-11"), calendar: utc)
-        #expect(result.range == .twelveWeeks)
-        #expect(result.startDay.rawValue == "2026-08-24")
+        #expect(result.range == .threeMonths)
+        #expect(result.startDay.rawValue == "2026-08-11")
         #expect(result.endDay.rawValue == "2026-11-11")
-        #expect(result.weeks.count == 12)
-        #expect(result.weeks.first?.endDay.rawValue == "2026-08-30")
+        #expect(result.weeks.count == 14)
+        #expect(result.weeks.first?.endDay.rawValue == "2026-08-16")
         #expect(result.thisWeek.startDay.rawValue == "2026-11-09")
         #expect(result.thisWeek.endDay.rawValue == "2026-11-11")
         #expect(result.lastWeekComparable?.startDay.rawValue == "2026-11-02")
@@ -51,9 +51,9 @@ struct TrainingTrendsTests {
         #expect(result.thisWeek.setCount == 4)
         #expect(result.lastWeekComparable?.trainingDayCount == 2)
         #expect(result.lastWeekComparable?.setCount == 2)
-        try #require(result.weeks.count == 12)
-        #expect(result.weeks[10].trainingDayCount == 3)
-        #expect(result.weeks[10].setCount == 3)
+        let previousWeek = try #require(result.weeks.dropLast().last)
+        #expect(previousWeek.trainingDayCount == 3)
+        #expect(previousWeek.setCount == 3)
         #expect(result.exerciseSummaries.map(\.exerciseID) == ["row", "bench", "squat"])
         #expect(result.exerciseSummaries.first { $0.exerciseID == "bench" }?.latestSession.bestSet.id == bench.sets[1].id)
         #expect(result.exerciseSummaries.first { $0.exerciseID == "row" }?.comparison == .insufficientHistory)
@@ -91,7 +91,7 @@ struct TrainingTrendsTests {
         _ = try record(&journal, on: "2026-11-04", [SetValues(weight: 12_346, reps: 1)])
         _ = try record(&journal, on: "2026-11-05", exercise: "squat", [SetValues(weight: 50_000, reps: 5)])
         _ = try record(&journal, on: "2026-11-10", [SetValues(weight: 90_000, reps: 1)])
-        let result = JournalSnapshot(journal: journal).trends(range: .eightWeeks, through: day("2026-11-09"), calendar: utc)
+        let result = JournalSnapshot(journal: journal).trends(range: .oneMonth, through: day("2026-11-09"), calendar: utc)
         let event = try #require(result.recentBests.first)
         #expect(result.recentBests.count == 1)
         #expect(event.id == best.sets[0].id)
@@ -100,12 +100,15 @@ struct TrainingTrendsTests {
         #expect(event.day.rawValue == "2026-11-03")
         #expect(event.values == best.sets[0].values)
         #expect(event.previousValues == baseline.sets[0].values)
+        #expect(result.exerciseSummaries.first(where: { $0.exerciseID == "bench" })?.recordDays == [day("2026-11-03")])
+        #expect(result.exerciseSummaries.first(where: { $0.exerciseID == "squat" })?.recordDays.isEmpty == true)
 
         let latest = try record(&journal, on: "2026-11-06", [SetValues(weight: 12_346, reps: 2)])
         let next = JournalSnapshot(journal: journal).trends(through: day("2026-11-09"), calendar: utc)
         #expect(next.recentBests.count == 1)
         #expect(next.recentBests.first?.id == latest.sets[0].id)
         #expect(next.recentBests.first?.previousValues == best.sets[0].values)
+        #expect(next.exerciseSummaries.first(where: { $0.exerciseID == "bench" })?.recordDays == [day("2026-11-03"), day("2026-11-06")])
     }
 
     @Test func sameDayBatchesProduceOneDailyTopSetAndNoFirstDayRecord() throws {
@@ -197,22 +200,31 @@ struct TrainingTrendsTests {
         #expect(snapshot.trends(through: day("2026-11-09"), calendar: utc) == original)
     }
 
-    @Test func rangesIncludeExactMondayAndTodayButExcludeEarlierAndFutureDays() throws {
+    @Test func calendarRangesIncludeExactBoundsAndMatchPerExerciseProgress() throws {
         var journal = Journal()
-        for date in ["2026-08-23", "2026-08-24", "2026-09-20", "2026-09-21", "2026-11-09", "2026-11-10"] {
+        for date in ["2025-11-08", "2025-11-09", "2026-05-08", "2026-05-09", "2026-08-08",
+                     "2026-08-09", "2026-10-08", "2026-10-09", "2026-11-09", "2026-11-10"] {
             _ = try record(&journal, on: date, [SetValues(weight: 10_000, reps: 5)])
         }
         let snapshot = JournalSnapshot(journal: journal)
-        let twelve = snapshot.trends(through: day("2026-11-09"), calendar: utc)
-        let eight = snapshot.trends(range: .eightWeeks, through: day("2026-11-09"), calendar: utc)
-        #expect(twelve.setCount == 4)
-        #expect(eight.setCount == 2)
-        #expect(eight.startDay.rawValue == "2026-09-21")
-        #expect(eight.weeks.count == 8)
-        #expect(eight.exerciseSummaries.first?.previousSession?.day.rawValue == "2026-09-21")
-        #expect(eight.recentBests.isEmpty)
-        for summary in twelve.exerciseSummaries {
-            #expect(summary.progress == snapshot.progress(for: Exercise.catalog.first { $0.id == summary.exerciseID }!, through: day("2026-11-09"), calendar: utc))
+        let today = day("2026-11-09")
+        let bench = try #require(Exercise.catalog.first { $0.id == "bench" })
+        let cases: [(ExerciseProgressRange, String, Int)] = [
+            (.oneMonth, "2026-10-09", 2),
+            (.threeMonths, "2026-08-09", 4),
+            (.sixMonths, "2026-05-09", 6),
+            (.oneYear, "2025-11-09", 8)
+        ]
+        for (range, start, count) in cases {
+            let trends = snapshot.trends(range: range, through: today, calendar: utc)
+            let summary = try #require(trends.exerciseSummaries.first)
+            #expect(trends.startDay == day(start))
+            #expect(trends.endDay == today)
+            #expect(trends.setCount == count)
+            #expect(summary.progress.sessions.first?.day == day(start))
+            #expect(summary.latestSession.day == today)
+            #expect(summary.progress == snapshot.progress(for: bench, range: range, through: today, calendar: utc))
+            #expect(trends.recentBests.isEmpty)
         }
     }
 
@@ -220,7 +232,7 @@ struct TrainingTrendsTests {
         var journal = Journal()
         _ = try record(&journal, on: "2026-01-01", [SetValues(weight: 10_000, reps: 5)])
         let latest = try record(&journal, on: "2026-11-09", [SetValues(weight: 10_001, reps: 5)])
-        let result = JournalSnapshot(journal: journal).trends(range: .eightWeeks, through: day("2026-11-09"), calendar: utc)
+        let result = JournalSnapshot(journal: journal).trends(range: .oneMonth, through: day("2026-11-09"), calendar: utc)
         #expect(result.exerciseSummaries.first?.comparison == .insufficientHistory)
         #expect(result.exerciseSummaries.first?.previousSession == nil)
         #expect(result.exerciseSummaries.first?.progress.trainingDayCount == 1)
@@ -233,11 +245,11 @@ struct TrainingTrendsTests {
         local.timeZone = TimeZone(identifier: "America/New_York")!
         local.firstWeekday = 1
         for (date, start, monday, previousEnd) in [
-            ("2026-01-04", "2025-11-10", "2025-12-29", "2025-12-28"),
-            ("2026-03-08", "2026-01-12", "2026-03-02", "2026-03-01"),
-            ("2026-11-08", "2026-09-14", "2026-11-02", "2026-11-01")
+            ("2026-01-04", "2025-12-04", "2025-12-29", "2025-12-28"),
+            ("2026-03-08", "2026-02-08", "2026-03-02", "2026-03-01"),
+            ("2026-11-08", "2026-10-08", "2026-11-02", "2026-11-01")
         ] {
-            let result = JournalSnapshot().trends(range: .eightWeeks, through: day(date), calendar: local)
+            let result = JournalSnapshot().trends(range: .oneMonth, through: day(date), calendar: local)
             #expect(result.startDay.rawValue == start)
             #expect(result.thisWeek.startDay.rawValue == monday)
             #expect(result.thisWeek.endDay.rawValue == date)

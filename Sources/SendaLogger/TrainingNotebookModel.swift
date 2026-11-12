@@ -89,7 +89,7 @@ public enum TrainingRowStatus: Equatable, Sendable { case empty, unfinished, rec
     public private(set) var section: TrainingSection = .log
     public var isProgressPresented = false
     public var progressExerciseID: String?
-    public var progressRange: ExerciseProgressRange = .twelveWeeks
+    public var progressRange: ExerciseProgressRange = .threeMonths
     public private(set) var progressSessionDay: TrainingDay?
     public private(set) var progressSetID: UUID?
     private struct HistoryReturnContext {
@@ -169,7 +169,7 @@ public enum TrainingRowStatus: Equatable, Sendable { case empty, unfinished, rec
             pendingSave = nil; pendingProfileAction = nil; revealRowID = nil
             errorMessage = nil; backupErrorMessage = nil; backupRecoveryRequired = false
             learningExerciseID = nil; learningQuery = ""
-            isProgressPresented = false; progressExerciseID = nil; progressRange = .twelveWeeks; pendingProgressAction = false
+            isProgressPresented = false; progressExerciseID = nil; progressRange = .threeMonths; pendingProgressAction = false
             progressSessionDay = nil; progressSetID = nil; historyReturnContext = nil
             profile.reload()
             return true

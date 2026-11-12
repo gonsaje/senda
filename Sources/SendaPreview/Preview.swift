@@ -524,9 +524,9 @@ struct SendaPreview {
         try render(TrainingProgressView(model: model, close: {}), to: directory.appendingPathComponent("senda-progress-bench.png"))
         try render(TrainingProgressView(model: model, close: {}), to: directory.appendingPathComponent("senda-progress-bench-compact.png"), width: 320, height: 568)
         try render(TrainingProgressView(model: model, close: {}), to: directory.appendingPathComponent("senda-progress-bench-full.png"), height: 2300)
-        model.progressRange = .eightWeeks
-        try render(TrainingProgressView(model: model, close: {}), to: directory.appendingPathComponent("senda-progress-eight-weeks.png"))
-        model.progressRange = .twelveWeeks; model.progressExerciseID = "push-up"
+        model.progressRange = .oneMonth
+        try render(TrainingProgressView(model: model, close: {}), to: directory.appendingPathComponent("senda-progress-one-month.png"))
+        model.progressRange = .threeMonths; model.progressExerciseID = "push-up"
         try render(TrainingProgressView(model: model, close: {}), to: directory.appendingPathComponent("senda-progress-bodyweight.png"), height: 1600)
         model.progressExerciseID = "pull-up"
         try render(TrainingProgressView(model: model, close: {}), to: directory.appendingPathComponent("senda-progress-added-weight.png"), height: 1600)
@@ -565,6 +565,10 @@ struct SendaPreview {
                 }
             }
         }
+        for (offset, weight) in [(336, 7500), (273, 8000), (210, 8500), (147, 9000)] {
+            _ = try journal.record(DraftBatch(exerciseID: "bench", sets: [SetValues(weight: weight, reps: 10)]),
+                at: today.adding(days: -offset).date())
+        }
         let model = try TrainingNotebookModel(repository: MemoryJournalRepository(journal: journal),
             isSample: true, now: { date })
         guard model.selectSection(.trends) else { throw CocoaError(.coderInvalidValue) }
@@ -573,9 +577,11 @@ struct SendaPreview {
         try render(TrainingNotebookView(model: model), to: directory.appendingPathComponent("senda-trends-accessibility-compact.png"), width: 320, height: 568, textSize: .accessibility3)
         try render(TrainingTrendsView(model: model), to: directory.appendingPathComponent("senda-trends-full.png"), height: 2200)
         try render(TrainingTrendsView(model: model), to: directory.appendingPathComponent("senda-trends-full-compact.png"), width: 320, height: 2600)
-        model.progressRange = .eightWeeks
-        try render(TrainingNotebookView(model: model), to: directory.appendingPathComponent("senda-trends-eight-weeks.png"))
-        model.progressRange = .twelveWeeks
+        model.progressRange = .oneMonth
+        try render(TrainingNotebookView(model: model), to: directory.appendingPathComponent("senda-trends-one-month.png"))
+        model.progressRange = .oneYear
+        try render(TrainingNotebookView(model: model), to: directory.appendingPathComponent("senda-trends-one-year.png"))
+        model.progressRange = .threeMonths
         guard model.setPreferredUnit(.kilograms) else { throw CocoaError(.coderInvalidValue) }
         try render(TrainingTrendsView(model: model), to: directory.appendingPathComponent("senda-trends-kilograms-full.png"), height: 2300)
 
@@ -627,7 +633,7 @@ struct SendaPreview {
         _ = try fallbackJournal.record(DraftBatch(exerciseID: "bench", sets: [SetValues(weight: 13500, reps: 8)]), at: today.adding(days: -77).date())
         _ = try fallbackJournal.record(DraftBatch(exerciseID: "deadlift", sets: [SetValues(weight: 22500, reps: 5)]), at: today.date())
         let fallback = try TrainingNotebookModel(repository: MemoryJournalRepository(journal: fallbackJournal), isSample: true, now: { date })
-        fallback.progressRange = .eightWeeks
+        fallback.progressRange = .oneMonth
         try render(TrainingTrendsView(model: fallback, showsAllTimeRecords: false, strengthExerciseID: "bench"),
             to: directory.appendingPathComponent("senda-strength-range-fallback.png"), width: 320, height: 1200)
         let longExercise = Exercise(id: "custom-strength-long", name: "Single-arm alternating dumbbell overhead press", shortName: "Single-arm alternating dumbbell overhead press", startingWeight: 2000)

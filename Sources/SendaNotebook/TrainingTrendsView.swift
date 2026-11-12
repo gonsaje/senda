@@ -30,7 +30,7 @@ public struct TrainingTrendsView: View {
                 if hasHistory && showsAllTimeRecords { allTimeRecords }
                 window(trends)
                 if trends.setCount == 0 {
-                    emptyState(trends, hasHistory: hasHistory)
+                    emptyState(hasHistory: hasHistory)
                 } else {
                     strengthProgress(trends)
                     performance(trends)
@@ -39,8 +39,7 @@ public struct TrainingTrendsView: View {
                 if trends.setCount > 0 {
                     periodSummary(trends)
                     thisWeek(trends)
-                    ExerciseProgressFrequencyChart(weeks: trends.weeks, range: trends.range,
-                        calendar: model.calendar, title: "Training rhythm")
+                    ExerciseProgressFrequencyChart(weeks: trends.weeks, calendar: model.calendar)
                 }
             }
             .padding(24)
@@ -116,7 +115,7 @@ public struct TrainingTrendsView: View {
     private func periodSummary(_ trends: TrainingTrends) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             rule
-            Text("\(trends.range.rawValue)-week totals")
+            Text("Activity totals")
                 .font(.subheadline.weight(.medium))
             Text("\(trends.trainingDayCount) training \(trends.trainingDayCount == 1 ? "day" : "days") · \(trends.setCount) recorded \(trends.setCount == 1 ? "set" : "sets") · \(trends.activeExerciseCount) \(trends.activeExerciseCount == 1 ? "exercise" : "exercises")")
                 .font(.subheadline.monospacedDigit())
@@ -194,9 +193,6 @@ public struct TrainingTrendsView: View {
         if let summary = trends.exerciseSummaries.first(where: { $0.exerciseID == strengthExerciseID })
             ?? trends.exerciseSummaries.first {
             let exercise = model.exercise(summary.exerciseID)
-            let feedback = TrainingTrendFeedback.make(comparison: summary.comparison,
-                latest: summary.latestSession.bestSet.values, previous: summary.previousSession?.bestSet.values,
-                exercise: exercise, unit: model.workspace.preferredUnit)
             VStack(alignment: .leading, spacing: 12) {
                 Text("Strength progress")
                     .font(NotebookTypography.heading(22, relativeTo: .title2))
@@ -227,49 +223,13 @@ public struct TrainingTrendsView: View {
                 .accessibilityLabel("Exercise")
                 .accessibilityValue(exercise.name)
                 .accessibilityIdentifier("trends-strength-picker")
-                ExerciseProgressChart(progress: summary.progress, exercise: exercise,
+                TrendsStrengthTimeline(summary: summary, exercise: exercise,
                     unit: model.workspace.preferredUnit, calendar: model.calendar,
-                    heading: nil, explanation: strengthChartExplanation(summary.progress, exercise: exercise),
-                    identifier: "trends-strength-chart")
-                VStack(alignment: .leading, spacing: 4) {
-                    datedSetLabel(summary.latestSession, label: "Latest")
-                    Text(ProgressFormatting.set(summary.latestSession.bestSet.values, exercise: exercise,
-                        unit: model.workspace.preferredUnit))
-                        .font(.title2.weight(.semibold).monospacedDigit())
-                        .fixedSize(horizontal: false, vertical: true)
-                    if let symbol = feedback.symbol {
-                        Label(feedback.text, systemImage: symbol)
-                            .font(.subheadline.weight(.medium).monospacedDigit())
-                            .foregroundStyle(feedback.positive ? NotebookStyle.olive : NotebookStyle.ink)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-                .accessibilityElement(children: .combine)
-                .accessibilityIdentifier("trends-strength-latest")
-                Button { model.openProgress(for: exercise.id) } label: {
-                    Text("View history").font(.body.weight(.medium))
-                        .frame(minWidth: 44, minHeight: 44, alignment: .leading)
-                        .contentShape(Rectangle())
-                }
-                .foregroundStyle(NotebookStyle.clay)
-                .accessibilityLabel("View \(exercise.name) history")
-                .accessibilityIdentifier("trends-strength-history")
+                    openHistory: { model.openProgress(for: exercise.id) })
+                    .id(summary.exerciseID)
                 rule
             }
         }
-    }
-
-    private func strengthChartExplanation(_ progress: ExerciseProgress, exercise: Exercise) -> String {
-        if progress.sessions.count == 1 {
-            return "One recorded day. More training days will add points."
-        }
-        if progress.metric == .reps {
-            return "Best body-weight reps on each recorded day. Lines join observations."
-        }
-        if !exercise.requiresWeight {
-            return "Added weight per recorded day; body-weight sets plot at 0 \(model.workspace.preferredUnit.symbol)."
-        }
-        return "Each point is a recorded day. Compare reps as well as weight."
     }
 
     private func performance(_ trends: TrainingTrends) -> some View {
@@ -428,13 +388,13 @@ public struct TrainingTrendsView: View {
         .accessibilityIdentifier("trends-best-\(best.exerciseID)")
     }
 
-    private func emptyState(_ trends: TrainingTrends, hasHistory: Bool) -> some View {
+    private func emptyState(hasHistory: Bool) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(hasHistory ? "No sets in this window" : "No recorded sets")
                 .font(NotebookTypography.heading(22, relativeTo: .title2))
                 .accessibilityAddTraits(.isHeader)
             Text(hasHistory
-                ? "No sets were recorded in these \(trends.range.rawValue) weeks. Your earlier sets are in History."
+                ? "See all recorded days in History."
                 : "Record a set to see your training days and exercise comparisons here.")
                 .font(.body)
                 .foregroundStyle(NotebookStyle.quiet)
@@ -484,5 +444,107 @@ public struct TrainingTrendsView: View {
 
     private func date(_ day: TrainingDay, format: String) -> String {
         ProgressFormatting.date(day, format: format, calendar: model.calendar)
+    }
+}
+
+private struct TrendsStrengthTimeline: View {
+    let summary: ExerciseTrendSummary
+    let exercise: Exercise
+    let unit: WeightUnit
+    let calendar: Calendar
+    let openHistory: () -> Void
+    @State private var inspectedDay: TrainingDay?
+    @Environment(\.dynamicTypeSize) private var textSize
+
+    private var sessions: [ExerciseProgressSession] { summary.progress.sessions }
+    private var chartExplanation: String {
+        let inspection = sessions.count > 1 ? "Tap or drag to inspect a workout." : "One recorded day."
+        return summary.recordDays.isEmpty ? inspection : "\(inspection) Diamonds mark personal records."
+    }
+
+    var body: some View {
+        let index = sessions.firstIndex(where: { $0.day == inspectedDay }) ?? sessions.count - 1
+        let session = sessions[index]
+        let selection = Binding(get: { session.day }, set: { inspectedDay = $0 })
+        VStack(alignment: .leading, spacing: 12) {
+            ExerciseProgressChart(progress: summary.progress, exercise: exercise, unit: unit, calendar: calendar,
+                heading: nil, explanation: chartExplanation, identifier: "trends-strength-chart",
+                selection: selection, recordDays: summary.recordDays)
+            readout(session, previous: index > 0 ? sessions[index - 1] : nil)
+            actions(at: index)
+        }
+        .onChange(of: summary.progress.range) { _, _ in
+            if let inspectedDay, !sessions.contains(where: { $0.day == inspectedDay }) {
+                self.inspectedDay = nil
+            }
+        }
+    }
+
+    private func readout(_ session: ExerciseProgressSession, previous: ExerciseProgressSession?) -> some View {
+        let label = session.day == summary.latestSession.day ? "Latest" : "Selected"
+        let date = ProgressFormatting.date(session.day, format: "MMM d, yyyy", calendar: calendar)
+        let record = summary.recordDays.contains(session.day) ? " · Personal record" : ""
+        let values = session.bestSet.values
+        let priorValues = previous?.bestSet.values
+        let feedback = TrainingTrendFeedback.make(comparison: .between(latest: values, previous: priorValues),
+            latest: values, previous: priorValues, exercise: exercise, unit: unit)
+        return VStack(alignment: .leading, spacing: 4) {
+            Text("\(label) · \(date)\(record)")
+                .font(.caption)
+                .foregroundStyle(NotebookStyle.quiet)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(ProgressFormatting.set(values, exercise: exercise, unit: unit))
+                .font(.title2.weight(.semibold).monospacedDigit())
+                .fixedSize(horizontal: false, vertical: true)
+            if let symbol = feedback.symbol {
+                Label(feedback.text, systemImage: symbol)
+                    .font(.subheadline.weight(.medium).monospacedDigit())
+                    .foregroundStyle(feedback.positive ? NotebookStyle.olive : NotebookStyle.ink)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("trends-strength-latest")
+    }
+
+    private func actions(at index: Int) -> some View {
+        let layout = textSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4))
+            : AnyLayout(HStackLayout(spacing: 8))
+        return layout {
+            Button(action: openHistory) {
+                Text("View history").font(.body.weight(.medium))
+                    .frame(minWidth: 44, minHeight: 44, alignment: .leading)
+                    .contentShape(Rectangle())
+            }
+            .foregroundStyle(NotebookStyle.clay)
+            .accessibilityLabel("View \(exercise.name) history")
+            .accessibilityIdentifier("trends-strength-history")
+            if sessions.count > 1 {
+                if !textSize.isAccessibilitySize { Spacer(minLength: 0) }
+                HStack(spacing: 4) {
+                    step(to: index - 1, symbol: "chevron.left", label: "Previous recorded day",
+                        identifier: "trends-strength-previous-day")
+                    step(to: index + 1, symbol: "chevron.right", label: "Next recorded day",
+                        identifier: "trends-strength-next-day")
+                }
+            }
+        }
+    }
+
+    private func step(to index: Int, symbol: String, label: String, identifier: String) -> some View {
+        let enabled = sessions.indices.contains(index)
+        return Button {
+            if enabled { inspectedDay = sessions[index].day }
+        } label: {
+            Image(systemName: symbol)
+                .font(.subheadline.weight(.medium))
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+        }
+        .foregroundStyle(NotebookStyle.clay)
+        .disabled(!enabled)
+        .accessibilityLabel(label)
+        .accessibilityIdentifier(identifier)
     }
 }

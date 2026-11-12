@@ -1,7 +1,19 @@
 import Foundation
 
-public enum ExerciseProgressRange: Int, CaseIterable, Sendable {
-    case eightWeeks = 8, twelveWeeks = 12
+public enum ExerciseProgressRange: String, CaseIterable, Sendable {
+    case oneMonth = "1m"
+    case threeMonths = "3m"
+    case sixMonths = "6m"
+    case oneYear = "1y"
+
+    fileprivate var monthCount: Int {
+        switch self {
+        case .oneMonth: 1
+        case .threeMonths: 3
+        case .sixMonths: 6
+        case .oneYear: 12
+        }
+    }
 }
 
 public enum ExerciseProgressMetric: Equatable, Sendable {
@@ -75,7 +87,7 @@ public extension JournalSnapshot {
         return progressSessions(for: exercise.id, setsByDay: sets, metric: .weight)
     }
 
-    func progress(for exercise: Exercise, range: ExerciseProgressRange = .twelveWeeks,
+    func progress(for exercise: Exercise, range: ExerciseProgressRange = .threeMonths,
                   through today: TrainingDay, calendar: Calendar = .current) -> ExerciseProgress {
         let window = ExerciseProgressWindow(range: range, through: today)
         let history = progressHistory(through: today, calendar: calendar, exerciseID: exercise.id)
@@ -96,18 +108,19 @@ struct ExerciseProgressWindow {
         self.today = today
         var dayCalendar = Calendar(identifier: .gregorian)
         dayCalendar.timeZone = TimeZone(secondsFromGMT: 0)!
-        let weekday = dayCalendar.component(.weekday, from: today.date(in: dayCalendar))
-        let earliest = TrainingDay(rawValue: "0001-01-01")!
-        let precedingMonday = try? today.adding(days: -(weekday == 1 ? 6 : weekday - 2))
-        let currentMonday = precedingMonday.flatMap { $0 <= today ? $0 : nil } ?? earliest
-        // TrainingDay keys have no BCE era. Reject a subtraction that wraps past year 1,
-        // retaining the representable part of that oldest partial week instead.
-        var starts: [TrainingDay] = (0..<range.rawValue).reversed().compactMap {
-            guard let start = try? currentMonday.adding(days: -7 * $0), start <= currentMonday else { return nil }
-            return start
-        }
-        if starts.count < range.rawValue, let first = starts.first, earliest < first {
-            starts.insert(earliest, at: 0)
+        let endDate = today.date(in: dayCalendar)
+        let earliestDate = TrainingDay(rawValue: "0001-01-01")!.date(in: dayCalendar)
+        let requestedStart = dayCalendar.date(byAdding: .month, value: -range.monthCount, to: endDate)
+        let startDate = max(earliestDate, requestedStart ?? earliestDate)
+
+        // The first bucket starts at the exact range boundary. Later buckets start on Monday.
+        var starts = [TrainingDay(startDate, calendar: dayCalendar)]
+        let weekday = dayCalendar.component(.weekday, from: startDate)
+        let daysUntilMonday = weekday == 1 ? 1 : 9 - weekday
+        var nextMonday = dayCalendar.date(byAdding: .day, value: daysUntilMonday, to: startDate)
+        while let monday = nextMonday, monday <= endDate {
+            starts.append(TrainingDay(monday, calendar: dayCalendar))
+            nextMonday = dayCalendar.date(byAdding: .day, value: 7, to: monday)
         }
         self.starts = starts
     }
@@ -229,7 +242,7 @@ func progressWeeks(starts: [TrainingDay], through today: TrainingDay,
     return starts.enumerated().map { index, start in
         let end = index + 1 < starts.count
             ? (try? starts[index + 1].adding(days: -1)) ?? today
-            : (try? start.adding(days: 6)) ?? today
+            : today
         return ExerciseProgressWeek(startDay: start, endDay: min(end, today),
                                     trainingDayCount: weeklyDays[index], setCount: weeklySets[index])
     }

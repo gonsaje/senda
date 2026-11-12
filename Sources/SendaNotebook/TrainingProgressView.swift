@@ -210,7 +210,7 @@ public struct TrainingProgressView: View {
                 ExerciseProgressFrequencyChart(progress: progress, calendar: model.calendar)
             } else {
                 emptyState(title: "No sets in this window.",
-                    message: recorded.isEmpty ? "Record a set for \(exercise.name) to see it here." : "The chart covers these \(progress.range.rawValue) weeks. Recorded days below include all saved dates.")
+                    message: recorded.isEmpty ? "Record a set for \(exercise.name) to see it here." : "Recorded days below include all saved dates.")
             }
             if !recorded.isEmpty { sessions(recorded, exercise: exercise) }
         }

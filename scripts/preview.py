@@ -73,7 +73,7 @@ small{font-size:12px}#status{float:right;font-size:12px}</style></head><body>
 <figure><figcaption>Your details</figcaption><img data-file="senda-profile-details.png"></figure>
 <figure><figcaption>Validated backup summary</figcaption><img data-file="senda-backup-review.png"></figure>
 <figure><figcaption>Exercise progress</figcaption><img data-file="senda-progress-exercises.png"></figure>
-<figure><figcaption>12-week exercise trend</figcaption><img data-file="senda-progress-bench.png"></figure>
+<figure><figcaption>3-month exercise trend</figcaption><img data-file="senda-progress-bench.png"></figure>
 <figure><figcaption>Bodyweight progress</figcaption><img data-file="senda-progress-bodyweight.png"></figure></main>
 <script>let previous='';async function refresh(){try{let s=await(await fetch('/status.json',{cache:'no-store'})).json();
 document.querySelector('#status').textContent=s.building?'Updating preview…':'Preview ready';

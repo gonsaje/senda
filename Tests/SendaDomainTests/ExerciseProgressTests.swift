@@ -14,13 +14,13 @@ struct ExerciseProgressTests {
     private func day(_ value: String) -> TrainingDay { try! TrainingDay(value) }
     @Test func allRecordedDaysStayAvailableOutsideRecentChartWindows() throws {
         var journal = Journal()
-        let old = try record(&journal, on: "2026-01-05", [SetValues(weight: 10_000, reps: 8)])
+        let old = try record(&journal, on: "2025-10-05", [SetValues(weight: 10_000, reps: 8)])
         let recent = try record(&journal, on: "2026-11-09", [SetValues(weight: 13_500, reps: 10)])
         let future = try record(&journal, on: "2026-12-01", [SetValues(weight: 15_000, reps: 5)])
         _ = try record(&journal, on: "2026-01-06", exercise: "squat", [SetValues(weight: 20_000, reps: 5)])
         let snapshot = JournalSnapshot(journal: journal)
         let sessions = snapshot.recordedSessions(for: bench, calendar: utc)
-        #expect(sessions.map(\.day.rawValue) == ["2026-01-05", "2026-11-09", "2026-12-01"])
+        #expect(sessions.map(\.day.rawValue) == ["2025-10-05", "2026-11-09", "2026-12-01"])
         #expect(sessions.flatMap(\.sets).map(\.id) == [old.sets[0].id, recent.sets[0].id, future.sets[0].id])
         for range in ExerciseProgressRange.allCases {
             let chart = snapshot.progress(for: bench, range: range, through: day("2026-11-09"), calendar: utc)
@@ -57,11 +57,11 @@ struct ExerciseProgressTests {
     @Test func emptyHistoryContainsRealWeekBoundsWithoutStrengthObservations() throws {
         let result = JournalSnapshot().progress(for: bench, through: day("2026-11-09"), calendar: utc)
         #expect(result.exerciseID == "bench")
-        #expect(result.range == .twelveWeeks)
-        #expect(result.startDay.rawValue == "2026-08-24")
+        #expect(result.range == .threeMonths)
+        #expect(result.startDay.rawValue == "2026-08-09")
         #expect(result.endDay.rawValue == "2026-11-09")
-        #expect(result.weeks.count == 12)
-        #expect(result.weeks.first?.endDay.rawValue == "2026-08-30")
+        #expect(result.weeks.count == 15)
+        #expect(result.weeks.first?.endDay.rawValue == "2026-08-09")
         #expect(result.weeks.last?.startDay.rawValue == "2026-11-09")
         #expect(result.weeks.last?.endDay.rawValue == "2026-11-09")
         #expect(result.weeks.allSatisfy { $0.trainingDayCount == 0 && $0.setCount == 0 })
@@ -73,30 +73,47 @@ struct ExerciseProgressTests {
         #expect(result.bestSet == nil)
     }
 
-    @Test func rangesIncludeTheirFirstMondayAndTodayButExcludeOlderAndFutureSets() throws {
+    @Test func rangesIncludeTheirExactStartAndTodayButExcludeOlderAndFutureSets() throws {
         var journal = Journal()
-        _ = try record(&journal, on: "2026-08-23", [SetValues(weight: 99_000, reps: 1)])
-        let first = try record(&journal, on: "2026-08-24", [SetValues(weight: 10_000, reps: 5)])
-        _ = try record(&journal, on: "2026-09-20", [SetValues(weight: 11_000, reps: 5)])
-        let eightWeekFirst = try record(&journal, on: "2026-09-21", [SetValues(weight: 12_000, reps: 5)])
+        _ = try record(&journal, on: "2026-08-08", [SetValues(weight: 99_000, reps: 1)])
+        let first = try record(&journal, on: "2026-08-09", [SetValues(weight: 10_000, reps: 5)])
+        _ = try record(&journal, on: "2026-10-08", [SetValues(weight: 11_000, reps: 5)])
+        let monthFirst = try record(&journal, on: "2026-10-09", [SetValues(weight: 12_000, reps: 5)])
         let latest = try record(&journal, on: "2026-11-09", [SetValues(weight: 13_000, reps: 5)])
         _ = try record(&journal, on: "2026-11-10", [SetValues(weight: 99_000, reps: 10)])
         let snapshot = JournalSnapshot(journal: journal)
-        let twelve = snapshot.progress(for: bench, through: day("2026-11-09"), calendar: utc)
-        let eight = snapshot.progress(for: bench, range: .eightWeeks, through: day("2026-11-09"), calendar: utc)
-        #expect(twelve.sessions.map(\.day.rawValue) == ["2026-08-24", "2026-09-20", "2026-09-21", "2026-11-09"])
-        #expect(twelve.sessions.first?.sets.first?.id == first.sets[0].id)
-        #expect(twelve.setCount == 4)
-        #expect(twelve.trainingDayCount == 4)
-        #expect(eight.startDay.rawValue == "2026-09-21")
-        #expect(eight.weeks.count == 8)
-        #expect(eight.sessions.map(\.day.rawValue) == ["2026-09-21", "2026-11-09"])
-        #expect(eight.sessions.first?.sets.first?.id == eightWeekFirst.sets[0].id)
-        #expect(eight.latestSession?.day.rawValue == "2026-11-09")
-        #expect(eight.bestSet?.id == latest.sets[0].id)
-        #expect(eight.weeks.first?.setCount == 1)
-        #expect(eight.weeks.last?.trainingDayCount == 1)
-        #expect(eight.weeks.dropFirst().dropLast().allSatisfy { $0.setCount == 0 && $0.trainingDayCount == 0 })
+        let threeMonths = snapshot.progress(for: bench, through: day("2026-11-09"), calendar: utc)
+        let oneMonth = snapshot.progress(for: bench, range: .oneMonth, through: day("2026-11-09"), calendar: utc)
+        #expect(threeMonths.sessions.map(\.day.rawValue) == ["2026-08-09", "2026-10-08", "2026-10-09", "2026-11-09"])
+        #expect(threeMonths.sessions.first?.sets.first?.id == first.sets[0].id)
+        #expect(threeMonths.setCount == 4)
+        #expect(threeMonths.trainingDayCount == 4)
+        #expect(oneMonth.startDay.rawValue == "2026-10-09")
+        #expect(oneMonth.weeks.map(\.startDay.rawValue) == ["2026-10-09", "2026-10-12", "2026-10-19", "2026-10-26", "2026-11-02", "2026-11-09"])
+        #expect(oneMonth.weeks.first?.endDay.rawValue == "2026-10-11")
+        #expect(oneMonth.sessions.map(\.day.rawValue) == ["2026-10-09", "2026-11-09"])
+        #expect(oneMonth.sessions.first?.sets.first?.id == monthFirst.sets[0].id)
+        #expect(oneMonth.latestSession?.day.rawValue == "2026-11-09")
+        #expect(oneMonth.bestSet?.id == latest.sets[0].id)
+        #expect(oneMonth.weeks.first?.setCount == 1)
+        #expect(oneMonth.weeks.last?.trainingDayCount == 1)
+        #expect(oneMonth.weeks.dropFirst().dropLast().allSatisfy { $0.setCount == 0 && $0.trainingDayCount == 0 })
+    }
+
+    @Test func calendarRangesClampToTheLastDayOfShorterMonths() {
+        let cases: [(ExerciseProgressRange, String, String)] = [
+            (.oneMonth, "2024-03-31", "2024-02-29"),
+            (.threeMonths, "2025-05-31", "2025-02-28"),
+            (.sixMonths, "2024-08-31", "2024-02-29"),
+            (.oneYear, "2024-02-29", "2023-02-28")
+        ]
+        for (range, end, start) in cases {
+            let result = JournalSnapshot().progress(for: bench, range: range, through: day(end), calendar: utc)
+            #expect(result.startDay == day(start))
+            #expect(result.endDay == day(end))
+            #expect(result.weeks.first?.startDay == day(start))
+            #expect(result.weeks.last?.endDay == day(end))
+        }
     }
 
     @Test func linkedDaysAndNotebookRowNumbersSurviveTimezoneChangesAndMultipleBatches() throws {
@@ -177,9 +194,9 @@ struct ExerciseProgressTests {
         try #require(result.sessions.count == 3)
         #expect(result.sessions[1].bestSet.id == higherReps.sets[0].id)
         #expect(result.bestSet?.id == latestTie.sets[0].id)
-        #expect(result.weeks[10].trainingDayCount == 3)
-        #expect(result.weeks[10].setCount == 4)
-        #expect(result.weeks[11].setCount == 0)
+        #expect(result.weeks.dropLast().last?.trainingDayCount == 3)
+        #expect(result.weeks.dropLast().last?.setCount == 4)
+        #expect(result.weeks.last?.setCount == 0)
     }
 
     @Test func committedCorrectionsDeletionAndUndoRecomputeExactSetReferences() throws {
@@ -226,16 +243,16 @@ struct ExerciseProgressTests {
         var newYork = Calendar(identifier: .buddhist)
         newYork.timeZone = TimeZone(identifier: "America/New_York")!
         newYork.firstWeekday = 1
-        let january = JournalSnapshot().progress(for: bench, range: .eightWeeks, through: day("2026-01-04"), calendar: newYork)
-        #expect(january.startDay.rawValue == "2025-11-10")
+        let january = JournalSnapshot().progress(for: bench, range: .oneMonth, through: day("2026-01-04"), calendar: newYork)
+        #expect(january.startDay.rawValue == "2025-12-04")
         #expect(january.weeks.last?.startDay.rawValue == "2025-12-29")
         #expect(january.weeks.last?.endDay.rawValue == "2026-01-04")
-        let spring = JournalSnapshot().progress(for: bench, range: .eightWeeks, through: day("2026-03-08"), calendar: newYork)
-        #expect(spring.startDay.rawValue == "2026-01-12")
+        let spring = JournalSnapshot().progress(for: bench, range: .oneMonth, through: day("2026-03-08"), calendar: newYork)
+        #expect(spring.startDay.rawValue == "2026-02-08")
         #expect(spring.weeks.last?.startDay.rawValue == "2026-03-02")
         #expect(spring.weeks.last?.endDay.rawValue == "2026-03-08")
-        let fall = JournalSnapshot().progress(for: bench, range: .eightWeeks, through: day("2026-11-08"), calendar: newYork)
-        #expect(fall.startDay.rawValue == "2026-09-14")
+        let fall = JournalSnapshot().progress(for: bench, range: .oneMonth, through: day("2026-11-08"), calendar: newYork)
+        #expect(fall.startDay.rawValue == "2026-10-08")
         #expect(fall.weeks.last?.startDay.rawValue == "2026-11-02")
         #expect(fall.weeks.last?.endDay.rawValue == "2026-11-08")
     }
@@ -263,7 +280,7 @@ struct ExerciseProgressTests {
         let future = try record(&journal, on: "2026-11-09", [SetValues(weight: 90_000, reps: 9)])
         let training = TrainingWorkspace(visibleWeek: day("2026-11-09"), days: [
             "2026-11-09": DayWorkout(rows: ["bench": [TrainingRow(set: today.sets[0], unit: .pounds)]]),
-            "2026-08-23": DayWorkout(rows: ["bench": [TrainingRow(set: old.sets[0], unit: .pounds)]]),
+            "2026-08-08": DayWorkout(rows: ["bench": [TrainingRow(set: old.sets[0], unit: .pounds)]]),
             "2026-11-10": DayWorkout(rows: ["bench": [TrainingRow(set: future.sets[0], unit: .pounds)]])
         ])
         let result = JournalSnapshot(journal: journal, training: training).progress(for: bench, through: day("2026-11-09"), calendar: utc)

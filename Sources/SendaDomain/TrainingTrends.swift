@@ -6,6 +6,18 @@ public enum TrainingTrendComparison: Equatable, Sendable {
     case weightAtSameReps(delta: Int, reps: Int)
     case matched
     case differentSets
+
+    public static func between(latest: SetValues, previous: SetValues?) -> Self {
+        guard let previous else { return .insufficientHistory }
+        if latest == previous { return .matched }
+        if latest.weight == previous.weight {
+            return .repsAtSameWeight(delta: latest.reps - previous.reps, weight: latest.weight)
+        }
+        if latest.reps == previous.reps {
+            return .weightAtSameReps(delta: latest.weight - previous.weight, reps: latest.reps)
+        }
+        return .differentSets
+    }
 }
 
 public struct ExerciseTrendSummary: Identifiable, Equatable, Sendable {
@@ -15,11 +27,14 @@ public struct ExerciseTrendSummary: Identifiable, Equatable, Sendable {
     public let latestSession: ExerciseProgressSession
     public let previousSession: ExerciseProgressSession?
     public let comparison: TrainingTrendComparison
+    public let recordDays: Set<TrainingDay>
 
     public init(exerciseID: String, progress: ExerciseProgress, latestSession: ExerciseProgressSession,
-                previousSession: ExerciseProgressSession?, comparison: TrainingTrendComparison) {
+                previousSession: ExerciseProgressSession?, comparison: TrainingTrendComparison,
+                recordDays: Set<TrainingDay> = []) {
         self.exerciseID = exerciseID; self.progress = progress; self.latestSession = latestSession
         self.previousSession = previousSession; self.comparison = comparison
+        self.recordDays = recordDays
     }
 }
 
@@ -62,7 +77,7 @@ public struct TrainingTrends: Equatable, Sendable {
 }
 
 public extension JournalSnapshot {
-    func trends(range: ExerciseProgressRange = .twelveWeeks, through today: TrainingDay,
+    func trends(range: ExerciseProgressRange = .threeMonths, through today: TrainingDay,
                 calendar: Calendar = .current, exercises: [Exercise] = Exercise.catalog) -> TrainingTrends {
         let window = ExerciseProgressWindow(range: range, through: today)
         let history = progressHistory(through: today, calendar: calendar)
@@ -85,9 +100,6 @@ public extension JournalSnapshot {
             let progress = makeExerciseProgress(for: exercise, window: window, setsByDay: setsByDay)
             guard let latest = progress.latestSession else { continue }
             let previous = progress.sessions.dropLast().last
-            summaries.append(ExerciseTrendSummary(exerciseID: exerciseID, progress: progress,
-                latestSession: latest, previousSession: previous,
-                comparison: trendComparison(latest: latest.bestSet.values, previous: previous?.bestSet.values)))
             for session in progress.sessions {
                 setCountsByDay[session.day, default: 0] += session.setCount
             }
@@ -97,10 +109,12 @@ public extension JournalSnapshot {
             let allDays = history.sets(for: exerciseID, from: earliest)
             var priorBest: SetValues?
             var latestRecord: TrainingTrendBest?
+            var recordDays: Set<TrainingDay> = []
             for day in allDays.keys.sorted() {
                 guard let sets = allDays[day], let top = progressBestSet(in: sets, metric: .weight) else { continue }
                 if let previousBest = priorBest, isStrictTrendBest(top.values, over: previousBest) {
                     if window.startDay <= day {
+                        recordDays.insert(day)
                         latestRecord = TrainingTrendBest(exerciseID: exerciseID, day: day, values: top.values,
                                                          previousValues: previousBest, setID: top.id)
                     }
@@ -110,6 +124,10 @@ public extension JournalSnapshot {
                 }
             }
             if let latestRecord { recentBests.append(latestRecord) }
+            summaries.append(ExerciseTrendSummary(exerciseID: exerciseID, progress: progress,
+                latestSession: latest, previousSession: previous,
+                comparison: .between(latest: latest.bestSet.values, previous: previous?.bestSet.values),
+                recordDays: recordDays))
         }
         summaries.sort {
             $0.latestSession.day == $1.latestSession.day
@@ -130,18 +148,6 @@ public extension JournalSnapshot {
             activeExerciseCount: summaries.count, thisWeek: thisWeek, lastWeekComparable: lastWeekComparable,
             exerciseSummaries: summaries, recentBests: recentBests)
     }
-}
-
-private func trendComparison(latest: SetValues, previous: SetValues?) -> TrainingTrendComparison {
-    guard let previous else { return .insufficientHistory }
-    if latest == previous { return .matched }
-    if latest.weight == previous.weight {
-        return .repsAtSameWeight(delta: latest.reps - previous.reps, weight: latest.weight)
-    }
-    if latest.reps == previous.reps {
-        return .weightAtSameReps(delta: latest.weight - previous.weight, reps: latest.reps)
-    }
-    return .differentSets
 }
 
 private func isStrictTrendBest(_ candidate: SetValues, over previous: SetValues) -> Bool {
