@@ -42,10 +42,10 @@ struct TrainingDayView: View {
 
     private var firstSetConfirmation: some View {
         Label("First set saved", systemImage: "checkmark")
-            .font(.subheadline.weight(.medium))
+            .font(.footnote.weight(.medium))
             .foregroundStyle(NotebookStyle.olive)
             .fixedSize(horizontal: false, vertical: true)
-            .padding(.horizontal, 14).padding(.vertical, 8)
+            .padding(.horizontal, 12).padding(.vertical, 4)
             .background(NotebookStyle.ivory, in: Capsule())
             .overlay { Capsule().strokeBorder(NotebookStyle.rule, lineWidth: 1) }
             .padding(.horizontal, 24)
@@ -111,8 +111,11 @@ struct TrainingDayView: View {
                 .background(NotebookStyle.ivory)
                 .overlay(alignment: .top) {
                     if showsFirstSetConfirmation && model.errorMessage == nil && !model.canRetrySave {
+                        // Keep confirmation above the controls without resizing the viewport.
                         firstSetConfirmation
-                            .alignmentGuide(.top) { $0[.bottom] + 8 }
+                            .padding(.bottom, 3)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(height: 0, alignment: .bottom)
                     }
                 }
                 .accessibilityElement(children: .contain)

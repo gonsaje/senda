@@ -41,7 +41,7 @@ struct TrainingDock: View {
                 if let anchor = bounds[model.section] {
                     let icon = geometry[anchor]
                     Capsule()
-                        .fill(NotebookStyle.clay.opacity(0.10))
+                        .fill(NotebookStyle.clay.opacity(0.05))
                         .frame(width: icon.width, height: icon.height)
                         .position(x: icon.midX, y: icon.midY)
                         .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: model.section)

@@ -548,6 +548,11 @@ final class LoggerUITests: XCTestCase {
         add("Bench", id: "bench", in: app)
         enter(weight: "135", reps: "10", in: app); tap("input-done", in: app)
         XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 3))
+        let confirmation = app.descendants(matching: .any).matching(identifier: "first-set-saved").firstMatch
+        if confirmation.exists {
+            XCTAssertLessThanOrEqual(confirmation.frame.maxY, element("app-dock", in: app).frame.minY)
+            XCTAssertTrue(confirmation.waitForNonExistence(timeout: 5))
+        }
         attach("Populated workout accessibility audit", app)
         try auditAccessibility(in: app)
     }
@@ -785,6 +790,7 @@ final class LoggerUITests: XCTestCase {
         XCTAssertTrue(confirmation.label.contains("First set saved"))
         XCTAssertTrue(app.keyboards.firstMatch.exists)
         XCTAssertTrue(element("set-input", in: app).label.contains("reps"))
+        XCTAssertLessThanOrEqual(confirmation.frame.maxY, element("input-set-context", in: app).frame.minY)
         attach("First set saved while editing reps", app)
         XCTAssertTrue(confirmation.waitForNonExistence(timeout: 5))
         XCTAssertEqual(reps.frame.midY, blankRepsFrame.midY, accuracy: 2)
