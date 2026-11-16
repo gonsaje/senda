@@ -744,7 +744,8 @@ struct TrainingSetRows: View {
             .accessibilityIdentifier("row-\(index)-type")
     }
     private func typeButtonLabel(_ row: TrainingRow) -> some View {
-        Text(TrainingSetTypeText.buttonTitle(row.kind))
+        let title = row.kind == nil && !usesLabeledValues ? "Choose" : TrainingSetTypeText.buttonTitle(row.kind)
+        return Text(title)
             .font(.footnote.weight(.medium))
             .lineLimit(usesLabeledValues ? nil : 1)
             .fixedSize(horizontal: false, vertical: true)
