@@ -771,13 +771,23 @@ final class LoggerUITests: XCTestCase {
         tap("input-next", in: app)
         XCTAssertFalse(confirmation.exists)
 
+        let row = element("set-row-1", in: app)
+        let reps = element("row-1-reps", in: app)
+        let blankRowHeight = row.frame.height
+        let blankRepsFrame = reps.frame
+        replace("0000000000", in: app)
+        XCTAssertEqual(row.frame.height, blankRowHeight, accuracy: 1)
+        XCTAssertEqual(reps.frame.midY, blankRepsFrame.midY, accuracy: 2)
         replace("8", in: app)
         XCTAssertTrue(confirmation.waitForExistence(timeout: 3))
+        XCTAssertEqual(row.frame.height, blankRowHeight, accuracy: 1)
+        XCTAssertEqual(reps.frame.midY, blankRepsFrame.midY, accuracy: 2)
         XCTAssertTrue(confirmation.label.contains("First set saved"))
         XCTAssertTrue(app.keyboards.firstMatch.exists)
         XCTAssertTrue(element("set-input", in: app).label.contains("reps"))
         attach("First set saved while editing reps", app)
         XCTAssertTrue(confirmation.waitForNonExistence(timeout: 5))
+        XCTAssertEqual(reps.frame.midY, blankRepsFrame.midY, accuracy: 2)
 
         element("input-next-set", in: app).tap()
         replace("145", in: app)
@@ -1171,6 +1181,7 @@ final class LoggerUITests: XCTestCase {
         XCTAssertTrue(element("row-2-weight", in: app).exists)
         XCTAssertFalse(app.buttons["row-3-weight"].exists)
         tap("input-done", in: app)
+        tap("set-2-actions", in: app)
         tap("prefill-row-2", in: app)
         XCTAssertEqual(element("set-input", in: app).value as? String, "135")
         XCTAssertTrue(element("row-2-weight", in: app).label.contains("135 lb"))
