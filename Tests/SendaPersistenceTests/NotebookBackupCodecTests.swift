@@ -75,6 +75,24 @@ struct NotebookBackupCodecTests {
         #expect(try NotebookBackupCodec.decode(data(legacy)) == original)
     }
 
+    @Test func fullBackupPreservesWeeklyTargetsAndVersionFiveLoadsWithoutThem() throws {
+        let original = try archive()
+        var details = original.profile
+        details.goals = [StrengthGoal(exerciseID: "bench", target: SetValues(weight: 15_500, reps: 8))]
+        details.weeklyMuscleTargets = [WeeklyMuscleTarget(muscle: .chest, minimumSets: 8, maximumSets: 12)]
+        let withTargets = NotebookArchive(snapshot: original.snapshot, profile: details, createdAt: original.createdAt)
+        #expect(try NotebookBackupCodec.decode(NotebookBackupCodec.encode(withTargets)) == withTargets)
+
+        var legacy = try object(withTargets)
+        #expect(legacy["version"] as? Int == 6)
+        legacy["version"] = 5
+        var legacyDetails = try #require(legacy["profile"] as? [String: Any])
+        legacyDetails.removeValue(forKey: "weeklyMuscleTargets")
+        legacy["profile"] = legacyDetails
+        details.weeklyMuscleTargets = []
+        #expect(try NotebookBackupCodec.decode(data(legacy)).profile == details)
+    }
+
     @Test func encodedBackupHasStrictHeaderNumericDatesAndStableReadableJSON() throws {
         let archive = try archive()
         let bytes = try NotebookBackupCodec.encode(archive)
@@ -107,7 +125,7 @@ struct NotebookBackupCodecTests {
             var candidate = original; candidate["format"] = value
             #expect(throws: (any Error).self) { try NotebookBackupCodec.decode(data(candidate)) }
         }
-        for value: Any in [0, 6, -1, 1.5, "1", NSNull()] {
+        for value: Any in [0, 7, -1, 1.5, "1", NSNull()] {
             var candidate = original; candidate["version"] = value
             #expect(throws: (any Error).self) { try NotebookBackupCodec.decode(data(candidate)) }
         }

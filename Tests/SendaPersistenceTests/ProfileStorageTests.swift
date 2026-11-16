@@ -15,15 +15,22 @@ import SendaDomain
         #expect(try profile.load() == ProfileDetails(name: "Jae", email: "jae@example.com"))
         #expect(try Data(contentsOf: directory.appendingPathComponent("journal.json")) == before)
     }
-    @Test func versionOneProfileWithoutGoalsLoadsAndCanSaveGoals() throws {
+    @Test func versionOneProfileLoadsAndCanSaveGoalsAndWeeklyTargets() throws {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("profile-\(UUID()).json")
         defer { try? FileManager.default.removeItem(at: url) }
         let legacy = Data(#"{"version":1,"details":{"name":"Jae","email":""}}"#.utf8)
         try legacy.write(to: url)
         let store = FileProfileRepository(url: url)
         var details = try store.load()
-        #expect(details.name == "Jae" && details.goals.isEmpty)
+        #expect(details.name == "Jae" && details.goals.isEmpty && details.weeklyMuscleTargets.isEmpty)
         details.goals = [StrengthGoal(exerciseID: "bench", target: SetValues(weight: 15_500, reps: 8))]
+        details.weeklyMuscleTargets = [WeeklyMuscleTarget(muscle: .chest, minimumSets: 8, maximumSets: 12)]
+        try store.save(details)
+        #expect(try FileProfileRepository(url: url).load() == details)
+        let withTargets = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any]
+        #expect(withTargets?["version"] as? Int == 3)
+
+        details.weeklyMuscleTargets = []
         try store.save(details)
         #expect(try FileProfileRepository(url: url).load() == details)
         let withGoals = try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any]

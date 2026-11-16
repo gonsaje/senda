@@ -108,44 +108,146 @@ struct ExerciseMuscleThumbnail: View {
     }
 }
 
-private enum MuscleFigureAspect {
+enum MuscleFigureAspect {
     case front, back
 }
 
-private struct MuscleFigure: View {
+enum MuscleHeatLevel: CaseIterable {
+    case untrained, low, medium, high
+
+    init(sets: Int) {
+        switch sets {
+        case 6...: self = .high
+        case 3...5: self = .medium
+        case 1...2: self = .low
+        default: self = .untrained
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .untrained: "0"
+        case .low: "1–2"
+        case .medium: "3–5"
+        case .high: "6+"
+        }
+    }
+
+    func fill(onCharcoal: Bool) -> Color {
+        switch (self, onCharcoal) {
+        case (.untrained, true): Color(red: 0.44, green: 0.35, blue: 0.30)
+        case (.low, true): Color(red: 121 / 255, green: 169 / 255, blue: 166 / 255)
+        case (.medium, true): Color(red: 212 / 255, green: 165 / 255, blue: 83 / 255)
+        case (.high, true): Color(red: 240 / 255, green: 161 / 255, blue: 132 / 255)
+        case (.untrained, false): Color(red: 0.85, green: 0.80, blue: 0.74)
+        case (.low, false): Color(red: 130 / 255, green: 166 / 255, blue: 163 / 255)
+        case (.medium, false): Color(red: 178 / 255, green: 131 / 255, blue: 61 / 255)
+        case (.high, false): NotebookStyle.clay
+        }
+    }
+}
+
+struct MuscleFigure: View {
+    private enum Highlight {
+        case exercise(primary: [MuscleRegion], supporting: [MuscleRegion])
+        case heat(counts: [MuscleRegion: Int], selected: MuscleRegion?, onCharcoal: Bool)
+    }
+
     let aspect: MuscleFigureAspect
-    let primary: [MuscleRegion]
-    let supporting: [MuscleRegion]
+    private let highlight: Highlight
+    private let onRegionTap: ((MuscleRegion) -> Void)?
 
     private let neutral = Color(red: 225 / 255, green: 218 / 255, blue: 205 / 255)
     private let muscleNeutral = Color(red: 214 / 255, green: 205 / 255, blue: 188 / 255)
 
+    init(aspect: MuscleFigureAspect, primary: [MuscleRegion], supporting: [MuscleRegion]) {
+        self.aspect = aspect
+        highlight = .exercise(primary: primary, supporting: supporting)
+        onRegionTap = nil
+    }
+
+    init(aspect: MuscleFigureAspect, counts: [MuscleRegion: Int], selected: MuscleRegion? = nil,
+         onCharcoal: Bool = false, onRegionTap: ((MuscleRegion) -> Void)? = nil) {
+        self.aspect = aspect
+        highlight = .heat(counts: counts, selected: selected, onCharcoal: onCharcoal)
+        self.onRegionTap = onRegionTap
+    }
+
     var body: some View {
-        Canvas { context, size in
-            let scale = min(size.width / 132, size.height / 294)
-            context.translateBy(x: (size.width - 132 * scale) / 2, y: (size.height - 294 * scale) / 2)
-            context.scaleBy(x: scale, y: scale)
-
-            let silhouette = Self.silhouette
-            context.fill(silhouette, with: .color(neutral.opacity(0.55)))
-            context.stroke(silhouette, with: .color(NotebookStyle.ink.opacity(0.33)), style: StrokeStyle(lineWidth: 0.8, lineJoin: .round))
-
-            let head = Path(ellipseIn: CGRect(x: 55.5, y: 6, width: 21, height: 29))
-            context.fill(head, with: .color(neutral.opacity(0.55)))
-            context.stroke(head, with: .color(NotebookStyle.ink.opacity(0.33)), lineWidth: 0.8)
-
-            for (region, path) in Self.regions(for: aspect) {
-                let isPrimary = primary.contains(region)
-                let isSupporting = supporting.contains(region) && !isPrimary
-                let fill = isPrimary ? NotebookStyle.clay : (isSupporting ? NotebookStyle.ivory : muscleNeutral.opacity(0.50))
-                let outline = isPrimary ? NotebookStyle.clay.opacity(0.95) : (isSupporting ? NotebookStyle.olive : NotebookStyle.ink.opacity(0.18))
-                context.fill(path, with: .color(fill))
-                context.stroke(path, with: .color(outline), style: StrokeStyle(lineWidth: isSupporting ? 1.8 : 0.65, lineCap: .round, lineJoin: .round))
+        Group {
+            if let onRegionTap {
+                GeometryReader { geometry in
+                    artwork
+                        .contentShape(Rectangle())
+                        .onTapGesture { location in
+                            let (origin, scale) = placement(in: geometry.size)
+                            guard scale > 0 else { return }
+                            let point = CGPoint(x: (location.x - origin.x) / scale,
+                                                y: (location.y - origin.y) / scale)
+                            if let (muscle, _) = Self.regions(for: aspect).last(where: { $0.1.contains(point) }) {
+                                onRegionTap(muscle)
+                            }
+                        }
+                }
+            } else {
+                artwork
             }
-
-            context.stroke(Self.details(for: aspect), with: .color(NotebookStyle.ink.opacity(0.25)), style: StrokeStyle(lineWidth: 0.65, lineCap: .round, lineJoin: .round))
         }
         .accessibilityHidden(true)
+    }
+
+    private func placement(in size: CGSize) -> (origin: CGPoint, scale: CGFloat) {
+        let scale = min(size.width / 132, size.height / 294)
+        let origin = CGPoint(x: (size.width - 132 * scale) / 2, y: (size.height - 294 * scale) / 2)
+        return (origin, scale)
+    }
+
+    private var artwork: some View {
+        Canvas { context, size in
+            let (origin, scale) = placement(in: size)
+            context.translateBy(x: origin.x, y: origin.y)
+            context.scaleBy(x: scale, y: scale)
+
+            let (bodyFill, bodyOutline, detail) = bodyColors
+            for path in [Self.silhouette, Path(ellipseIn: CGRect(x: 55.5, y: 6, width: 21, height: 29))] {
+                context.fill(path, with: .color(bodyFill))
+                context.stroke(path, with: .color(bodyOutline), style: StrokeStyle(lineWidth: 0.8, lineJoin: .round))
+            }
+
+            for (region, path) in Self.regions(for: aspect) {
+                let (fill, outline, lineWidth) = regionColors(region)
+                context.fill(path, with: .color(fill))
+                context.stroke(path, with: .color(outline), style: StrokeStyle(lineWidth: lineWidth, lineCap: .round, lineJoin: .round))
+            }
+
+            context.stroke(Self.details(for: aspect), with: .color(detail), style: StrokeStyle(lineWidth: 0.65, lineCap: .round, lineJoin: .round))
+        }
+    }
+
+    private var bodyColors: (fill: Color, outline: Color, detail: Color) {
+        switch highlight {
+        case .exercise:
+            (neutral.opacity(0.55), NotebookStyle.ink.opacity(0.33), NotebookStyle.ink.opacity(0.25))
+        case .heat(_, _, true):
+            (NotebookStyle.ivory.opacity(0.15), NotebookStyle.ivory.opacity(0.58), NotebookStyle.ivory.opacity(0.3))
+        case .heat(_, _, false):
+            (neutral, NotebookStyle.ink.opacity(0.26), NotebookStyle.ink.opacity(0.16))
+        }
+    }
+
+    private func regionColors(_ region: MuscleRegion) -> (fill: Color, outline: Color, lineWidth: CGFloat) {
+        switch highlight {
+        case .exercise(let primary, let supporting):
+            let isPrimary = primary.contains(region)
+            let isSupporting = supporting.contains(region) && !isPrimary
+            let fill = isPrimary ? NotebookStyle.clay : (isSupporting ? NotebookStyle.ivory : muscleNeutral.opacity(0.50))
+            let outline = isPrimary ? NotebookStyle.clay.opacity(0.95) : (isSupporting ? NotebookStyle.olive : NotebookStyle.ink.opacity(0.18))
+            return (fill, outline, isSupporting ? 1.8 : 0.65)
+        case .heat(let counts, let selected, let onCharcoal):
+            let level = MuscleHeatLevel(sets: counts[region, default: 0])
+            let outline = selected == region ? NotebookStyle.ink : (onCharcoal ? NotebookStyle.ink.opacity(0.6) : neutral)
+            return (level.fill(onCharcoal: onCharcoal), outline, selected == region ? 1.6 : 0.65)
+        }
     }
 
     // A relaxed anatomical stance, with the arms slightly away from the torso.

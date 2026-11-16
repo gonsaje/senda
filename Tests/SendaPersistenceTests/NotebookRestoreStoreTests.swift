@@ -9,7 +9,7 @@ import SendaDomain
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
     }
-    private func archive(name: String, weight: Int = 13_500) throws -> NotebookArchive {
+    private func archive(name: String, weight: Int = 13_500, targets: [WeeklyMuscleTarget] = []) throws -> NotebookArchive {
         let day = try TrainingDay("2026-11-09")
         var journal = Journal()
         let set = try journal.record(DraftBatch(exerciseID: "bench", sets: [SetValues(weight: weight, reps: 8)]), at: day.date()).sets[0]
@@ -17,7 +17,7 @@ import SendaDomain
         let workspace = TrainingWorkspace(visibleWeek: try day.week()[0], selectedDay: day, preferredUnit: .kilograms,
             days: [day.rawValue: DayWorkout(exerciseIDs: ["bench"], selectedExerciseID: "bench", rows: ["bench": [row]], unit: .kilograms)])
         return NotebookArchive(snapshot: JournalSnapshot(journal: journal, training: workspace),
-            profile: ProfileDetails(name: name, email: "previous@example.com"), createdAt: day.date())
+            profile: ProfileDetails(name: name, email: "previous@example.com", weeklyMuscleTargets: targets), createdAt: day.date())
     }
     private func seed(_ archive: NotebookArchive, journal: URL, profile: URL) throws {
         try FileJournalRepository(url: journal).saveSnapshot(archive.snapshot)
@@ -27,7 +27,9 @@ import SendaDomain
     @Test func fileRestoreReplacesBothFilesAndRetainsTheLatestCurrentArchive() throws {
         let root = try directory(); defer { try? FileManager.default.removeItem(at: root) }
         let journalURL = root.appendingPathComponent("journal.json"), profileURL = root.appendingPathComponent("profile.json")
-        let old = try archive(name: "Before"), target = try archive(name: "After", weight: 14_000)
+        let old = try archive(name: "Before", targets: [WeeklyMuscleTarget(muscle: .chest, minimumSets: 5, maximumSets: 8)])
+        let target = try archive(name: "After", weight: 14_000,
+            targets: [WeeklyMuscleTarget(muscle: .chest, minimumSets: 8, maximumSets: 12)])
         try seed(old, journal: journalURL, profile: profileURL)
         var latestSnapshot = old.snapshot
         let day = try TrainingDay("2026-11-09")

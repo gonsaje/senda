@@ -1,6 +1,6 @@
 /// Surface regions used by the Learn anatomy illustration. These are educational
 /// labels, independent of the broader muscle groups saved with an exercise.
-public enum MuscleRegion: String, CaseIterable, Sendable {
+public enum MuscleRegion: String, CaseIterable, Codable, Sendable {
     case chest, frontShoulders, sideShoulders, rearShoulders
     case biceps, triceps, forearms, lats, upperBack, spinalErectors
     case abdominals, glutes, quadriceps, hamstrings, calves
