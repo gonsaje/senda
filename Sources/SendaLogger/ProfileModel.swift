@@ -17,7 +17,10 @@ import SendaPersistence
         save(name: name, email: details.email)
     }
     @discardableResult public func save(name: String, email: String) -> Bool {
-        persist(ProfileDetails(name: name, email: email, goals: details.goals))
+        var candidate = details
+        candidate.name = name
+        candidate.email = email
+        return persist(candidate)
     }
     @discardableResult public func saveGoal(_ goal: StrengthGoal) -> Bool {
         var candidate = details
@@ -31,6 +34,20 @@ import SendaPersistence
     @discardableResult public func removeGoal(_ id: UUID) -> Bool {
         var candidate = details
         candidate.goals.removeAll { $0.id == id }
+        return persist(candidate)
+    }
+    @discardableResult public func saveWeeklyMuscleTarget(_ target: WeeklyMuscleTarget) -> Bool {
+        var candidate = details
+        if let index = candidate.weeklyMuscleTargets.firstIndex(where: { $0.muscle == target.muscle }) {
+            candidate.weeklyMuscleTargets[index] = target
+        } else {
+            candidate.weeklyMuscleTargets.append(target)
+        }
+        return persist(candidate)
+    }
+    @discardableResult public func removeWeeklyMuscleTarget(_ muscle: MuscleRegion) -> Bool {
+        var candidate = details
+        candidate.weeklyMuscleTargets.removeAll { $0.muscle == muscle }
         return persist(candidate)
     }
     private func persist(_ next: ProfileDetails) -> Bool {

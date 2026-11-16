@@ -36,8 +36,25 @@ struct TrainingDayView: View {
     @State private var pendingSheet: TrainingPendingSheet?
     @State private var planContext: TrainingMetadataContext?
     @State private var measuredFocusLayout: TrainingFocusedRowLayout?
+    @State private var showsFirstSetConfirmation = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dynamicTypeSize) private var textSize
+
+    private var firstSetConfirmation: some View {
+        Label("First set saved", systemImage: "checkmark")
+            .font(.footnote.weight(.medium))
+            .foregroundStyle(NotebookStyle.olive)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, 12).padding(.vertical, 4)
+            .background(NotebookStyle.ivory, in: Capsule())
+            .overlay { Capsule().strokeBorder(NotebookStyle.rule, lineWidth: 1) }
+            .padding(.horizontal, 24)
+            .allowsHitTesting(false)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("First set saved")
+            .accessibilityIdentifier("first-set-saved")
+    }
+
     var body: some View {
         ScrollViewReader { scroll in
             ScrollView {
@@ -89,7 +106,20 @@ struct TrainingDayView: View {
                         .background(NotebookStyle.olive.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
                         .padding(.horizontal, 24).padding(.bottom, 12)
                     }
-                }.background(NotebookStyle.ivory).accessibilityElement(children: .contain).accessibilityIdentifier("day-controls")
+                }
+                .frame(maxWidth: .infinity)
+                .background(NotebookStyle.ivory)
+                .overlay(alignment: .top) {
+                    if showsFirstSetConfirmation && model.errorMessage == nil && !model.canRetrySave {
+                        // Keep confirmation above the controls without resizing the viewport.
+                        firstSetConfirmation
+                            .padding(.bottom, 3)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(height: 0, alignment: .bottom)
+                    }
+                }
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("day-controls")
             }
             .sheet(item: $presentedSheet) { destination in
                 switch destination {
@@ -124,7 +154,19 @@ struct TrainingDayView: View {
                 if let focus = model.focus { scroll.scrollTo("\(focus.rowID)/\(focus.field.rawValue)", anchor: .center) }
             }
             #endif
+            .onChange(of: model.hasSavedFirstSet) { _, hasSaved in
+                guard hasSaved else { return }
+                showsFirstSetConfirmation = true
+                TrainingAccessibility.announce("First set saved.")
+            }
+            .task(id: showsFirstSetConfirmation) {
+                guard showsFirstSetConfirmation else { return }
+                do { try await Task.sleep(for: .seconds(4)) }
+                catch { return }
+                showsFirstSetConfirmation = false
+            }
             .onChange(of: day) { _, _ in
+                showsFirstSetConfirmation = false
                 pendingSheet = nil
                 presentedSheet = nil
                 planContext = nil
@@ -401,6 +443,15 @@ struct TrainingReferenceBanners: View {
 }
 
 struct TrainingSetRows: View {
+    private enum Ledger {
+        static let numberWidth: CGFloat = 24
+        static let typeWidth: CGFloat = 90
+        static let repsWidth: CGFloat = 50
+        static let columnSpacing: CGFloat = 4
+        static let valueInset: CGFloat = 4
+        static let minimumWidth: CGFloat = 324
+    }
+
     @Bindable var model: TrainingNotebookModel
     var beginInteraction: () -> Void = {}
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -412,7 +463,7 @@ struct TrainingSetRows: View {
     @State private var typeRequest: TrainingSetDetailsRequest?
     @State private var availableWidth: CGFloat = 345
     private var usesStackedRows: Bool { textSize >= .xxxLarge }
-    private var usesCompactRows: Bool { !usesStackedRows && (availableWidth < 340 || textSize >= .xLarge) }
+    private var usesCompactRows: Bool { !usesStackedRows && (availableWidth < Ledger.minimumWidth || textSize >= .xLarge) }
     private var usesLabeledValues: Bool { usesStackedRows || usesCompactRows }
     private var setActionsLayout: AnyLayout {
         usesStackedRows
@@ -468,12 +519,18 @@ struct TrainingSetRows: View {
             Text("Sets").font(.headline).accessibilityAddTraits(.isHeader)
                 .frame(maxWidth: .infinity, alignment: .leading).padding(.bottom, 8)
         } else {
-            HStack(spacing: 6) {
-                independentColumnHeading(Text("Set")).frame(width: 24, alignment: .leading)
-                independentColumnHeading(Text("Type")).frame(width: 100, alignment: .leading)
-                independentColumnHeading(Text("Weight (\(model.unit.symbol))")).frame(maxWidth: .infinity, alignment: .trailing)
-                independentColumnHeading(Text("Reps")).frame(width: 54, alignment: .trailing)
-                Color.clear.frame(width: 44, height: 1)
+            HStack(spacing: SwipeableSetRowMetrics.menuSpacing) {
+                HStack(spacing: Ledger.columnSpacing) {
+                    independentColumnHeading(Text("Set")).frame(width: Ledger.numberWidth, alignment: .leading)
+                    independentColumnHeading(Text("Type")).frame(width: Ledger.typeWidth, alignment: .leading)
+                    independentColumnHeading(Text("Weight (\(model.unit.symbol))"))
+                        .padding(.trailing, Ledger.valueInset)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                    independentColumnHeading(Text("Reps"))
+                        .padding(.trailing, Ledger.valueInset)
+                        .frame(width: Ledger.repsWidth, alignment: .trailing)
+                }
+                Color.clear.frame(width: SwipeableSetRowMetrics.menuWidth, height: 1)
             }.font(.footnote.weight(.medium)).foregroundStyle(NotebookStyle.quiet).padding(.bottom, 6)
                 .accessibilityElement(children: .contain)
         }
@@ -484,11 +541,19 @@ struct TrainingSetRows: View {
     }
 
     private func entryView(_ entry: TrainingSetEntry, first: TrainingRow, index: Int) -> some View {
-        SwipeableSetRow(id: entry.id, index: index, revealedRowID: $revealedRowID,
+        let previous = model.rowStatus(for: first) == .empty ? model.previousRecordedSet(before: first.id) : nil
+        return SwipeableSetRow(id: entry.id, index: index, revealedRowID: $revealedRowID,
                         highlighted: entry.rows.contains { $0.id == highlightedRow },
                         effort: TrainingSetDetailsText.effort(first.repsInReserve),
                         includesDropStages: entry.rows.count > 1,
                         editEffort: { presentDetails(first, index: index) },
+                        previousValues: previous.map { TrainingText.set($0.values, unit: first.unit) },
+                        useLastValues: {
+                            beginInteraction()
+                            if model.prefillSet(first.id) {
+                                TrainingAccessibility.announce("Last values saved to \(positionLabel(first).lowercased()).")
+                            }
+                        },
                         delete: { beginInteraction(); return model.deleteSet(first.id) }) {
             VStack(alignment: .leading, spacing: 0) {
                 if entry.isDropSet {
@@ -505,7 +570,7 @@ struct TrainingSetRows: View {
                         Label("Add drop", systemImage: "plus").frame(minHeight: 44)
                     }
                     .font(.subheadline).foregroundStyle(NotebookStyle.clay)
-                    .padding(.leading, usesLabeledValues ? 0 : 26)
+                    .padding(.leading, usesLabeledValues ? 0 : Ledger.numberWidth + Ledger.columnSpacing)
                     .accessibilityLabel("Add drop to set \(index)")
                     .accessibilityHint("Add another weight and reps stage to this drop set")
                     .accessibilityIdentifier("row-\(index)-add-drop")
@@ -530,14 +595,14 @@ struct TrainingSetRows: View {
         } else if usesCompactRows {
             typeButton(row, index: index, includesSetNumber: true).padding(.top, 4)
         } else {
-            HStack(spacing: 6) {
+            HStack(spacing: Ledger.columnSpacing) {
                 Text("\(index)").font(.subheadline.monospacedDigit()).foregroundStyle(NotebookStyle.quiet)
-                    .frame(width: 24, alignment: .leading)
+                    .frame(width: Ledger.numberWidth, alignment: .leading)
                     .accessibilityLabel("Set \(index)").accessibilityAddTraits(.isHeader)
                     .accessibilityRespondsToUserInteraction(false)
-                typeButton(row, index: index).frame(width: 100)
+                typeButton(row, index: index).frame(width: Ledger.typeWidth)
                 Spacer(minLength: 0)
-            }.frame(minHeight: 56)
+            }.frame(minHeight: SwipeableSetRowMetrics.rowHeight)
         }
     }
 
@@ -546,17 +611,17 @@ struct TrainingSetRows: View {
             setHeading(row, index: index)
             labeledValues(row)
         } else {
-            HStack(spacing: 6) {
+            HStack(spacing: Ledger.columnSpacing) {
                 Text("\(index)").font(.subheadline.monospacedDigit()).foregroundStyle(NotebookStyle.quiet)
-                    .frame(width: 24, alignment: .leading)
+                    .frame(width: Ledger.numberWidth, alignment: .leading)
                     .accessibilityLabel("Set \(index)").accessibilityAddTraits(.isHeader)
                     .accessibilityRespondsToUserInteraction(false)
-                typeButton(row, index: index).frame(width: 100)
+                typeButton(row, index: index).frame(width: Ledger.typeWidth)
                 cell(weightText(row), row: row, field: .weight).frame(maxWidth: .infinity)
-                cell(row.reps.isEmpty ? "—" : row.reps, row: row, field: .reps).frame(width: 54)
+                cell(row.reps.isEmpty ? "—" : row.reps, row: row, field: .reps).frame(width: Ledger.repsWidth)
             }
         }
-        stateContext(row).padding(.leading, usesLabeledValues ? 0 : 26)
+        stateContext(row).padding(.leading, usesLabeledValues ? 0 : Ledger.numberWidth + Ledger.columnSpacing)
     }
 
     private func dropStage(_ row: TrainingRow, index: Int, stage: Int) -> some View {
@@ -566,14 +631,14 @@ struct TrainingSetRows: View {
                 stageLabel(row, index: index, stage: stage)
                 labeledValues(row)
             } else {
-                HStack(spacing: 6) {
-                    Color.clear.frame(width: 24, height: 1)
-                    stageLabel(row, index: index, stage: stage).frame(width: 100, alignment: .leading)
+                HStack(spacing: Ledger.columnSpacing) {
+                    Color.clear.frame(width: Ledger.numberWidth, height: 1)
+                    stageLabel(row, index: index, stage: stage).frame(width: Ledger.typeWidth, alignment: .leading)
                     cell(weightText(row), row: row, field: .weight).frame(maxWidth: .infinity)
-                    cell(row.reps.isEmpty ? "—" : row.reps, row: row, field: .reps).frame(width: 54)
+                    cell(row.reps.isEmpty ? "—" : row.reps, row: row, field: .reps).frame(width: Ledger.repsWidth)
                 }
             }
-            stateContext(row).padding(.leading, usesLabeledValues ? 0 : 26)
+            stateContext(row).padding(.leading, usesLabeledValues ? 0 : Ledger.numberWidth + Ledger.columnSpacing)
         }
         .id(row.id).background { focusMeasurement(row) }
     }
@@ -630,22 +695,26 @@ struct TrainingSetRows: View {
         Button { beginInteraction(); model.newSet() } label: { WorkoutPrimaryActionLabel(title: "New set") }
         .accessibilityIdentifier("new-set")
     }
-    @ViewBuilder private var repeatButton: some View {
-        if model.canRepeat {
-            Button {
-                beginInteraction()
-                if model.repeatLastSet() {
-                    highlightedRow = model.rows.last?.id
-                    TrainingAccessibility.announce("Set repeated and saved.")
-                }
-            } label: {
-                Text("Repeat last set")
-                    .font(.subheadline.weight(.medium))
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(minHeight: 44)
-                    .contentShape(Rectangle())
-            }.foregroundStyle(NotebookStyle.quiet).accessibilityIdentifier("repeat-set")
+    private var repeatButton: some View {
+        let canRepeat = model.canRepeat
+        return Button {
+            beginInteraction()
+            if model.repeatLastSet() {
+                highlightedRow = model.rows.last?.id
+                TrainingAccessibility.announce("Set repeated and saved.")
+            }
+        } label: {
+            Text("Repeat last set")
+                .font(.subheadline.weight(.medium))
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
         }
+        .foregroundStyle(NotebookStyle.quiet)
+        .opacity(canRepeat ? 1 : 0)
+        .disabled(!canRepeat)
+        .accessibilityHidden(!canRepeat)
+        .accessibilityIdentifier("repeat-set")
     }
     private func weightText(_ row: TrainingRow) -> String {
         row.weight.isEmpty ? (model.exercise?.requiresWeight == false ? "BW" : "—") : row.weight
@@ -676,10 +745,14 @@ struct TrainingSetRows: View {
     }
     private func typeButtonLabel(_ row: TrainingRow) -> some View {
         Text(TrainingSetTypeText.buttonTitle(row.kind))
-            .font(.footnote.weight(.medium)).fixedSize(horizontal: false, vertical: true)
-            .frame(maxWidth: .infinity, minHeight: 44)
-            .padding(.horizontal, 6).contentShape(Rectangle())
+            .font(.footnote.weight(.medium))
+            .lineLimit(usesLabeledValues ? nil : 1)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, 6).padding(.vertical, 7)
+            .frame(maxWidth: .infinity)
             .background(NotebookStyle.clay.opacity(0.06), in: RoundedRectangle(cornerRadius: 5))
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
     }
     private func stackedCell(_ row: TrainingRow, field: NumericField) -> some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -689,7 +762,8 @@ struct TrainingSetRows: View {
         }.frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, usesCompactRows ? 2 : 4)
     }
     @ViewBuilder private func stateContext(_ row: TrainingRow) -> some View {
-        let status = model.rowStatus(for: row)
+        let status = model.focus?.rowID == row.id ? nil : model.rowStatus(for: row)
+        let hint = status.flatMap { $0 == .empty ? nil : completionHint(row) }
         VStack(alignment: .leading, spacing: 3) {
             if status == .pendingCorrection, let saved = model.recordedValues(for: row) {
                 Text("Last saved: \(TrainingText.set(saved, unit: model.unit))")
@@ -697,7 +771,7 @@ struct TrainingSetRows: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("\(rowIdentifier(row))-recorded-value")
             }
-            if status != .empty, let hint = completionHint(row) {
+            if let hint {
                 Text(hint).font(.caption).foregroundStyle(NotebookStyle.quiet)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("\(rowIdentifier(row))-status")
@@ -710,30 +784,13 @@ struct TrainingSetRows: View {
                     .accessibilityHint("Replace the incomplete input with this stage's last saved weight and reps")
                     .accessibilityIdentifier("\(rowIdentifier(row))-discard-edit")
             }
-            if status == .empty, !isChildStage(row), let previous = model.previousRecordedSet(before: row.id) {
-                Text("Last set: \(TrainingText.set(previous.values, unit: row.unit)) · \(TrainingText.date(previous.day, format: "MMM d"))")
-                    .font(.caption.monospacedDigit()).foregroundStyle(NotebookStyle.quiet)
-                    .fixedSize(horizontal: false, vertical: true)
-                Button("Use last values") {
-                    beginInteraction()
-                    if model.prefillSet(row.id) { TrainingAccessibility.announce("Last values saved to \(positionLabel(row).lowercased()).") }
-                }.font(.subheadline).foregroundStyle(NotebookStyle.clay).frame(minWidth: 44, minHeight: 44)
-                    .accessibilityHint("Save the last set's weight and reps here")
-                    .accessibilityIdentifier("prefill-\(rowIdentifier(row))")
-            }
             if let reserve = row.repsInReserve {
                 Text(TrainingSetDetailsText.effort(reserve)).font(.caption).foregroundStyle(NotebookStyle.quiet)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityLabel("\(positionLabel(row)), \(TrainingSetDetailsText.effort(reserve))")
                     .accessibilityIdentifier("\(rowIdentifier(row))-effort")
             }
-        }.padding(.bottom, hasContext(row) ? 8 : 0)
-    }
-    private func hasContext(_ row: TrainingRow) -> Bool {
-        let status = model.rowStatus(for: row)
-        return row.repsInReserve != nil || status == .pendingCorrection ||
-            (status != .empty && completionHint(row) != nil) ||
-            (status == .empty && !isChildStage(row) && model.previousRecordedSet(before: row.id) != nil)
+        }.padding(.bottom, row.repsInReserve != nil || status == .pendingCorrection || hint != nil ? 8 : 0)
     }
     private func presentDetails(_ row: TrainingRow, index: Int) {
         beginInteraction(); revealedRowID = nil
@@ -748,9 +805,6 @@ struct TrainingSetRows: View {
         if NumericField.reps.parse(row.reps) == nil { fields.append("reps") }
         return fields.isEmpty ? nil : "Enter valid \(fields.joined(separator: " and "))."
     }
-    private func isChildStage(_ row: TrainingRow) -> Bool {
-        (model.setPosition(for: row.id)?.stageIndex ?? 1) > 1
-    }
     private func rowIdentifier(_ row: TrainingRow) -> String {
         guard let position = model.setPosition(for: row.id) else { return "row-1" }
         let base = "row-\(position.setIndex)"
@@ -763,12 +817,16 @@ struct TrainingSetRows: View {
         return "\(base), \(position.stageIndex == 1 ? "start" : "drop \(position.stageIndex - 1)")"
     }
     private func cell(_ text: String, row: TrainingRow, field: NumericField) -> some View {
-        Button { beginInteraction(); model.selectInput(row.id, field: field) } label: {
+        let isFocused = model.focus?.rowID == row.id && model.focus?.field == field
+        return Button { beginInteraction(); model.selectInput(row.id, field: field) } label: {
             Text(text).font(.system(size: numeralSize).monospacedDigit())
+                .lineLimit(1)
                 .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, minHeight: usesCompactRows ? 48 : 56, alignment: usesLabeledValues ? .leading : .trailing)
+                .padding(.trailing, usesLabeledValues ? 0 : Ledger.valueInset)
+                .frame(maxWidth: .infinity, minHeight: usesCompactRows ? 48 : SwipeableSetRowMetrics.rowHeight,
+                       alignment: usesLabeledValues ? .leading : .trailing)
                 .contentShape(Rectangle())
-                .foregroundStyle(model.focus?.rowID == row.id && model.focus?.field == field ? NotebookStyle.clay : NotebookStyle.ink)
+                .foregroundStyle(isFocused ? NotebookStyle.clay : NotebookStyle.ink)
         }
         .accessibilityLabel("\(positionLabel(row)), \(text) \(field == .weight ? model.unit.symbol : "reps")")
         .accessibilityHint("Edit \(field == .weight ? "weight" : "reps")")

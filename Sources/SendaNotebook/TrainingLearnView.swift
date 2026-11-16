@@ -5,33 +5,69 @@ import SendaLogger
 struct TrainingLearnView: View {
     @Bindable var model: TrainingNotebookModel
     @FocusState private var searchFocused: Bool
-    @State private var returnExerciseID: String?
+    @State private var presentedGuideID: String?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.layoutDirection) private var layoutDirection
+
+    init(model: TrainingNotebookModel) {
+        self.model = model
+        _presentedGuideID = State(initialValue: model.learningExerciseID)
+    }
 
     private var results: [Exercise] { ExerciseFormGuide.search(model.learningQuery, in: model.exercises) }
+    private var motion: TrainingPageMotion { TrainingPageMotion(reduceMotion: reduceMotion) }
+    private var guideOffset: CGFloat {
+        layoutDirection == .rightToLeft ? -TrainingPageMotion.detailOffset : TrainingPageMotion.detailOffset
+    }
 
     var body: some View {
+        let showingGuide = presentedGuideID != nil
+        let listIsActive = !showingGuide && model.learningExerciseID == nil
+        ZStack {
+            // Keep the list mounted so returning keeps its exact scroll offset.
+            exerciseList
+                .id(model.landingResetID)
+                .animation(motion.opacityAnimation(appearing: !showingGuide)) { view in
+                    view.opacity(showingGuide ? 0 : 1)
+                }
+                .offset(x: showingGuide && !reduceMotion ? -guideOffset : 0)
+                .allowsHitTesting(listIsActive)
+                .accessibilityHidden(!listIsActive)
+            if let id = presentedGuideID {
+                guide(id)
+                    .allowsHitTesting(model.learningExerciseID == id)
+                    .accessibilityHidden(model.learningExerciseID != id)
+                    .id(id)
+                    .transition(motion.transition(entryOffset: guideOffset))
+                    .zIndex(1)
+            }
+        }
+        .clipped()
+        .onChange(of: model.learningExerciseID) { _, next in
+            withAnimation(motion.animation) { presentedGuideID = next }
+        }
+        .onChange(of: model.landingResetID) { _, _ in searchFocused = false }
+    }
+
+    private var exerciseList: some View {
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    if let id = model.learningExerciseID {
-                        ExerciseLearningDetail(exercise: model.exercise(id))
-                    } else {
-                        Text("Learn").font(NotebookTypography.heading(31)).accessibilityAddTraits(.isHeader)
-                        search
-                        if results.isEmpty { emptyState }
-                        ForEach(MuscleGroup.allCases, id: \.self) { group in
-                            let exercises = results.filter { $0.group == group }
-                            if !exercises.isEmpty {
-                                VStack(alignment: .leading, spacing: 0) {
-                                    Text(group.rawValue)
-                                        .font(NotebookTypography.heading(22, relativeTo: .title2))
-                                        .accessibilityAddTraits(.isHeader)
-                                        .padding(.bottom, 8)
-                                    ForEach(exercises) { exercise in
-                                        exerciseRow(exercise)
-                                            .id("learn-exercise-\(exercise.id)")
-                                        Rectangle().fill(NotebookStyle.rule).frame(height: 0.5)
-                                    }
+                    Text("Learn").font(NotebookTypography.heading(31)).accessibilityAddTraits(.isHeader)
+                    search
+                    if results.isEmpty { emptyState }
+                    ForEach(MuscleGroup.allCases, id: \.self) { group in
+                        let exercises = results.filter { $0.group == group }
+                        if !exercises.isEmpty {
+                            VStack(alignment: .leading, spacing: 0) {
+                                Text(group.rawValue)
+                                    .font(NotebookTypography.heading(22, relativeTo: .title2))
+                                    .accessibilityAddTraits(.isHeader)
+                                    .padding(.bottom, 8)
+                                ForEach(exercises) { exercise in
+                                    exerciseRow(exercise)
+                                        .id("learn-exercise-\(exercise.id)")
+                                    Rectangle().fill(NotebookStyle.rule).frame(height: 0.5)
                                 }
                             }
                         }
@@ -39,25 +75,30 @@ struct TrainingLearnView: View {
                 }
                 .padding(24).padding(.bottom, 8)
                 .frame(maxWidth: 560).frame(maxWidth: .infinity)
-                .id("learn-top")
             }
             .clipped()
             .scrollDismissesKeyboard(.interactively)
             .accessibilityIdentifier("learn-scroll")
-            .safeAreaInset(edge: .top, spacing: 0) {
-                if model.learningExerciseID != nil { navigation }
-            }
-            .task(id: model.learningExerciseID) {
-                // Wait for the new content to lay out before restoring its position.
+            .task { [presentedGuideID] in
+                // When Learn remounts from another tab, return near the open guide's row.
+                guard let id = presentedGuideID, id == model.learningExerciseID else { return }
                 await Task.yield()
-                guard !Task.isCancelled else { return }
-                if model.learningExerciseID != nil {
-                    proxy.scrollTo("learn-top", anchor: .top)
-                } else if let id = returnExerciseID {
-                    proxy.scrollTo("learn-exercise-\(id)", anchor: .center)
-                }
+                guard !Task.isCancelled, id == model.learningExerciseID else { return }
+                proxy.scrollTo("learn-exercise-\(id)", anchor: .center)
             }
         }
+    }
+
+    private func guide(_ id: String) -> some View {
+        ScrollView {
+            ExerciseLearningDetail(exercise: model.exercise(id))
+                .padding(24).padding(.bottom, 8)
+                .frame(maxWidth: 560).frame(maxWidth: .infinity)
+        }
+        .clipped()
+        .accessibilityIdentifier("learn-guide-scroll")
+        .safeAreaInset(edge: .top, spacing: 0) { navigation }
+        .background(NotebookStyle.ivory)
     }
 
     private var search: some View {
@@ -141,7 +182,6 @@ struct TrainingLearnView: View {
         HStack {
             Button {
                 searchFocused = false
-                returnExerciseID = model.learningExerciseID
                 model.learningExerciseID = nil
             } label: {
                 Label("Learn", systemImage: "chevron.left").frame(minHeight: 44)

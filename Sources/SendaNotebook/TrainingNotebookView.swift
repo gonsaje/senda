@@ -20,14 +20,7 @@ public struct TrainingNotebookView: View {
                     }.padding(24).frame(maxWidth: 560).frame(maxWidth: .infinity)
                 }.accessibilityIdentifier("backup-recovery-screen")
             } else {
-            switch model.section {
-            case .log:
-                if let day = model.selectedDay { TrainingDayView(model: model, day: day) }
-                else { TrainingWeekView(model: model) }
-            case .trends: TrainingTrendsView(model: model)
-            case .learn: TrainingLearnView(model: model)
-            case .profile: TrainingProfileView(model: model)
-            }
+                TrainingNotebookPages(model: model)
             }
         }
         .safeAreaInset(edge: .top, spacing: 0) {
@@ -82,69 +75,37 @@ enum TrainingText {
 }
 
 struct TrainingWeekView: View {
+    private enum Sheet: String, Identifiable {
+        case calendar, muscles
+        var id: Self { self }
+    }
+
     @Bindable var model: TrainingNotebookModel
     @State private var swipe = WeekSwipeState()
+    @State private var sheet: Sheet?
     @GestureState private var dragging = false
-    @ScaledMetric(relativeTo: .title3) private var dateColumnWidth: CGFloat = 50
+    @ScaledMetric(relativeTo: .caption) private var weekdayWidth: CGFloat = 27
+    @ScaledMetric(relativeTo: .title3) private var dateColumnWidth: CGFloat = 67
     @Environment(\.dynamicTypeSize) private var textSize
+
     var body: some View {
+        let week = model.weekDays
+        let training = model.snapshot.weeklyMuscleTraining(days: week, through: model.today, calendar: model.calendar)
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                VStack(alignment: .leading, spacing: 18) {
-                    TrainingWordmark()
-                    TrainingWeekNavigation(model: model)
-                }
+            VStack(alignment: .leading, spacing: 10) {
+                TrainingWeekNavigation(model: model, week: week, training: training,
+                    showCalendar: { sheet = .calendar }, showMuscles: { sheet = .muscles })
                 VStack(spacing: 0) {
-                    Rectangle().fill(NotebookStyle.rule).frame(height: 0.5)
-                    ForEach(model.weekDays, id: \.self) { day in
-                        let summary = model.summary(for: day)
-                        let categories = summary.muscleGroups.map(\.rawValue)
-                        let unfinished = model.unfinishedSetCount(for: day)
-                        let emphasizedAction = day == model.today || unfinished > 0
-                        let needsValues = unfinished > 0 ? ", \(unfinished) \(unfinished == 1 ? "set needs" : "sets need") values" : ""
-                        Button { model.openDay(day) } label: {
-                            HStack(alignment: .center, spacing: 12) {
-                                VStack(alignment: .leading, spacing: 3) {
-                                    Text(TrainingText.date(day, format: "EEE")).font(.title3.weight(.medium))
-                                    Text(TrainingText.date(day, format: "d")).font(.title3.monospacedDigit())
-                                }.frame(width: dateColumnWidth, alignment: .leading)
-                                    .foregroundStyle(day == model.today ? NotebookStyle.clay : NotebookStyle.ink)
-                                VStack(alignment: .leading, spacing: 4) {
-                                    if summary.setCount == 0 {
-                                        Label(unfinished > 0 ? "Continue workout" : "Start workout", systemImage: unfinished > 0 ? "pencil" : "plus")
-                                            .font(emphasizedAction ? .title3 : .body)
-                                            .foregroundStyle(emphasizedAction ? NotebookStyle.clay : NotebookStyle.quiet)
-                                    } else { Text(categories.joined(separator: " · ")).font(.title3.weight(.semibold)).fixedSize(horizontal: false, vertical: true) }
-                                    if unfinished > 0 {
-                                        Text("\(unfinished) \(unfinished == 1 ? "set needs" : "sets need") values\(summary.setCount > 0 ? " · Continue" : "")")
-                                            .font(.body).foregroundStyle(NotebookStyle.clay)
-                                            .fixedSize(horizontal: false, vertical: true)
-                                            .accessibilityIdentifier("day-\(day.rawValue)-unfinished")
-                                    }
-                                    if day == model.today { Text("Today").font(.body.weight(.medium)).foregroundStyle(NotebookStyle.clay) }
-                                    if textSize.isAccessibilitySize && summary.setCount > 0 {
-                                        Text("\(summary.setCount) \(summary.setCount == 1 ? "set" : "sets")").font(.body.monospacedDigit())
-                                    }
-                                }.frame(maxWidth: .infinity, alignment: .leading)
-                                if !textSize.isAccessibilitySize && summary.setCount > 0 {
-                                    Text("\(summary.setCount) \(summary.setCount == 1 ? "set" : "sets")").font(.body.monospacedDigit()).fixedSize()
-                                }
-                            }
-                            .padding(.vertical, textSize.isAccessibilitySize ? 16 : 8)
-                            .padding(.horizontal, 8).frame(minHeight: textSize.isAccessibilitySize ? 76 : 64)
-                            .background(day == model.today ? NotebookStyle.clay.opacity(0.06) : .clear)
-                            .contentShape(Rectangle())
-                        }
-                        .accessibilityLabel("\(TrainingText.date(day, format: "EEEE, MMM d, yyyy")), \(summary.setCount) \(summary.setCount == 1 ? "set" : "sets")\(needsValues), \(unfinished > 0 ? "Continue workout" : summary.setCount == 0 ? "Start workout" : categories.joined(separator: ", "))")
-                        .accessibilityIdentifier("day-\(day.rawValue)")
+                    ForEach(week, id: \.self) { day in
+                        dayRow(day)
                         Rectangle().fill(NotebookStyle.rule).frame(height: 0.5)
+                            .accessibilityHidden(true)
                     }
                 }
-                Text("\(model.trainingDayCount) training \(model.trainingDayCount == 1 ? "day" : "days") · \(model.weekSetCount) \(model.weekSetCount == 1 ? "set" : "sets")")
-                    .font(.body).foregroundStyle(NotebookStyle.quiet).accessibilityIdentifier("week-summary")
                 if let error = model.errorMessage { TrainingSaveError(model: model, message: error) }
             }
-            .padding(.horizontal, 24).padding(.vertical, 24).frame(maxWidth: 560).frame(maxWidth: .infinity)
+            .padding(.horizontal, 20).padding(.top, 10).padding(.bottom, 8)
+            .frame(maxWidth: 560).frame(maxWidth: .infinity)
             .disabled(swipe.isHorizontal)
         }
         .contentShape(Rectangle())
@@ -164,7 +125,86 @@ struct TrainingWeekView: View {
             }
         }
         .onDisappear { swipe.cancel() }
+        .sheet(item: $sheet) { destination in
+            switch destination {
+            case .calendar:
+                TrainingMonthCalendar(model: model,
+                    initialDay: week.contains(model.today) ? model.today : model.workspace.visibleWeek)
+            case .muscles:
+                TrainingWeekMusclesView(training: training, targets: model.profile.details.weeklyMuscleTargets,
+                    exerciseName: { model.exercise($0).name })
+            }
+        }
         .background(NotebookStyle.ivory).accessibilityIdentifier("week-view")
+    }
+
+    private func dayRow(_ day: TrainingDay) -> some View {
+        let summary = model.summary(for: day)
+        let unfinished = model.unfinishedSetCount(for: day)
+        let isToday = day == model.today
+        let action = unfinished > 0 ? "Continue workout" : "Add workout"
+        let date = TrainingText.date(day, format: "EEEE, MMM d, yyyy")
+        let dateLabel = isToday ? "Today, \(date)" : date
+        let setLabel = "\(summary.setCount) \(summary.setCount == 1 ? "set" : "sets")"
+        let needsValues = "\(unfinished) \(unfinished == 1 ? "set needs" : "sets need") values"
+        let detail = (summary.exercises.isEmpty ? [action] : summary.exercises) +
+            (unfinished > 0 ? (summary.exercises.isEmpty ? [needsValues] : [needsValues, action]) : [])
+        let rowLayout = textSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 5))
+            : AnyLayout(HStackLayout(alignment: .center, spacing: 8))
+        return Button { model.openDay(day) } label: {
+            rowLayout {
+                HStack(alignment: .firstTextBaseline, spacing: 5) {
+                    Text(TrainingText.date(day, format: "EEE"))
+                        .font(.caption.weight(.semibold))
+                        .frame(width: textSize.isAccessibilitySize ? nil : weekdayWidth, alignment: .leading)
+                    Text(TrainingText.date(day, format: "d"))
+                        .font(NotebookTypography.heading(22, relativeTo: .title3))
+                        .monospacedDigit()
+                }
+                .fixedSize(horizontal: true, vertical: false)
+                .frame(width: textSize.isAccessibilitySize ? nil : dateColumnWidth, alignment: .leading)
+                .foregroundStyle(isToday ? NotebookStyle.clay : NotebookStyle.ink)
+                VStack(alignment: .leading, spacing: 2) {
+                    if let primaryLift = summary.exercises.first {
+                        Text(primaryLift).font(.subheadline.weight(.semibold))
+                            .lineLimit(textSize.isAccessibilitySize ? nil : 1)
+                        if summary.exercises.count > 1 {
+                            let secondary = summary.exercises[1]
+                            Text(summary.exercises.count > 2 ? "\(secondary) +\(summary.exercises.count - 2)" : secondary)
+                                .font(.caption).foregroundStyle(NotebookStyle.quiet)
+                                .lineLimit(textSize.isAccessibilitySize ? nil : 1)
+                        }
+                    } else {
+                        Label(action, systemImage: unfinished > 0 ? "pencil" : "plus")
+                            .font(.subheadline)
+                            .foregroundStyle(unfinished > 0 ? NotebookStyle.clay : NotebookStyle.quiet)
+                    }
+                    if unfinished > 0 {
+                        Text(summary.setCount > 0 ? "\(needsValues) · Continue" : needsValues)
+                            .font(.caption).foregroundStyle(NotebookStyle.clay)
+                            .accessibilityIdentifier("day-\(day.rawValue)-unfinished")
+                    }
+                }
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                if summary.setCount > 0 {
+                    HStack(alignment: .firstTextBaseline, spacing: 3) {
+                        Text("\(summary.setCount)").font(.subheadline.weight(.semibold).monospacedDigit())
+                        Text(summary.setCount == 1 ? "set" : "sets").font(.caption)
+                            .foregroundStyle(NotebookStyle.quiet)
+                    }
+                    .fixedSize(horizontal: true, vertical: false)
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, textSize.isAccessibilitySize ? 10 : 4)
+            .frame(minHeight: 54)
+            .background(isToday ? NotebookStyle.clay.opacity(0.07) : .clear, in: RoundedRectangle(cornerRadius: 8))
+            .contentShape(Rectangle())
+        }
+        .accessibilityLabel(([dateLabel, setLabel] + detail).joined(separator: ", "))
+        .accessibilityIdentifier("day-\(day.rawValue)")
     }
 }
 

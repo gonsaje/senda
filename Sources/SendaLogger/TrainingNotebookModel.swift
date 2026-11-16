@@ -84,9 +84,11 @@ public enum TrainingRowStatus: Equatable, Sendable { case empty, unfinished, rec
     }
     @discardableResult public func openToday() -> Bool { openDay(today) }
     public private(set) var snapshot: JournalSnapshot
+    public private(set) var hasSavedFirstSet: Bool
     public private(set) var errorMessage: String?
     public private(set) var revealRowID: UUID?
     public private(set) var section: TrainingSection = .log
+    public private(set) var landingResetID: UInt = 0
     public var isProgressPresented = false
     public var progressExerciseID: String?
     public var progressRange: ExerciseProgressRange = .threeMonths
@@ -133,6 +135,7 @@ public enum TrainingRowStatus: Equatable, Sendable { case empty, unfinished, rec
         self.repository = repository; self.isSample = isSample; self.calendar = calendar; self.now = now
         let saved = try repository.loadSnapshot().validated()
         lastWritten = saved
+        hasSavedFirstSet = !saved.journal.batches.isEmpty
         let training = try TrainingWorkspace.migrate(saved, today: TrainingDay(now(), calendar: calendar), calendar: calendar)
         snapshot = try JournalSnapshot(journal: saved.journal, customExercises: saved.customExercises, training: training).validated()
     }
@@ -166,6 +169,7 @@ public enum TrainingRowStatus: Equatable, Sendable { case empty, unfinished, rec
                 ? try NotebookArchive(snapshot: snapshot, profile: profile.details, createdAt: now()).validated() : nil
             try restoreStore.restore(archive, current: current)
             snapshot = archive.snapshot; lastWritten = archive.snapshot
+            if !archive.snapshot.journal.batches.isEmpty { hasSavedFirstSet = true }
             pendingSave = nil; pendingProfileAction = nil; revealRowID = nil
             errorMessage = nil; backupErrorMessage = nil; backupRecoveryRequired = false
             learningExerciseID = nil; learningQuery = ""
@@ -249,6 +253,30 @@ public enum TrainingRowStatus: Equatable, Sendable { case empty, unfinished, rec
             self?.section = section
             self?.pendingProfileAction = nil
         }) { try finalize(&$0) }
+    }
+    @discardableResult public func selectDockSection(_ section: TrainingSection) -> Bool {
+        guard section == self.section else { return selectSection(section) }
+        return commit(onSuccess: { [weak self] in
+            guard let self else { return }
+            isProgressPresented = false
+            progressExerciseID = nil
+            progressSessionDay = nil
+            progressSetID = nil
+            if section == .log {
+                revealRowID = nil
+                historyReturnContext = nil
+            } else if section == .learn {
+                learningExerciseID = nil
+                learningQuery = ""
+            }
+            landingResetID &+= 1
+        }) { state in
+            try finalize(&state)
+            if section == .log {
+                state.training!.selectedDay = nil
+                state.training!.undo = nil
+            }
+        }
     }
     @discardableResult public func retryProfileAction() -> Bool {
         switch pendingProfileAction {
@@ -506,9 +534,12 @@ public enum TrainingRowStatus: Equatable, Sendable { case empty, unfinished, rec
         return commit(onSuccess: { [weak self] in self?.revealRowID = nil }) { state in try finalize(&state); state.training!.selectedDay = nil; state.training!.undo = nil }
     }
     @discardableResult public func showCurrentWeek() -> Bool {
-        commit { state in
+        showWeek(containing: today)
+    }
+    @discardableResult public func showWeek(containing day: TrainingDay) -> Bool {
+        commit(onSuccess: { [weak self] in self?.revealRowID = nil }) { state in
             try finalize(&state)
-            state.training!.visibleWeek = try today.week()[0]
+            state.training!.visibleWeek = try day.week()[0]
             state.training!.selectedDay = nil; state.training!.undo = nil
         }
     }
@@ -955,6 +986,7 @@ public enum TrainingRowStatus: Equatable, Sendable { case empty, unfinished, rec
             // Retry always reaches storage, including while writes remain unavailable.
             try repository.saveSnapshot(transaction.snapshot)
             lastWritten = transaction.snapshot; snapshot = transaction.snapshot
+            if !hasSavedFirstSet && !transaction.snapshot.journal.batches.isEmpty { hasSavedFirstSet = true }
             pendingSave = nil; pendingProfileAction = nil; pendingProgressAction = false; errorMessage = nil
             transaction.onSuccess?()
             return true

@@ -38,6 +38,26 @@ import SendaPersistence
         #expect(reopened.rows.first?.performedSetID == model.rows.first?.performedSetID)
     }
 
+    @Test func firstSetStateRequiresADurableSaveAndSurvivesDeletionInSession() throws {
+        let store = AutomaticSavingFailureRepository(), model = try model(store)
+        let row = try begin(model)
+        #expect(!model.hasSavedFirstSet)
+        #expect(model.selectInput(row, field: .weight))
+        model.typeInput("135", focus: try #require(model.focus))
+        #expect(!model.hasSavedFirstSet)
+        #expect(model.selectInput(row, field: .reps))
+        store.reject = true
+        model.typeInput("8", focus: try #require(model.focus))
+        #expect(!model.hasSavedFirstSet && model.canRetrySave && store.snapshot.journal.batches.isEmpty)
+
+        store.reject = false
+        #expect(model.retrySave())
+        #expect(model.hasSavedFirstSet && model.focus?.rowID == row)
+        #expect(try self.model(store).hasSavedFirstSet)
+        #expect(model.deleteSet(row))
+        #expect(model.journal.batches.isEmpty && model.hasSavedFirstSet)
+    }
+
     @Test func validCorrectionUpdatesTheSameHistoricalSetImmediately() throws {
         let store = MemoryJournalRepository(), model = try model(store)
         let previous = try TrainingDay("2026-11-06")

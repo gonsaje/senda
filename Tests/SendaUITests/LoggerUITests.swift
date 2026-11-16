@@ -494,12 +494,13 @@ final class LoggerUITests: XCTestCase {
     @MainActor
     func testLargestTextWorkoutHeaderKeepsDatesAndArrowsReadable() {
         let app = launch(extra: ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
-        _ = openDay(0, in: app)
+        let todayRow = reveal(todayRowID(), in: app)
+        XCTAssertTrue(todayRow.label.contains("Add workout"))
+        XCTAssertGreaterThanOrEqual(todayRow.frame.height, 44 - 0.01)
+        attach("Today’s Add workout row at the largest text size", app)
+        todayRow.tap()
         let goToToday = app.buttons["go-to-today"]
-        if goToToday.exists {
-            XCTAssertTrue(goToToday.isHittable)
-            goToToday.tap()
-        }
+        XCTAssertFalse(goToToday.exists)
 
         let title = element("day-title", in: app)
         let date = element("day-date", in: app)
@@ -547,6 +548,11 @@ final class LoggerUITests: XCTestCase {
         add("Bench", id: "bench", in: app)
         enter(weight: "135", reps: "10", in: app); tap("input-done", in: app)
         XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 3))
+        let confirmation = app.descendants(matching: .any).matching(identifier: "first-set-saved").firstMatch
+        if confirmation.exists {
+            XCTAssertLessThanOrEqual(confirmation.frame.maxY, element("app-dock", in: app).frame.minY)
+            XCTAssertTrue(confirmation.waitForNonExistence(timeout: 5))
+        }
         attach("Populated workout accessibility audit", app)
         try auditAccessibility(in: app)
     }
@@ -572,6 +578,238 @@ final class LoggerUITests: XCTestCase {
     }
 
     @MainActor
+    func testForcedSampleLaunchKeepsExistingSampleFlow() {
+        let app = launch(extra: ["--sample-data"])
+        XCTAssertFalse(app.buttons["try-demo"].exists)
+        XCTAssertFalse(app.buttons["exit-demo"].exists)
+        tap("dock-trends", in: app)
+        XCTAssertTrue(element("trends-strength-chart", in: app).exists)
+    }
+
+    @MainActor
+    func testWeekOverviewKeepsSevenDaysAboveDock() {
+        for (arguments, state) in [([String](), "Empty"), (["--sample-data"], "Sample")] {
+            let app = launch(extra: arguments)
+            let dock = element("app-dock", in: app)
+            let week = app.scrollViews["week-view"]
+            let days = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "day-"))
+            XCTAssertEqual(days.count, 7, state)
+            for day in days.allElementsBoundByIndex {
+                XCTAssertTrue(day.isHittable, "\(state): \(day.identifier)")
+                XCTAssertEqual(day.frame.height, 54, accuracy: 0.5, "\(state): \(day.identifier)")
+                XCTAssertTrue(week.frame.contains(day.frame), "\(state): \(day.identifier) extends past the week")
+                XCTAssertLessThanOrEqual(day.frame.maxY, dock.frame.minY, "\(state): \(day.identifier) overlaps the dock")
+            }
+            XCTAssertTrue(element("week-muscles", in: app).isHittable)
+            XCTAssertTrue(app.buttons[todayRowID()].isHittable)
+            attach("\(state) week overview above the dock", app)
+            app.terminate()
+        }
+    }
+
+    @MainActor
+    func testMonthCalendarMarksWorkoutDaysAndOpensSelectedWeek() throws {
+        let app = launch(extra: ["--sample-data"])
+        let todayControl = element("today-week", in: app)
+        let calendarControl = element("week-calendar", in: app)
+        XCTAssertEqual(calendarControl.frame.midY, todayControl.frame.midY, accuracy: 2)
+        XCTAssertGreaterThanOrEqual(calendarControl.frame.width, 44 - 0.01)
+        XCTAssertGreaterThanOrEqual(calendarControl.frame.height, 44 - 0.01)
+
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(secondsFromGMT: 0))
+        calendar.firstWeekday = 2
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = calendar
+        formatter.timeZone = calendar.timeZone
+        formatter.dateFormat = "yyyy-MM-dd"
+        let todayKey = String(todayRowID().dropFirst("day-".count))
+        let today = try XCTUnwrap(formatter.date(from: todayKey))
+        let currentMonth = try XCTUnwrap(calendar.dateInterval(of: .month, for: today))
+        let futureDay = try XCTUnwrap(calendar.date(byAdding: .day, value: 10, to: currentMonth.end))
+        let futureKey = formatter.string(from: futureDay)
+
+        func assertWeek(containing date: Date, file: StaticString = #filePath, line: UInt = #line) throws {
+            let week = try XCTUnwrap(calendar.dateInterval(of: .weekOfYear, for: date), file: file, line: line)
+            let expected = try (0..<7).map { offset in
+                let day = try XCTUnwrap(calendar.date(byAdding: .day, value: offset, to: week.start), file: file, line: line)
+                return "day-" + formatter.string(from: day)
+            }
+            let days = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "day-"))
+            XCTAssertTrue(app.scrollViews["week-view"].exists, file: file, line: line)
+            XCTAssertEqual(days.allElementsBoundByIndex.map(\.identifier), expected, file: file, line: line)
+            XCTAssertFalse(app.buttons["back-to-week"].exists, file: file, line: line)
+        }
+
+        calendarControl.tap()
+        let monthTitle = element("calendar-month-title", in: app)
+        let initialTitle = monthTitle.label
+        let loggedDay = element("calendar-day-\(todayKey)", in: app)
+        XCTAssertEqual(loggedDay.value as? String, "Workout logged")
+        attach("Month calendar with logged workout dots", app)
+        loggedDay.tap()
+        XCTAssertTrue(monthTitle.waitForNonExistence(timeout: 3))
+        try assertWeek(containing: today)
+
+        calendarControl.tap()
+        tap("calendar-next-month", in: app)
+        XCTAssertNotEqual(monthTitle.label, initialTitle)
+        let blankDay = element("calendar-day-\(futureKey)", in: app)
+        XCTAssertEqual(blankDay.value as? String, "No workout logged")
+        blankDay.tap()
+        XCTAssertTrue(monthTitle.waitForNonExistence(timeout: 3))
+        try assertWeek(containing: futureDay)
+
+        calendarControl.tap()
+        XCTAssertTrue(element("calendar-day-\(futureKey)", in: app).exists)
+        tap("calendar-previous-month", in: app)
+        XCTAssertEqual(monthTitle.label, initialTitle)
+        tap("calendar-close", in: app)
+        XCTAssertTrue(monthTitle.waitForNonExistence(timeout: 3))
+        try assertWeek(containing: futureDay)
+    }
+
+    @MainActor
+    func testWeekMuscleHeatmapShowsLoggedSetsAndUpdatesAcrossWeeks() {
+        let app = launch(extra: ["--sample-data"])
+        let todayID = todayRowID()
+        let summary = element("week-summary", in: app).label
+        XCTAssertTrue(app.buttons[todayID].isHittable)
+        tap("week-muscles", in: app)
+        let sheet = element("week-muscles-sheet", in: app)
+        let chest = element("week-muscle-region-chest", in: app)
+        let count = chest.label + " " + String(describing: chest.value ?? "")
+        // The sample week includes Monday's bench workout if today is later than Monday.
+        XCTAssertNotNil(count.range(of: #"\b(?:4|8) sets\b"#, options: .regularExpression), count)
+        tap("week-muscle-region-chest", in: app)
+        XCTAssertTrue(element("week-muscle-lift-bench", in: app).exists)
+        let volume = element("week-muscle-volume", in: app).label
+        XCTAssertTrue(["4 sets across 1 day", "8 sets across 2 days"].contains(volume), volume)
+        attach("Chest sets in the weekly muscle heatmap", app)
+        tap("close-week-muscles", in: app)
+        XCTAssertTrue(sheet.waitForNonExistence(timeout: 3))
+        XCTAssertTrue(app.buttons[todayID].isHittable)
+        XCTAssertEqual(element("week-summary", in: app).label, summary)
+        tap("next-week", in: app)
+        XCTAssertFalse(app.buttons[todayID].exists)
+        tap("week-muscles", in: app)
+        XCTAssertTrue(element("week-muscle-empty", in: app).exists)
+        XCTAssertFalse(chest.exists)
+        tap("close-week-muscles", in: app)
+        XCTAssertFalse(app.buttons[todayID].exists)
+
+        tap("today-week", in: app)
+        tap("previous-week", in: app)
+        attach("Populated week overview", app)
+        tap("week-muscles", in: app)
+        XCTAssertTrue(element("week-muscle-region-chest", in: app).exists)
+        XCTAssertTrue(element("week-muscle-region-upperBack", in: app).exists)
+        attach("Populated weekly muscle heatmap", app)
+    }
+
+    @MainActor
+    func testWeeklyMuscleTargetPersistsAndShowsLoggedVolume() {
+        let app = launch()
+        tap("dock-profile", in: app)
+        tap("add-weekly-muscle-target", in: app)
+        tap("weekly-muscle-target-muscle", in: app)
+        tap("weekly-muscle-target-option-chest", in: app)
+        let minimum = element("weekly-muscle-target-minimum", in: app)
+        minimum.tap(); minimum.typeText("8")
+        let maximum = element("weekly-muscle-target-maximum", in: app)
+        maximum.tap(); maximum.typeText("12")
+        tap("save-weekly-muscle-target", in: app)
+        XCTAssertTrue(element("weekly-muscle-target-chest", in: app).label.contains("8–12"))
+        attach("Weekly set targets in Profile", app)
+
+        app.terminate(); app.launch()
+        tap("week-muscles", in: app)
+        XCTAssertEqual(element("week-muscle-volume", in: app).label, "0 sets across 0 days")
+        XCTAssertTrue(element("week-muscle-target", in: app).label.contains("8–12 sets"))
+        tap("close-week-muscles", in: app)
+
+        tap(todayRowID(), in: app)
+        add("Bench", id: "bench", in: app)
+        enter(weight: "135", reps: "8", in: app)
+        tap("input-done", in: app)
+        tap("back-to-week", in: app)
+        tap("week-muscles", in: app)
+        XCTAssertEqual(element("week-muscle-volume", in: app).label, "1 set across 1 day")
+        XCTAssertTrue(element("week-muscle-target", in: app).label.contains("8–12 sets"))
+        attach("Muscle detail with logged volume and a weekly target", app)
+        tap("close-week-muscles", in: app)
+
+        tap("dock-profile", in: app)
+        tap("weekly-muscle-target-chest", in: app)
+        tap("remove-weekly-muscle-target", in: app)
+        tap("confirm-remove-weekly-muscle-target", in: app)
+        XCTAssertFalse(app.buttons["weekly-muscle-target-chest"].exists)
+        tap("dock-log", in: app)
+        tap("week-muscles", in: app)
+        XCTAssertEqual(element("week-muscle-volume", in: app).label, "1 set across 1 day")
+        XCTAssertFalse(app.staticTexts["week-muscle-target"].exists)
+    }
+
+    @MainActor
+    func testEmptyDaysOfferAddWorkoutAndFirstSetConfirmsSave() {
+        let app = launch()
+        let days = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "day-"))
+        XCTAssertEqual(days.count, 7)
+        for row in days.allElementsBoundByIndex {
+            XCTAssertTrue(row.label.contains("Add workout"), row.label)
+        }
+        XCTAssertFalse(app.buttons["try-demo"].exists)
+        tap("dock-profile", in: app)
+        XCTAssertFalse(app.buttons["profile-try-demo"].exists)
+        tap("dock-log", in: app)
+
+        let day = todayRowID()
+        attach("Add workout is the same for every empty day", app)
+        tap(day, in: app)
+        XCTAssertFalse(app.buttons["go-to-today"].exists)
+        add("Bench", id: "bench", in: app)
+
+        let confirmation = app.descendants(matching: .any).matching(identifier: "first-set-saved").firstMatch
+        tap("row-1-weight", in: app)
+        replace("135", in: app)
+        tap("input-next", in: app)
+        XCTAssertFalse(confirmation.exists)
+
+        let row = element("set-row-1", in: app)
+        let reps = element("row-1-reps", in: app)
+        let blankRowHeight = row.frame.height
+        let blankRepsFrame = reps.frame
+        replace("0000000000", in: app)
+        XCTAssertEqual(row.frame.height, blankRowHeight, accuracy: 1)
+        XCTAssertEqual(reps.frame.midY, blankRepsFrame.midY, accuracy: 2)
+        replace("8", in: app)
+        XCTAssertTrue(confirmation.waitForExistence(timeout: 3))
+        XCTAssertEqual(row.frame.height, blankRowHeight, accuracy: 1)
+        XCTAssertEqual(reps.frame.midY, blankRepsFrame.midY, accuracy: 2)
+        XCTAssertTrue(confirmation.label.contains("First set saved"))
+        XCTAssertTrue(app.keyboards.firstMatch.exists)
+        XCTAssertTrue(element("set-input", in: app).label.contains("reps"))
+        XCTAssertLessThanOrEqual(confirmation.frame.maxY, element("input-set-context", in: app).frame.minY)
+        attach("First set saved while editing reps", app)
+        XCTAssertTrue(confirmation.waitForNonExistence(timeout: 5))
+        XCTAssertEqual(reps.frame.midY, blankRepsFrame.midY, accuracy: 2)
+
+        element("input-next-set", in: app).tap()
+        replace("145", in: app)
+        tap("input-next", in: app)
+        replace("8", in: app)
+        XCTAssertFalse(confirmation.exists)
+        XCTAssertTrue(element("row-2-reps", in: app).label.contains("8 reps"))
+        tap("input-done", in: app)
+        tap("back-to-week", in: app)
+        let loggedDay = element(day, in: app)
+        XCTAssertFalse(loggedDay.label.contains("Add workout"))
+        XCTAssertTrue(loggedDay.label.contains("2 sets"))
+        XCTAssertTrue(element("week-summary", in: app).label.contains("2 sets"))
+    }
+
+    @MainActor
     func testAutomaticEntryAndHeaderUnitsUpdateTheWeek() throws {
         let app = launch()
         let day = openDay(0, in: app)
@@ -593,9 +831,8 @@ final class LoggerUITests: XCTestCase {
         tap("back-to-week", in: app)
         XCTAssertTrue(element(day, in: app).label.contains("1 set"))
         XCTAssertTrue(element("week-summary", in: app).label.contains("1 set"))
-        XCTAssertTrue(element(day, in: app).label.contains("Chest"))
-        XCTAssertFalse(element(day, in: app).label.contains("Bench"))
-        attach("Trained categories reflected in week", app)
+        XCTAssertTrue(element(day, in: app).label.contains("Bench"))
+        attach("Trained exercises reflected in week", app)
         tap(day, in: app)
         XCTAssertEqual(element("entry-exercise", in: app).label, "Bench")
         XCTAssertTrue(element("row-1-weight", in: app).label.contains("135 lb"))
@@ -616,17 +853,16 @@ final class LoggerUITests: XCTestCase {
 
     @MainActor
     func testWeekSwipesNavigateWithoutOpeningDaysAndKeepVerticalScrolling() throws {
-        let app = launch(extra: ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryXXXL"])
+        let app = launch(extra: ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityM"])
         let days = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "day-"))
         let originalDay = days.element(boundBy: 0).identifier
         let todayControl = element("today-week", in: app)
         XCTAssertTrue(todayControl.isSelected)
         let previousControl = element("previous-week", in: app)
         let nextControl = element("next-week", in: app)
-        XCTAssertEqual(todayControl.frame.midY, previousControl.frame.midY, accuracy: 2)
+        XCTAssertLessThan(todayControl.frame.midY, previousControl.frame.midY)
         XCTAssertEqual(previousControl.frame.midY, nextControl.frame.midY, accuracy: 2)
         XCTAssertGreaterThanOrEqual(todayControl.frame.width, 44)
-        XCTAssertLessThan(todayControl.frame.minX, previousControl.frame.minX)
         XCTAssertLessThan(previousControl.frame.minX, nextControl.frame.minX)
         XCTAssertTrue(element("week-month", in: app).exists)
         let formatter = DateFormatter()
@@ -951,6 +1187,7 @@ final class LoggerUITests: XCTestCase {
         XCTAssertTrue(element("row-2-weight", in: app).exists)
         XCTAssertFalse(app.buttons["row-3-weight"].exists)
         tap("input-done", in: app)
+        tap("set-2-actions", in: app)
         tap("prefill-row-2", in: app)
         XCTAssertEqual(element("set-input", in: app).value as? String, "135")
         XCTAssertTrue(element("row-2-weight", in: app).label.contains("135 lb"))
@@ -1158,6 +1395,40 @@ final class LoggerUITests: XCTestCase {
         XCTAssertGreaterThanOrEqual(title.frame.minY, element("learn-navigation", in: app).frame.maxY - 1)
         tap("back-to-learn", in: app)
         XCTAssertTrue(element("learn-exercise-hip-thrust", in: app).isHittable)
+    }
+
+    @MainActor
+    func testLearnGuideBackRestoresFilteredListAndReselectClearsSearch() {
+        let app = launch()
+        tap("dock-learn", in: app)
+        let search = element("learn-search", in: app)
+        let landingY = search.frame.minY
+        search.tap()
+        search.typeText("Barbell\n")
+        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 3))
+
+        let list = app.scrollViews["learn-scroll"]
+        let start = list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.72))
+        start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -145)),
+            withVelocity: .slow, thenHoldForDuration: 0.25)
+        let exercise = reveal("learn-exercise-overhead-press", in: app)
+        let exerciseY = exercise.frame.minY
+        exercise.tap()
+        XCTAssertTrue(element("form-guide-overhead-press", in: app).exists)
+        tap("back-to-learn", in: app)
+        XCTAssertTrue(exercise.isHittable)
+        XCTAssertEqual(exercise.frame.minY, exerciseY, accuracy: 2)
+
+        list.swipeDown()
+        XCTAssertTrue(search.isHittable)
+        XCTAssertEqual(search.value as? String, "Barbell")
+        tap("learn-exercise-bench", in: app)
+        XCTAssertTrue(element("form-guide-bench", in: app).exists)
+        tap("dock-learn", in: app)
+        XCTAssertTrue(search.isHittable)
+        XCTAssertEqual(search.value as? String, "")
+        XCTAssertEqual(search.frame.minY, landingY, accuracy: 2)
+        XCTAssertFalse(app.buttons["back-to-learn"].exists)
     }
 
     @MainActor
@@ -1652,6 +1923,62 @@ final class LoggerUITests: XCTestCase {
     }
 
     @MainActor
+    func testAdjacentDockPagesKeepTheDockInPlace() {
+        let app = launch()
+        let ids = ["dock-log", "dock-trends", "dock-learn", "dock-profile"]
+        let pages = ["week-view", "trends-scroll", "learn-scroll", "profile-scroll"]
+        let dock = element("app-dock", in: app)
+        let originalDock = dock.frame
+        let originalButtons = ids.map { element($0, in: app).frame }
+
+        for index in [1, 2, 3, 2, 1, 0] {
+            tap(ids[index], in: app)
+            XCTAssertTrue(element(ids[index], in: app).isSelected)
+            XCTAssertTrue(app.scrollViews[pages[index]].exists)
+            for other in pages.indices where other != index {
+                XCTAssertFalse(app.scrollViews[pages[other]].exists)
+            }
+            XCTAssertEqual(dock.frame, originalDock)
+            for (id, frame) in zip(ids, originalButtons) {
+                XCTAssertEqual(element(id, in: app).frame, frame)
+            }
+        }
+    }
+
+    @MainActor
+    func testReselectingDockTabsReturnsToLandingViews() {
+        let app = launch(extra: ["--sample-data"])
+        tap("previous-week", in: app)
+        let day = openDay(0, in: app)
+        tap("dock-log", in: app)
+        XCTAssertTrue(app.scrollViews["week-view"].exists)
+        XCTAssertFalse(app.buttons["back-to-week"].exists)
+        XCTAssertTrue(element(day, in: app).isHittable)
+
+        tap("dock-trends", in: app)
+        tap("trends-range-1m", in: app)
+        let records = element("trends-records-toggle", in: app)
+        records.tap()
+        XCTAssertEqual(records.value as? String, "Expanded")
+        tap("dock-trends", in: app)
+        XCTAssertEqual(records.value as? String, "Collapsed")
+        XCTAssertTrue(element("trends-range-1m", in: app).isSelected)
+        app.terminate()
+
+        let largeText = launch(extra: ["--sample-data", "-UIPreferredContentSizeCategoryName",
+            "UICTContentSizeCategoryAccessibilityXXXL"])
+        tap("dock-profile", in: largeText)
+        let settings = element("profile-settings", in: largeText)
+        let landingY = settings.frame.minY
+        largeText.scrollViews["profile-scroll"].swipeUp()
+        XCTAssertTrue(!settings.isHittable || settings.frame.minY < landingY - 10,
+            "The Profile must be scrolled before reselection")
+        tap("dock-profile", in: largeText)
+        XCTAssertTrue(settings.isHittable)
+        XCTAssertEqual(settings.frame.minY, landingY, accuracy: 2)
+    }
+
+    @MainActor
     func testLargeTextDockKeepsProfileAndLearningReachable() throws {
         let app = launch(extra: ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
         continueAfterFailure = false
@@ -1732,6 +2059,13 @@ final class LoggerUITests: XCTestCase {
         app.launch()
         _ = element("week-summary", in: app)
         return app
+    }
+    private func todayRowID() -> String {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        return "day-" + formatter.string(from: Date())
     }
     @MainActor @discardableResult private func openDay(_ index: Int, in app: XCUIApplication) -> String {
         let buttons = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "day-"))
@@ -1828,7 +2162,8 @@ final class LoggerUITests: XCTestCase {
         let setTypePicker = app.scrollViews["set-type-picker"]
         let trends = app.scrollViews["trends-scroll"]
         let profile = app.scrollViews["profile-scroll"]
-        let learn = app.scrollViews["learn-scroll"]
+        let learnGuide = app.scrollViews["learn-guide-scroll"]
+        let learn = learnGuide.exists ? learnGuide : app.scrollViews["learn-scroll"]
         let sheetScroll = [picker, filters, reuse, custom, dayIndex, profileSettings, goalEditor, details, settings, progress, planEditor, setDetailsEditor, setTypePicker].first { $0.exists }
         let scroll = sheetScroll ?? [trends, profile, learn, app.scrollViews.firstMatch].first { $0.exists } ?? app.scrollViews.firstMatch
         let inPageContent = sheetScroll == nil && (trends.exists || profile.exists || learn.exists) && scroll.descendants(matching: .any).matching(identifier: id).firstMatch.exists

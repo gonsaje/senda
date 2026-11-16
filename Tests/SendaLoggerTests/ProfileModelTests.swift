@@ -51,6 +51,34 @@ import SendaPersistence
         #expect(!profile.save(name: "Jae", email: "invalid"))
         #expect(store.saveCount == 0 && profile.details == ProfileDetails())
     }
+
+    @Test func targetsPersistThroughIdentityAndGoalEditsAndFailedRemoval() {
+        let store = ProfileFailureStore()
+        let profile = ProfileModel(repository: store)
+        let goal = StrengthGoal(exerciseID: "bench", target: SetValues(weight: 15_500, reps: 8))
+        let chest = WeeklyMuscleTarget(muscle: .chest, minimumSets: 8, maximumSets: 12)
+        let calves = WeeklyMuscleTarget(muscle: .calves, minimumSets: 5, maximumSets: 10)
+        let revisedChest = WeeklyMuscleTarget(muscle: .chest, minimumSets: 10, maximumSets: 12)
+        #expect(profile.saveWeeklyMuscleTarget(chest))
+        #expect(profile.saveWeeklyMuscleTarget(calves))
+        #expect(profile.saveWeeklyMuscleTarget(revisedChest))
+        #expect(profile.saveGoal(goal))
+        #expect(profile.save(name: "Jae", email: "jae@example.com"))
+        #expect(profile.details.weeklyMuscleTargets == [revisedChest, calves])
+        #expect(ProfileModel(repository: store).details == profile.details)
+
+        let writes = store.saveCount
+        let invalid = WeeklyMuscleTarget(muscle: .chest, minimumSets: 0, maximumSets: 12)
+        #expect(!profile.saveWeeklyMuscleTarget(invalid))
+        #expect(store.saveCount == writes)
+        store.rejectWrites = true
+        #expect(!profile.removeWeeklyMuscleTarget(.chest))
+        #expect(profile.details.weeklyMuscleTargets == [revisedChest, calves])
+        store.rejectWrites = false
+        #expect(profile.removeWeeklyMuscleTarget(.chest))
+        #expect(profile.details.weeklyMuscleTargets == [calves])
+        #expect(profile.details.goals == [goal] && profile.details.name == "Jae")
+    }
 }
 @MainActor private final class ProfileFailureStore: ProfileRepository {
     var details = ProfileDetails()

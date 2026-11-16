@@ -5,11 +5,13 @@ import SendaLogger
 private enum ProfileSheet: Identifiable {
     case settings
     case goal(StrengthGoal?)
+    case weeklyTarget(WeeklyMuscleTarget?)
 
     var id: String {
         switch self {
         case .settings: "settings"
         case .goal(let goal): goal?.id.uuidString ?? "new-goal"
+        case .weeklyTarget(let target): target.map { "weekly-target-\($0.muscle.rawValue)" } ?? "new-weekly-target"
         }
     }
 }
@@ -55,6 +57,7 @@ struct TrainingProfileView: View {
                         goalRows(completed)
                     }
                 }
+                weeklySetTargets
                 if let error = model.profile.openingError {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(error).font(.callout).foregroundStyle(NotebookStyle.clay)
@@ -81,6 +84,9 @@ struct TrainingProfileView: View {
                 TrainingProfileSettingsIndex(model: model, close: { sheet = nil })
             case .goal(let goal):
                 TrainingStrengthGoalEditor(model: model, goal: goal, close: { sheet = nil })
+            case .weeklyTarget(let target):
+                TrainingWeeklyMuscleTargetEditor(profile: model.profile, target: target,
+                    availableMuscles: untargetedMuscles, close: { sheet = nil })
             }
         }
     }
@@ -169,6 +175,73 @@ struct TrainingProfileView: View {
             .accessibilityHint("Edit goal")
             .accessibilityIdentifier("strength-goal-\(goal.id.uuidString)")
             profileRule
+        }
+    }
+
+    private var untargetedMuscles: [MuscleRegion] {
+        let mapped = Set(model.exercises.flatMap { ExerciseMuscleMap.map(for: $0.id)?.primary ?? [] })
+        let targeted = Set(model.profile.details.weeklyMuscleTargets.map(\.muscle))
+        return mapped.subtracting(targeted).sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+
+    private var weeklySetTargets: some View {
+        let targets = model.profile.details.weeklyMuscleTargets.sorted {
+            $0.muscle.name.localizedStandardCompare($1.muscle.name) == .orderedAscending
+        }
+        let layout = textSize >= .xxLarge
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 0))
+            : AnyLayout(HStackLayout(alignment: .center, spacing: 12))
+        return VStack(alignment: .leading, spacing: 0) {
+            layout {
+                Text("Weekly set targets")
+                    .font(NotebookTypography.heading(24, relativeTo: .title2))
+                    .accessibilityAddTraits(.isHeader)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Button { sheet = .weeklyTarget(nil) } label: {
+                    Text("Add target")
+                        .font(.body.weight(.medium))
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(minWidth: 44, minHeight: 44)
+                        .contentShape(Rectangle())
+                }
+                .foregroundStyle(NotebookStyle.clay)
+                .disabled(model.profile.openingError != nil || untargetedMuscles.isEmpty)
+                .accessibilityIdentifier("add-weekly-muscle-target")
+            }
+            .padding(.bottom, 4)
+            profileRule
+            if targets.isEmpty {
+                Text("Set a weekly range for a muscle you want to track.")
+                    .font(.subheadline)
+                    .foregroundStyle(NotebookStyle.quiet)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.vertical, 14)
+                profileRule
+            }
+            ForEach(targets) { target in
+                Button { sheet = .weeklyTarget(target) } label: {
+                    HStack(spacing: 12) {
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text(target.muscle.name).font(.body.weight(.semibold))
+                            Text("\(target.setRangeText) \(target.maximumSets == 1 ? "set" : "sets") per week")
+                                .font(.subheadline.monospacedDigit())
+                                .foregroundStyle(NotebookStyle.quiet)
+                        }
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        profileChevron
+                    }
+                    .frame(minHeight: 44)
+                    .padding(.vertical, 12)
+                    .contentShape(Rectangle())
+                }
+                .disabled(model.profile.openingError != nil)
+                .accessibilityElement(children: .combine)
+                .accessibilityHint("Edit target")
+                .accessibilityIdentifier("weekly-muscle-target-\(target.muscle.rawValue)")
+                profileRule
+            }
         }
     }
 
