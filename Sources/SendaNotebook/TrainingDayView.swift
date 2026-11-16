@@ -36,6 +36,7 @@ struct TrainingDayView: View {
     @State private var pendingSheet: TrainingPendingSheet?
     @State private var planContext: TrainingMetadataContext?
     @State private var measuredFocusLayout: TrainingFocusedRowLayout?
+    @State private var showsFirstSetConfirmation = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dynamicTypeSize) private var textSize
     var body: some View {
@@ -69,6 +70,18 @@ struct TrainingDayView: View {
                         TrainingSaveError(model: model, message: error, retrySucceeded: presentPendingSheet)
                             .padding(.horizontal, 24).padding(.top, 8)
                             .padding(.bottom, model.focus == nil ? 12 : 0)
+                    } else if showsFirstSetConfirmation {
+                        Label("First set saved", systemImage: "checkmark")
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(NotebookStyle.ink)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.horizontal, 24).padding(.vertical, 8)
+                            .frame(maxWidth: 560, alignment: .leading)
+                            .frame(maxWidth: .infinity)
+                            .background(NotebookStyle.olive.opacity(0.08))
+                            .accessibilityElement(children: .ignore)
+                            .accessibilityLabel("First set saved")
+                            .accessibilityIdentifier("first-set-saved")
                     }
                     if let focus = model.focus {
                         TrainingInputDock(model: model, focus: focus, beginInteraction: { pendingSheet = nil }).id(focus.id)
@@ -124,7 +137,19 @@ struct TrainingDayView: View {
                 if let focus = model.focus { scroll.scrollTo("\(focus.rowID)/\(focus.field.rawValue)", anchor: .center) }
             }
             #endif
+            .onChange(of: model.hasSavedFirstSet) { _, hasSaved in
+                guard hasSaved else { return }
+                showsFirstSetConfirmation = true
+                TrainingAccessibility.announce("First set saved.")
+            }
+            .task(id: showsFirstSetConfirmation) {
+                guard showsFirstSetConfirmation else { return }
+                do { try await Task.sleep(for: .seconds(4)) }
+                catch { return }
+                showsFirstSetConfirmation = false
+            }
             .onChange(of: day) { _, _ in
+                showsFirstSetConfirmation = false
                 pendingSheet = nil
                 presentedSheet = nil
                 planContext = nil

@@ -2,7 +2,7 @@ import Foundation
 
 public struct TrainingDay: RawRepresentable, Codable, Hashable, Comparable, Sendable {
     public let rawValue: String
-    private static var utc: Calendar {
+    static var utc: Calendar {
         var value = Calendar(identifier: .gregorian)
         value.timeZone = TimeZone(secondsFromGMT: 0)!
         return value
