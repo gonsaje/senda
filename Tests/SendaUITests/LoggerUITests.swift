@@ -588,15 +588,29 @@ final class LoggerUITests: XCTestCase {
 
     @MainActor
     func testWeekOverviewKeepsSevenDaysAboveDock() {
+        var emptyRowHeight: CGFloat?
         for (arguments, state) in [([String](), "Empty"), (["--sample-data"], "Sample")] {
             let app = launch(extra: arguments)
             let dock = element("app-dock", in: app)
             let week = app.scrollViews["week-view"]
             let days = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "day-"))
             XCTAssertEqual(days.count, 7, state)
+            let rowHeight = days.firstMatch.frame.height
+            XCTAssertGreaterThan(rowHeight, 54, state)
+            XCTAssertLessThanOrEqual(rowHeight, 72.5, state)
+            if let emptyRowHeight {
+                XCTAssertEqual(rowHeight, emptyRowHeight, accuracy: 0.5, state)
+            } else {
+                emptyRowHeight = rowHeight
+            }
+            if arguments.contains("--sample-data") {
+                let labels = days.allElementsBoundByIndex.map(\.label)
+                XCTAssertTrue(labels.contains { $0.contains("Chest") })
+                XCTAssertFalse(labels.contains { $0.contains("Bench") })
+            }
             for day in days.allElementsBoundByIndex {
                 XCTAssertTrue(day.isHittable, "\(state): \(day.identifier)")
-                XCTAssertEqual(day.frame.height, 54, accuracy: 0.5, "\(state): \(day.identifier)")
+                XCTAssertEqual(day.frame.height, rowHeight, accuracy: 0.5, "\(state): \(day.identifier)")
                 XCTAssertTrue(week.frame.contains(day.frame), "\(state): \(day.identifier) extends past the week")
                 XCTAssertLessThanOrEqual(day.frame.maxY, dock.frame.minY, "\(state): \(day.identifier) overlaps the dock")
             }
@@ -831,8 +845,9 @@ final class LoggerUITests: XCTestCase {
         tap("back-to-week", in: app)
         XCTAssertTrue(element(day, in: app).label.contains("1 set"))
         XCTAssertTrue(element("week-summary", in: app).label.contains("1 set"))
-        XCTAssertTrue(element(day, in: app).label.contains("Bench"))
-        attach("Trained exercises reflected in week", app)
+        XCTAssertTrue(element(day, in: app).label.contains("Chest"))
+        XCTAssertFalse(element(day, in: app).label.contains("Bench"))
+        attach("Trained body parts reflected in week", app)
         tap(day, in: app)
         XCTAssertEqual(element("entry-exercise", in: app).label, "Bench")
         XCTAssertTrue(element("row-1-weight", in: app).label.contains("135 lb"))

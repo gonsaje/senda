@@ -84,29 +84,30 @@ struct TrainingWeekView: View {
     @State private var swipe = WeekSwipeState()
     @State private var sheet: Sheet?
     @GestureState private var dragging = false
-    @ScaledMetric(relativeTo: .caption) private var weekdayWidth: CGFloat = 27
     @ScaledMetric(relativeTo: .title3) private var dateColumnWidth: CGFloat = 67
     @Environment(\.dynamicTypeSize) private var textSize
 
     var body: some View {
         let week = model.weekDays
+        let weekdayLabels = week.map { TrainingText.date($0, format: "EEE") }
         let training = model.snapshot.weeklyMuscleTraining(days: week, through: model.today, calendar: model.calendar)
-        ScrollView {
-            VStack(alignment: .leading, spacing: 10) {
-                TrainingWeekNavigation(model: model, week: week, training: training,
-                    showCalendar: { sheet = .calendar }, showMuscles: { sheet = .muscles })
-                VStack(spacing: 0) {
-                    ForEach(week, id: \.self) { day in
-                        dayRow(day)
-                        Rectangle().fill(NotebookStyle.rule).frame(height: 0.5)
-                            .accessibilityHidden(true)
+        GeometryReader { viewport in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 10) {
+                    TrainingWeekLayout(availableHeight: viewport.size.height - 30, expandsRows: !textSize.isAccessibilitySize) {
+                        TrainingWeekNavigation(model: model, week: week, training: training,
+                            showCalendar: { sheet = .calendar }, showMuscles: { sheet = .muscles })
+                        ForEach(week, id: \.self) { day in
+                            dayRow(day, weekdayLabels: weekdayLabels)
+                        }
                     }
+                    if let error = model.errorMessage { TrainingSaveError(model: model, message: error) }
                 }
-                if let error = model.errorMessage { TrainingSaveError(model: model, message: error) }
+                .padding(.horizontal, 20).padding(.top, 10).padding(.bottom, 20)
+                .frame(maxWidth: 560).frame(maxWidth: .infinity)
+                .disabled(swipe.isHorizontal)
             }
-            .padding(.horizontal, 20).padding(.top, 10).padding(.bottom, 8)
-            .frame(maxWidth: 560).frame(maxWidth: .infinity)
-            .disabled(swipe.isHorizontal)
+            .accessibilityIdentifier("week-view")
         }
         .contentShape(Rectangle())
         .simultaneousGesture(DragGesture(minimumDistance: 16)
@@ -135,11 +136,12 @@ struct TrainingWeekView: View {
                     exerciseName: { model.exercise($0).name })
             }
         }
-        .background(NotebookStyle.ivory).accessibilityIdentifier("week-view")
+        .background(NotebookStyle.ivory)
     }
 
-    private func dayRow(_ day: TrainingDay) -> some View {
+    private func dayRow(_ day: TrainingDay, weekdayLabels: [String]) -> some View {
         let summary = model.summary(for: day)
+        let bodyParts = summary.muscleGroups.map(\.rawValue)
         let unfinished = model.unfinishedSetCount(for: day)
         let isToday = day == model.today
         let action = unfinished > 0 ? "Continue workout" : "Add workout"
@@ -147,37 +149,60 @@ struct TrainingWeekView: View {
         let dateLabel = isToday ? "Today, \(date)" : date
         let setLabel = "\(summary.setCount) \(summary.setCount == 1 ? "set" : "sets")"
         let needsValues = "\(unfinished) \(unfinished == 1 ? "set needs" : "sets need") values"
-        let detail = (summary.exercises.isEmpty ? [action] : summary.exercises) +
-            (unfinished > 0 ? (summary.exercises.isEmpty ? [needsValues] : [needsValues, action]) : [])
+        let detail = (bodyParts.isEmpty ? [action] : bodyParts) +
+            (unfinished > 0 ? (bodyParts.isEmpty ? [needsValues] : [needsValues, action]) : [])
         let rowLayout = textSize.isAccessibilitySize
             ? AnyLayout(VStackLayout(alignment: .leading, spacing: 5))
             : AnyLayout(HStackLayout(alignment: .center, spacing: 8))
         return Button { model.openDay(day) } label: {
             rowLayout {
                 HStack(alignment: .firstTextBaseline, spacing: 5) {
-                    Text(TrainingText.date(day, format: "EEE"))
-                        .font(.caption.weight(.semibold))
-                        .frame(width: textSize.isAccessibilitySize ? nil : weekdayWidth, alignment: .leading)
-                    Text(TrainingText.date(day, format: "d"))
-                        .font(NotebookTypography.heading(22, relativeTo: .title3))
-                        .monospacedDigit()
+                    ZStack(alignment: .leading) {
+                        if !textSize.isAccessibilitySize {
+                            // Reserve the widest weekday so dates align in every row.
+                            ForEach(weekdayLabels.indices, id: \.self) { index in
+                                Text(weekdayLabels[index]).hidden()
+                            }
+                        }
+                        Text(TrainingText.date(day, format: "EEE"))
+                    }
+                    .font(.footnote.weight(.semibold))
+                    .lineLimit(1)
+                    ZStack(alignment: .leading) {
+                        if !textSize.isAccessibilitySize {
+                            Text(TrainingText.date(day, format: "dd")).hidden()
+                        }
+                        Text(TrainingText.date(day, format: "d"))
+                    }
+                    .font(NotebookTypography.heading(25, relativeTo: .title3))
+                    .monospacedDigit()
                 }
                 .fixedSize(horizontal: true, vertical: false)
-                .frame(width: textSize.isAccessibilitySize ? nil : dateColumnWidth, alignment: .leading)
+                .frame(minWidth: textSize.isAccessibilitySize ? nil : dateColumnWidth, alignment: .leading)
                 .foregroundStyle(isToday ? NotebookStyle.clay : NotebookStyle.ink)
                 VStack(alignment: .leading, spacing: 2) {
-                    if let primaryLift = summary.exercises.first {
-                        Text(primaryLift).font(.subheadline.weight(.semibold))
+                    if let primary = bodyParts.first {
+                        Text(primary).font(.callout.weight(.semibold))
                             .lineLimit(textSize.isAccessibilitySize ? nil : 1)
-                        if summary.exercises.count > 1 {
-                            let secondary = summary.exercises[1]
-                            Text(summary.exercises.count > 2 ? "\(secondary) +\(summary.exercises.count - 2)" : secondary)
-                                .font(.caption).foregroundStyle(NotebookStyle.quiet)
-                                .lineLimit(textSize.isAccessibilitySize ? nil : 1)
+                        let remaining = bodyParts.dropFirst()
+                        if let secondary = remaining.first {
+                            let names = remaining.joined(separator: " · ")
+                            Group {
+                                if textSize.isAccessibilitySize {
+                                    Text(names)
+                                } else {
+                                    ViewThatFits(in: .horizontal) {
+                                        Text(names).fixedSize(horizontal: true, vertical: false)
+                                        Text(remaining.count > 1 ? "\(secondary) +\(remaining.count - 1)" : secondary)
+                                            .lineLimit(1)
+                                    }
+                                }
+                            }
+                            .font(.caption).foregroundStyle(NotebookStyle.quiet)
                         }
                     } else {
                         Label(action, systemImage: unfinished > 0 ? "pencil" : "plus")
-                            .font(.subheadline)
+                            .font(.callout)
                             .foregroundStyle(unfinished > 0 ? NotebookStyle.clay : NotebookStyle.quiet)
                     }
                     if unfinished > 0 {
@@ -190,7 +215,7 @@ struct TrainingWeekView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 if summary.setCount > 0 {
                     HStack(alignment: .firstTextBaseline, spacing: 3) {
-                        Text("\(summary.setCount)").font(.subheadline.weight(.semibold).monospacedDigit())
+                        Text("\(summary.setCount)").font(.callout.weight(.semibold).monospacedDigit())
                         Text(summary.setCount == 1 ? "set" : "sets").font(.caption)
                             .foregroundStyle(NotebookStyle.quiet)
                     }
@@ -198,13 +223,51 @@ struct TrainingWeekView: View {
                 }
             }
             .padding(.horizontal, 8)
-            .padding(.vertical, textSize.isAccessibilitySize ? 10 : 4)
-            .frame(minHeight: 54)
+            .padding(.vertical, textSize.isAccessibilitySize ? 10 : 3)
+            .frame(minHeight: 54, maxHeight: .infinity)
             .background(isToday ? NotebookStyle.clay.opacity(0.07) : .clear, in: RoundedRectangle(cornerRadius: 8))
             .contentShape(Rectangle())
+            .overlay(alignment: .bottom) {
+                Rectangle().fill(NotebookStyle.rule).frame(height: 0.5)
+                    .allowsHitTesting(false).accessibilityHidden(true)
+            }
         }
         .accessibilityLabel(([dateLabel, setLabel] + detail).joined(separator: ", "))
         .accessibilityIdentifier("day-\(day.rawValue)")
+    }
+}
+
+private struct TrainingWeekLayout: Layout {
+    let availableHeight: CGFloat
+    let expandsRows: Bool
+    private let headerSpacing: CGFloat = 10
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let sizes = sizes(for: proposal.width, subviews: subviews)
+        return CGSize(
+            width: proposal.width ?? sizes.map(\.width).max() ?? 0,
+            height: sizes.reduce(0) { $0 + $1.height } + (sizes.count > 1 ? headerSpacing : 0)
+        )
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let sizes = sizes(for: bounds.width, subviews: subviews)
+        var top = bounds.minY
+        for (index, pair) in zip(subviews, sizes).enumerated() {
+            let (subview, size) = pair
+            subview.place(at: CGPoint(x: bounds.midX, y: top), anchor: .top,
+                proposal: ProposedViewSize(width: bounds.width, height: size.height))
+            top += size.height + (index == 0 ? headerSpacing : 0)
+        }
+    }
+
+    private func sizes(for width: CGFloat?, subviews: Subviews) -> [CGSize] {
+        let sizes = subviews.map { $0.sizeThatFits(ProposedViewSize(width: width, height: nil)) }
+        guard expandsRows, let header = sizes.first, sizes.count > 1 else { return sizes }
+        let days = sizes.dropFirst()
+        let fittingHeight = floor((availableHeight - header.height - headerSpacing) / CGFloat(days.count))
+        let rowHeight = max(days.map(\.height).max() ?? 54, min(72, fittingHeight))
+        return [header] + days.map { CGSize(width: $0.width, height: rowHeight) }
     }
 }
 
