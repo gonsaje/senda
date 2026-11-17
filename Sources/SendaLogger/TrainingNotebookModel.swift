@@ -148,6 +148,43 @@ public enum TrainingRowStatus: Equatable, Sendable { case empty, unfinished, rec
         guard !backupRecoveryRequired else { throw NotebookBackupWorkflowError.recoveryRequired }
         return try NotebookBackupCodec.csv(snapshot: snapshot, calendar: calendar)
     }
+    @discardableResult public func addSampleWorkouts() -> Int? {
+        guard !canRetrySave else { return nil }
+        let today = self.today
+        do {
+            let firstDay = try today.adding(days: -30)
+            let journal = try SampleJournal.makeTwelveWeeks(relativeTo: today.date(in: calendar), calendar: calendar)
+            let batchesByDay = Dictionary(grouping: journal.batches) { TrainingDay($0.recordedAt, calendar: calendar) }
+            let emptyDays = batchesByDay.keys.sorted().filter { day in
+                guard day >= firstDay && day < today else { return false }
+                guard let workout = workspace.days[day.rawValue] else { return true }
+                return workout.exerciseIDs.isEmpty && workout.rows.isEmpty && (workout.exercisePlans?.isEmpty ?? true)
+            }
+            guard !emptyDays.isEmpty else { return 0 }
+
+            let saved = commit(synchronizeInput: false) { state in
+                for day in emptyDays {
+                    var workout = state.training!.days[day.rawValue] ?? DayWorkout(unit: state.training!.preferredUnit)
+                    for sample in batchesByDay[day, default: []] {
+                        let batch = try state.journal.record(
+                            DraftBatch(exerciseID: sample.exerciseID, sets: sample.values), at: sample.recordedAt)
+                        if workout.rows[batch.exerciseID] == nil { workout.exerciseIDs.append(batch.exerciseID) }
+                        workout.rows[batch.exerciseID, default: []].append(contentsOf: batch.sets.map { set in
+                            var row = TrainingRow(set: set, unit: workout.unit)
+                            row.kind = .working
+                            return row
+                        })
+                    }
+                    workout.selectedExerciseID = workout.exerciseIDs.first
+                    state.training!.days[day.rawValue] = workout
+                }
+            }
+            return saved ? emptyDays.count : nil
+        } catch {
+            errorMessage = error.localizedDescription
+            return nil
+        }
+    }
     public func previousBackupData() throws -> Data? { try restoreStore.previousBackupData() }
     public func previousOriginalFilesData() throws -> Data? { try restoreStore.previousOriginalFilesData() }
     public func originalJournalData() throws -> Data? { try restoreStore.originalJournalData() }
@@ -952,7 +989,7 @@ public enum TrainingRowStatus: Equatable, Sendable { case empty, unfinished, rec
         guard let day = state.training!.selectedDay, let id = state.training!.days[day.rawValue]?.selectedExerciseID else { throw TrainingError.missingRow }
         return (day, id)
     }
-    private func commit(recover: Bool = false, onSuccess: (() -> Void)? = nil,
+    private func commit(recover: Bool = false, synchronizeInput: Bool = true, onSuccess: (() -> Void)? = nil,
                         _ update: (inout JournalSnapshot) throws -> Void) -> Bool {
         guard !backupRecoveryRequired else { errorMessage = NotebookBackupWorkflowError.recoveryRequired.localizedDescription; return false }
         var candidate = snapshot
@@ -962,7 +999,7 @@ public enum TrainingRowStatus: Equatable, Sendable { case empty, unfinished, rec
             // Failed numeric writes retain raw input over the last durable journal.
             // Their pending transaction includes the matching performed-set update.
             recoveryCandidate = candidate
-            try synchronizeFocusedSet(&candidate)
+            if synchronizeInput { try synchronizeFocusedSet(&candidate) }
             _ = try candidate.validated()
         }
         catch { errorMessage = error.localizedDescription; return false }

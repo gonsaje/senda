@@ -582,6 +582,42 @@ final class LoggerUITests: XCTestCase {
     }
 
     @MainActor
+    func testSettingsAddsSampleWorkoutsWithoutChangingLoggedDays() {
+        let app = launch()
+        tap("previous-week", in: app)
+        let loggedDay = openDay(0, in: app)
+        add("Bench", id: "bench", in: app)
+        enter(weight: "81", reps: "9", in: app)
+        tap("input-done", in: app)
+        tap("back-to-week", in: app)
+        let originalLabel = element(loggedDay, in: app).label
+
+        tap("dock-profile", in: app)
+        element("profile-settings", in: app).tap()
+        let addSamples = element("add-sample-workouts", in: app)
+        addSamples.tap()
+        let result = element("sample-workouts-status", in: app)
+        XCTAssertTrue(result.label.hasPrefix("Added "), result.label)
+        attach("Sample workouts added in Settings", app)
+        addSamples.tap()
+        XCTAssertEqual(result.label, "No more sample workouts to add.")
+        tap("close-profile-settings", in: app)
+        tap("dock-log", in: app)
+
+        let days = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "day-"))
+        XCTAssertEqual(days.count, 7)
+        XCTAssertEqual(element(loggedDay, in: app).label, originalLabel)
+        XCTAssertTrue(days.allElementsBoundByIndex.contains {
+            $0.identifier != loggedDay && $0.label.contains("6 sets")
+        })
+        attach("Sample training on previously empty dates", app)
+        tap(loggedDay, in: app)
+        XCTAssertTrue(element("row-1-weight", in: app).label.contains("81 lb"))
+        XCTAssertTrue(element("row-1-reps", in: app).label.contains("9 reps"))
+        XCTAssertFalse(app.buttons["row-2-weight"].exists)
+    }
+
+    @MainActor
     func testForcedSampleLaunchKeepsExistingSampleFlow() {
         let app = launch(extra: ["--sample-data"])
         XCTAssertFalse(app.buttons["try-demo"].exists)
