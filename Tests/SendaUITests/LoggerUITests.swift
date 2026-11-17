@@ -283,10 +283,14 @@ final class LoggerUITests: XCTestCase {
         for id in ["input-increase", "input-decrease"] {
             XCTAssertEqual(element(id, in: app).value as? String, "9 reps")
         }
+        XCTAssertTrue(app.keyboards.firstMatch.exists, "Increasing reps should keep the keyboard open")
         tap("input-decrease", in: app)
         XCTAssertEqual(element("input-decrease", in: app).value as? String, "8 reps")
         XCTAssertEqual(element("set-input", in: app).value as? String, "8")
+        XCTAssertTrue(app.keyboards.firstMatch.exists, "Decreasing reps should keep the keyboard open")
         attach("Number controls expose their current value to VoiceOver", app)
+        tap("input-done", in: app)
+        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 3))
     }
 
     @MainActor

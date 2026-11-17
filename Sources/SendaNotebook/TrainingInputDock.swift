@@ -156,7 +156,7 @@ struct TrainingInputDock: View {
         Button {
             beginInteraction()
             if model.stepInput(increasing: increasing, focus: focus) {
-                typing = false
+                if focus.field == .weight { typing = false }
                 if model.errorMessage == nil { TrainingAccessibility.announce(inputAccessibilityValue) }
             }
         } label: {
@@ -172,11 +172,12 @@ struct TrainingWeightRuler: View {
     let value: Int
     let unit: WeightUnit
     let beginInteraction: () -> Void
-    var update: (Int) -> Void
+    var update: (Int) -> Bool
     @State private var position: Int?
     @State private var start: Int?
+    @State private var adjustmentCount = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    init(value: Int, unit: WeightUnit, beginInteraction: @escaping () -> Void, update: @escaping (Int) -> Void) {
+    init(value: Int, unit: WeightUnit, beginInteraction: @escaping () -> Void, update: @escaping (Int) -> Bool) {
         self.value = value; self.unit = unit; self.beginInteraction = beginInteraction; self.update = update
         _position = State(initialValue: Self.tick(value, unit))
     }
@@ -205,6 +206,7 @@ struct TrainingWeightRuler: View {
             }
         }
         .frame(height: 60).contentShape(Rectangle())
+        .sensoryFeedback(.selection, trigger: adjustmentCount)
         .onChange(of: value) { _, _ in if position != nearest { position = nearest } }
         .gesture(DragGesture(minimumDistance: 2).onChanged { gesture in
             if start == nil { beginInteraction(); start = nearest }
@@ -223,8 +225,8 @@ struct TrainingWeightRuler: View {
         .accessibilityAdjustableAction { direction in
             beginInteraction()
             switch direction {
-            case .increment: update(unit.stepped(value, increasing: true))
-            case .decrement: update(unit.stepped(value, increasing: false))
+            case .increment: adjustWeight(unit.stepped(value, increasing: true))
+            case .decrement: adjustWeight(unit.stepped(value, increasing: false))
             @unknown default: break
             }
         }.accessibilityIdentifier("weight-dial")
@@ -234,8 +236,14 @@ struct TrainingWeightRuler: View {
         position = tick
         guard tick != nearest else { return }
         let amount = min(maximum, Double(tick) * step)
-        if amount == maximum { update(NumericField.weight.range.upperBound) }
-        else if let parsed = unit.parse(String(format: "%.2f", locale: Locale(identifier: "en_US_POSIX"), amount)) { update(parsed) }
+        if amount == maximum { adjustWeight(NumericField.weight.range.upperBound) }
+        else if let parsed = unit.parse(String(format: "%.2f", locale: Locale(identifier: "en_US_POSIX"), amount)) {
+            adjustWeight(parsed)
+        }
+    }
+    private func adjustWeight(_ weight: Int) {
+        guard weight != value, update(weight) else { return }
+        adjustmentCount += 1
     }
     private static func tick(_ value: Int, _ unit: WeightUnit) -> Int {
         Int((NSDecimalNumber(decimal: unit.amount(for: value) / unit.step).doubleValue).rounded())
