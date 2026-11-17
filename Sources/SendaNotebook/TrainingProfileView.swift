@@ -269,6 +269,7 @@ private struct TrainingProfileSettingsIndex: View {
     @Bindable var model: TrainingNotebookModel
     let close: () -> Void
     @State private var destination: Destination?
+    @State private var sampleWorkoutsStatus: String?
     @Environment(\.dynamicTypeSize) private var textSize
 
     var body: some View {
@@ -336,6 +337,8 @@ private struct TrainingProfileSettingsIndex: View {
                     .accessibilityElement(children: .combine)
                     .accessibilityIdentifier("profile-backup")
                     profileRule
+                    sampleWorkouts
+                    profileRule
                     Text("Your notebook is saved on this device and does not sync automatically.")
                         .font(.subheadline)
                         .foregroundStyle(NotebookStyle.quiet)
@@ -349,6 +352,50 @@ private struct TrainingProfileSettingsIndex: View {
             .clipped()
             .accessibilityIdentifier("profile-settings-scroll")
         }
+    }
+
+    private var sampleWorkouts: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button(action: addSampleWorkouts) {
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("Add sample workouts").font(.body.weight(.medium))
+                        Text("Up to three workouts a week on empty days in the 30 days before today.")
+                            .font(.subheadline).foregroundStyle(NotebookStyle.quiet)
+                    }
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    Image(systemName: "plus").foregroundStyle(NotebookStyle.clay).accessibilityHidden(true)
+                }
+                .frame(minHeight: 44)
+                .padding(.vertical, 12)
+                .contentShape(Rectangle())
+            }
+            .disabled(model.canRetrySave)
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("add-sample-workouts")
+            if let sampleWorkoutsStatus {
+                Text(sampleWorkoutsStatus).font(.subheadline).foregroundStyle(NotebookStyle.olive)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.bottom, 12)
+                    .accessibilityIdentifier("sample-workouts-status")
+            }
+            if let error = model.errorMessage {
+                TrainingSaveError(model: model, message: error).padding(.bottom, 12)
+            }
+        }
+    }
+
+    private func addSampleWorkouts() {
+        sampleWorkoutsStatus = nil
+        guard let count = model.addSampleWorkouts() else { return }
+        let message = switch count {
+        case 0: "No more sample workouts to add."
+        case 1: "Added 1 sample workout."
+        default: "Added \(count) sample workouts."
+        }
+        sampleWorkoutsStatus = message
+        TrainingAccessibility.announce(message)
     }
 
     private func destinationRow(title: String, detail: String) -> some View {
