@@ -339,6 +339,16 @@ private struct TrainingProfileSettingsIndex: View {
                     profileRule
                     sampleWorkouts
                     profileRule
+                    Link(destination: URL(string: "https://dontsweat.tech/senda/privacy.html")!) {
+                        destinationRow(title: "Privacy policy", detail: "How Senda handles your data")
+                    }
+                    .accessibilityIdentifier("profile-privacy-policy")
+                    profileRule
+                    Link(destination: URL(string: "mailto:hello@dontsweat.tech")!) {
+                        destinationRow(title: "Contact support", detail: "hello@dontsweat.tech")
+                    }
+                    .accessibilityIdentifier("profile-contact-support")
+                    profileRule
                     Text("Your notebook is saved on this device.")
                         .font(.subheadline)
                         .foregroundStyle(NotebookStyle.quiet)

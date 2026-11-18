@@ -2146,6 +2146,15 @@ final class LoggerUITests: XCTestCase {
     }
 
     @MainActor
+    func testPrivacyAndSupportAreReachableFromSettings() {
+        let app = launch()
+        tap("dock-profile", in: app)
+        tap("profile-settings", in: app)
+        XCTAssertTrue(reveal("profile-privacy-policy", in: app).isHittable)
+        XCTAssertTrue(reveal("profile-contact-support", in: app).isHittable)
+    }
+
+    @MainActor
     func testBackupSettingsExposeExportAndValidatedRestoreActions() throws {
         let app = launch()
         tap("dock-profile", in: app)

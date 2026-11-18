@@ -98,7 +98,7 @@ struct NotebookBackupTools: View {
                     action("Save full backup", icon: "square.and.arrow.up", identifier: "export-backup") {
                         prepareExport(.backup, data: exportBackup)
                     }
-                    detail("Choose iCloud Drive in Files to keep a backup off this device. A full backup includes workouts, goals, exercises, drafts, units, and profile details. The backup file is unencrypted.")
+                    detail("You choose where to save each manual copy in Files. A full backup includes workouts, goals, exercises, drafts, units, and profile details. The backup file is unencrypted.")
                 }
                 if let exportCSV {
                     action("Export recorded sets (CSV)", icon: "tablecells", identifier: "export-csv") {

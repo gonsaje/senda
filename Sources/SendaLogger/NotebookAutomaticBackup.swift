@@ -14,6 +14,7 @@ public final class NotebookAutomaticBackup {
     private var settings: Settings?
     private let settingsURL: URL?
     private let now: () -> Date
+    private let validateFolder: @Sendable (URL) throws -> Void
     @ObservationIgnored private var lastAutomaticAttempt: Date?
 
     public private(set) var isSaving = false
@@ -22,9 +23,14 @@ public final class NotebookAutomaticBackup {
     public var folderName: String? { settings?.destination.name }
     public var lastSavedAt: Date? { settings?.lastSavedAt }
 
-    public init(settingsURL: URL?, now: @escaping () -> Date = Date.init) {
+    public convenience init(settingsURL: URL?, now: @escaping () -> Date = Date.init) {
+        self.init(settingsURL: settingsURL, now: now, validateFolder: NotebookBackupDestination.requirePrivateICloud)
+    }
+
+    init(settingsURL: URL?, now: @escaping () -> Date = Date.init, validateFolder: @escaping @Sendable (URL) throws -> Void) {
         self.settingsURL = settingsURL
         self.now = now
+        self.validateFolder = validateFolder
         guard let settingsURL else { return }
         do {
             settings = try JSONDecoder().decode(Settings?.self, from: Data(contentsOf: settingsURL))
@@ -42,7 +48,7 @@ public final class NotebookAutomaticBackup {
             return false
         }
         do {
-            let settings = Settings(destination: try NotebookBackupDestination(folder: folder))
+            let settings = Settings(destination: try NotebookBackupDestination(folder: folder, validate: validateFolder))
             try saveSettings(settings)
             self.settings = settings
             errorMessage = nil
@@ -119,7 +125,7 @@ public final class NotebookAutomaticBackup {
             let date = now()
             let day = date.formatted(.iso8601.year().month().day().dateSeparator(.dash))
             let filename = "Senda-\(day)-\(UUID().uuidString.prefix(8)).json"
-            settings.destination = try await settings.destination.write(prepared.data, filename: filename)
+            settings.destination = try await settings.destination.write(prepared.data, filename: filename, validate: validateFolder)
             settings.lastSavedAt = date
             settings.fingerprint = prepared.fingerprint
             self.settings = settings

@@ -32,7 +32,7 @@ struct TrainingAutomaticBackupSettings: View {
                     backup.turnOff()
                 }
             } else {
-                detail("Choose a folder in Files, such as iCloud Drive. Backups include your workouts and profile details. Senda checks for changes while you use the app and saves up to one copy a day.")
+                detail("Choose a private folder in iCloud Drive. Backups include your workouts and profile details. Senda checks for changes while you use the app and saves up to one copy a day.")
                 action("Choose backup folder", id: "choose-backup-folder", perform: chooseFolder)
             }
             if let error = selectionError ?? backup.errorMessage {

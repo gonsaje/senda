@@ -7,10 +7,11 @@ public struct NotebookBackupDestination: Codable, Equatable, Sendable {
     private let bookmark: Data
     private let requiresScope: Bool
 
-    public init(folder: URL) throws {
+    public init(folder: URL, validate: (URL) throws -> Void = { _ in }) throws {
         guard folder.isFileURL else { throw DestinationError.notAFolder }
         let scoped = folder.startAccessingSecurityScopedResource()
         defer { if scoped { folder.stopAccessingSecurityScopedResource() } }
+        try validate(folder)
         try self.init(accessing: folder, scoped: scoped)
     }
 
@@ -32,9 +33,19 @@ public struct NotebookBackupDestination: Codable, Equatable, Sendable {
         requiresScope = scoped
     }
 
+    public static func requirePrivateICloud(_ folder: URL) throws {
+        var current = folder
+        current.removeAllCachedResourceValues()
+        let values = try current.resourceValues(forKeys: [.isUbiquitousItemKey, .ubiquitousItemIsSharedKey])
+        guard values.isUbiquitousItem == true, values.ubiquitousItemIsShared == false else {
+            throw DestinationError.privateICloudRequired
+        }
+    }
+
     /// Returns the current bookmark after Files moves or renames the selected folder.
     @discardableResult
-    public func write(_ data: Data, filename: String) async throws -> Self {
+    public func write(_ data: Data, filename: String,
+                      validate: @escaping @Sendable (URL) throws -> Void = { _ in }) async throws -> Self {
         guard filename.utf8.count <= 255, !filename.hasPrefix("."), filename.hasSuffix(".json"),
               filename.utf8.allSatisfy({ (48...57).contains($0) || (65...90).contains($0) ||
                   (97...122).contains($0) || $0 == 45 || $0 == 46 || $0 == 95 }) else {
@@ -54,6 +65,7 @@ public struct NotebookBackupDestination: Codable, Equatable, Sendable {
             let scoped = folder.startAccessingSecurityScopedResource()
             defer { if scoped { folder.stopAccessingSecurityScopedResource() } }
             guard scoped || !requiresScope else { throw DestinationError.folderUnavailable }
+            try validate(folder)
             let destination = stale || folder.lastPathComponent != name
                 ? try Self(accessing: folder, scoped: scoped) : self
 
@@ -62,6 +74,7 @@ public struct NotebookBackupDestination: Codable, Equatable, Sendable {
             NSFileCoordinator().coordinate(writingItemAt: folder, error: &coordinationError) { coordinatedFolder in
                 result = Result {
                     try Task.checkCancellation()
+                    try validate(coordinatedFolder)
                     try Self.writeCopy(data, filename: filename, to: coordinatedFolder)
                 }
             }
@@ -104,12 +117,13 @@ public struct NotebookBackupDestination: Codable, Equatable, Sendable {
     }
 
     private enum DestinationError: LocalizedError {
-        case notAFolder, folderUnavailable, invalidFilename, alreadyExists, writeFailed
+        case notAFolder, folderUnavailable, privateICloudRequired, invalidFilename, alreadyExists, writeFailed
 
         var errorDescription: String? {
             switch self {
             case .notAFolder: "Choose a folder that Senda can open."
             case .folderUnavailable: "Senda can’t open the backup folder. Choose the folder again."
+            case .privateICloudRequired: "Choose a private folder in iCloud Drive."
             case .invalidFilename: "This backup filename is invalid."
             case .alreadyExists: "A backup with this filename already exists. Try again to save a new copy."
             case .writeFailed: "Check the backup folder’s available space and permissions, then try again."

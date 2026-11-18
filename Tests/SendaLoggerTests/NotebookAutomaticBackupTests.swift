@@ -5,6 +5,33 @@ import Testing
 @testable import SendaLogger
 
 @MainActor struct NotebookAutomaticBackupTests {
+    @Test func automaticBackupRejectsAFolderOutsideICloud() async throws {
+        let folder = try temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let backup = NotebookAutomaticBackup(settingsURL: nil)
+        let model = try TrainingNotebookModel(repository: MemoryJournalRepository())
+        #expect(!backup.chooseFolder(folder))
+        #expect(!(await backup.backUpNow { try model.backupArchive() }))
+        #expect(try files(in: folder).isEmpty)
+    }
+
+    @Test func existingNonICloudBookmarkCannotWriteAfterUpgrade() async throws {
+        let root = try temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let folder = root.appendingPathComponent("Legacy backup folder", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: false)
+        let settingsURL = root.appendingPathComponent("backup-settings.json")
+        let oldSettings = NotebookAutomaticBackup(settingsURL: settingsURL, validateFolder: { _ in })
+        try #require(oldSettings.chooseFolder(folder))
+
+        let backup = NotebookAutomaticBackup(settingsURL: settingsURL)
+        let model = try TrainingNotebookModel(repository: MemoryJournalRepository())
+        #expect(!(await backup.backUpNow { try model.backupArchive() }))
+        #expect(backup.lastSavedAt == nil)
+        #expect(backup.errorMessage != nil)
+        #expect(try files(in: folder).isEmpty)
+    }
+
     @Test func savesDatedCopiesAndSkipsUnchangedAutomaticBackups() async throws {
         let root = try temporaryFolder()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -12,7 +39,7 @@ import Testing
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: false)
         let settingsURL = root.appendingPathComponent("App Support/backup-settings.json")
         var clock = Date(timeIntervalSince1970: 1_780_000_000)
-        let setup = NotebookAutomaticBackup(settingsURL: settingsURL, now: { clock })
+        let setup = NotebookAutomaticBackup(settingsURL: settingsURL, now: { clock }, validateFolder: { _ in })
         let model = try TrainingNotebookModel(repository: MemoryJournalRepository(), now: { clock })
 
         #expect(setup.errorMessage == nil)
@@ -21,7 +48,7 @@ import Testing
         #expect(setup.chooseFolder(folder))
         await setup.backUpNow { try model.backupArchive() }
         let first = try #require(files(in: folder).first)
-        let backup = NotebookAutomaticBackup(settingsURL: settingsURL, now: { clock })
+        let backup = NotebookAutomaticBackup(settingsURL: settingsURL, now: { clock }, validateFolder: { _ in })
         #expect(backup.folderName == "Backups")
         #expect(backup.lastSavedAt == clock)
         #expect(try NotebookBackupCodec.decode(Data(contentsOf: first)).profile.name.isEmpty)
@@ -54,7 +81,7 @@ import Testing
         let folder = try temporaryFolder()
         defer { try? FileManager.default.removeItem(at: folder) }
         let model = try TrainingNotebookModel(repository: MemoryJournalRepository())
-        let backup = NotebookAutomaticBackup(settingsURL: nil)
+        let backup = NotebookAutomaticBackup(settingsURL: nil, validateFolder: { _ in })
         #expect(backup.chooseFolder(folder))
 
         struct UnreadableNotebook: Error {}
@@ -73,7 +100,7 @@ import Testing
         let folder = try temporaryFolder()
         defer { try? FileManager.default.removeItem(at: folder) }
         var clock = Date(timeIntervalSince1970: 1_780_000_000)
-        let backup = NotebookAutomaticBackup(settingsURL: nil, now: { clock })
+        let backup = NotebookAutomaticBackup(settingsURL: nil, now: { clock }, validateFolder: { _ in })
         let model = try TrainingNotebookModel(repository: MemoryJournalRepository(), now: { clock })
         #expect(backup.chooseFolder(folder))
         #expect(await backup.backUpNow { try model.backupArchive() })
@@ -104,7 +131,7 @@ import Testing
         let renamed = root.appendingPathComponent("Training", isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: false)
         let settingsURL = root.appendingPathComponent("backup-settings.json")
-        let backup = NotebookAutomaticBackup(settingsURL: settingsURL)
+        let backup = NotebookAutomaticBackup(settingsURL: settingsURL, validateFolder: { _ in })
         let model = try TrainingNotebookModel(repository: MemoryJournalRepository())
         #expect(backup.chooseFolder(folder))
         #expect(await backup.backUpNow { try model.backupArchive() })
@@ -112,7 +139,7 @@ import Testing
         #expect(await backup.backUpNow { try model.backupArchive() })
         #expect(backup.folderName == "Training")
 
-        let reopened = NotebookAutomaticBackup(settingsURL: settingsURL)
+        let reopened = NotebookAutomaticBackup(settingsURL: settingsURL, validateFolder: { _ in })
         #expect(reopened.folderName == "Training")
         #expect(await reopened.backUpNow { try model.backupArchive() })
         #expect(try files(in: renamed).count == 3)
