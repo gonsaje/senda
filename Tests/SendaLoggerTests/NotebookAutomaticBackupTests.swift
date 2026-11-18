@@ -91,7 +91,7 @@ import Testing
             if attempts == 1 { throw CocoaError(.fileReadUnknown) }
             return try model.backupArchive()
         })
-        #expect(waits == [10, 15 * 60])
+        #expect(waits == [10.0, 15.0 * 60.0])
         #expect(attempts == 2)
         #expect(backup.lastSavedAt == clock)
         #expect(try files(in: folder).count == 2)
