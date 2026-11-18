@@ -17,14 +17,14 @@ struct WorkoutExerciseTabs: View {
                     ForEach(model.workoutExercises) { exercise in
                         Button { model.selectExercise(exercise.id) } label: {
                             VStack(spacing: 4) {
-                                Text(exercise.shortName)
+                                Text(exercise.displayName == exercise.name ? exercise.shortName : exercise.displayName)
                                     .font(.body.weight(exercise.id == model.selectedExerciseID ? .semibold : .regular))
                                     .foregroundStyle(exercise.id == model.selectedExerciseID ? NotebookStyle.ink : NotebookStyle.quiet)
                                     .lineLimit(1).frame(maxWidth: 180)
                                 Rectangle().fill(exercise.id == model.selectedExerciseID ? NotebookStyle.clay : .clear).frame(height: 2)
                             }.frame(minHeight: 44)
                         }
-                        .accessibilityLabel(exercise.name)
+                        .accessibilityLabel(exercise.displayName)
                         .accessibilityAddTraits(exercise.id == model.selectedExerciseID ? .isSelected : [])
                         .accessibilityIdentifier("lift-\(exercise.id)")
                         .contextMenu {

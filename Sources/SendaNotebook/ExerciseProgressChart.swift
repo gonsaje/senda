@@ -24,8 +24,8 @@ struct ExerciseProgressChart: View {
     }
 
     private var metricTitle: String {
-        if progress.metric == .reps { return "Best reps · body weight" }
-        return exercise.requiresWeight ? "Top-set load · \(unit.symbol)" : "Added weight · \(unit.symbol)"
+        if progress.metric == .reps { return exercise.equipmentType == .bodyweight ? "Best reps · body weight" : "Best reps" }
+        return exercise.equipmentType == .bodyweight ? "Added weight · \(unit.symbol)" : "Top-set load · \(unit.symbol)"
     }
     private var maximumValue: Double {
         max(1, progress.sessions.map { value($0.bestSet.values) }.max() ?? 1) * 1.15
@@ -128,7 +128,7 @@ struct ExerciseProgressChart: View {
         .padding(.top, 6)
         .environment(\.calendar, calendar)
         .environment(\.timeZone, calendar.timeZone)
-        .accessibilityLabel("Daily top sets for \(exercise.name)")
+        .accessibilityLabel("Daily top sets for \(exercise.displayName)")
         .accessibilityIdentifier(identifier)
     }
 
@@ -192,9 +192,12 @@ struct ExerciseProgressChart: View {
             ? "One recorded day in this window. More training days will add points to the chart."
             : "Each point is a recorded day. Straight lines join observed top sets; days between them have no plotted result."
         if progress.metric == .reps {
-            return "\(observation) All sets in this window used body weight, so the chart shows the most reps each day."
+            if exercise.equipmentType == .bodyweight {
+                return "\(observation) All sets in this window used body weight, so the chart shows the most reps each day."
+            }
+            return "\(observation) The chart uses the highest rep count from each day."
         }
-        if !exercise.requiresWeight {
+        if exercise.equipmentType == .bodyweight {
             return "\(observation) Only added weight is plotted; body-weight sets are shown at 0 \(unit.symbol). Reps remain listed with each top set below."
         }
         return "\(observation) Top sets use the heaviest load, then reps. Read the rep counts with the loads in the recorded days below."

@@ -9,10 +9,14 @@ public struct ExerciseFormGuide: Identifiable, Equatable, Sendable {
     public let sourceURL: URL
 
     public static func guide(for id: String) -> ExerciseFormGuide? { all.first { $0.id == id } }
-    public static func search(_ query: String, in exercises: [Exercise]) -> [Exercise] {
-        let key = ExerciseLibrary.searchKey(query)
-        return exercises.filter {
-            key.isEmpty || ExerciseLibrary.searchKey([$0.name, $0.shortName, $0.group.rawValue, $0.equipmentType.rawValue].joined(separator: " ")).contains(key)
+    public static func search(_ query: String, in exercises: [Exercise], gymFilter: ExerciseGymFilter = .init()) -> [Exercise] {
+        let key = ExerciseLibrary.matchingKey(query)
+        return exercises.filter { exercise in
+            guard exercise.isLibraryChoice, gymFilter.matches(exercise) else { return false }
+            if key.isEmpty || exercise.matchesCatalogSearch(key: key) { return true }
+            let fields = [exercise.name, exercise.shortName, exercise.group.rawValue, exercise.equipmentType.rawValue]
+            return ExerciseLibrary.matchingKey(fields.joined(separator: " ")).contains(key)
+                || exercise.muscleMap.map { ExerciseLibrary.matchingKey($0.variation).contains(key) } == true
         }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
     private static func ace(_ id: String, _ path: String, _ setup: String, _ movement: String, _ cue: String) -> ExerciseFormGuide {

@@ -17,6 +17,86 @@ import SendaPersistence
         #expect(model.selectInput(row.id, field: .reps))
         model.typeInput(reps, focus: try #require(model.focus))
     }
+    @Test func equipmentFreeCustomLogsRepsAndPreservesRecordedLoadsWhenRetagged() throws {
+        let store = MemoryJournalRepository()
+        let m = try model(store)
+        #expect(m.openDay(day))
+        #expect(m.createExercise(named: "Porch squat", group: .legs, equipment: .other,
+                                 customSetup: .init(requiredEquipment: [])))
+        let exercise = try #require(m.exercise)
+        #expect(!exercise.requiresWeight)
+        let firstRow = try #require(m.rows.first)
+        #expect(m.selectInput(firstRow.id, field: .reps))
+        m.typeInput("10", focus: try #require(m.focus))
+        #expect(m.finishEditing())
+        let first = try #require(m.journal.batches.first?.sets.first)
+        #expect(first.values == .init(weight: 0, reps: 10))
+        #expect(m.snapshot.progress(for: exercise, through: day, calendar: calendar).metric == .reps)
+
+        #expect(m.newSet())
+        #expect(m.focus?.field == .reps)
+        try enter(m, weight: "5", reps: "6")
+        #expect(m.finishEditing())
+        let history = m.journal
+        #expect(m.snapshot.progress(for: exercise, through: day, calendar: calendar).metric == .weight)
+
+        #expect(m.updateCustomExerciseSetup(.init(requiredEquipment: [.dumbbells]), for: exercise.id))
+        let reopened = try model(store)
+        #expect(reopened.journal == history)
+        #expect(reopened.rows.first?.performedSetID == first.id)
+        #expect(reopened.exercise?.requiresWeight == true)
+        #expect(reopened.newSet())
+        #expect(reopened.focus?.field == .weight)
+        let newRow = try #require(reopened.rows.last)
+        #expect(reopened.selectInput(newRow.id, field: .reps))
+        reopened.typeInput("12", focus: try #require(reopened.focus))
+        #expect(reopened.rows.last?.performedSetID == nil)
+        #expect(reopened.journal == history)
+    }
+
+    @Test func editingCustomSetupUpdatesBothLibrarySearchesAndKeepsRecordedSets() throws {
+        let store = TrainingFailureStore()
+        let m = try model(store)
+        let original = CustomExerciseSetup(gyms: [.home, .commercial], requiredEquipment: [.dumbbells, .flatBench])
+        #expect(m.openDay(day))
+        #expect(m.createExercise(named: "Garage press", group: .chest, equipment: .dumbbell, customSetup: original))
+        let id = try #require(m.exercise?.id)
+        try enter(m, weight: "20", reps: "6")
+        #expect(m.finishEditing())
+        let journal = m.journal
+        let workout = m.workout
+        let filter = ExerciseGymFilter(gym: .home, availableEquipment: [.dumbbells, .flatBench])
+        #expect(ExerciseFormGuide.search("Garage press", in: m.exercises, gymFilter: filter).map(\.id) == [id])
+
+        let revised = CustomExerciseSetup(gyms: [.crossFit], requiredEquipment: [])
+        store.reject = true
+        #expect(!m.updateCustomExerciseSetup(revised, for: id))
+        #expect(m.exercise(id).customSetup == original)
+        store.reject = false
+        #expect(m.retrySave())
+        let reopened = try model(store)
+        #expect(reopened.journal == journal)
+        #expect(reopened.workout == workout)
+        #expect(reopened.snapshot.customExercises?.count == 1)
+        #expect(reopened.exercise(id).customSetup == revised)
+        #expect(ExerciseFormGuide.search("Garage press", in: reopened.exercises, gymFilter: filter).isEmpty)
+        let result = ExerciseSelectionFilter.results(in: reopened.exercises, query: "Garage press", group: nil,
+                                                    equipment: nil, gymFilter: .init(gym: .crossFit, availableEquipment: []))
+        #expect(result.map(\.id) == [id])
+        #expect(!reopened.updateCustomExerciseSetup(original, for: "bench"))
+        #expect(reopened.snapshot.customExercises?.count == 1)
+    }
+
+    @Test func legacyExerciseCreationSavesItsSetup() throws {
+        let store = MemoryJournalRepository()
+        let logger = try LoggerModel(repository: store)
+        let setup = CustomExerciseSetup(gyms: [.commercial], requiredEquipment: [.dumbbells])
+        #expect(logger.createAndAddExercise(named: "Personal carry", customSetup: setup))
+        let reopened = try model(store)
+        #expect(ExerciseFormGuide.search("Personal carry", in: reopened.exercises,
+                                        gymFilter: .init(gym: .commercial, availableEquipment: [.dumbbells])).count == 1)
+    }
+
     @Test func weightSelectionDefaultsToDialWhileRepsRequestKeyboard() throws {
         let store = MemoryJournalRepository()
         let m = try model(store)

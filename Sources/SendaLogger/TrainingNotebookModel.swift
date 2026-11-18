@@ -104,7 +104,16 @@ public enum TrainingRowStatus: Equatable, Sendable { case empty, unfinished, rec
     public var historyReturnsToWeek: Bool { historyReturnContext?.day == nil }
     private var pendingProgressAction = false
     public var canRetryProgressAction: Bool { pendingProgressAction && canRetrySave }
-    public var learningQuery = ""
+    public var learningScope = LearnExerciseScope.library
+    private var libraryQuery = ""
+    private var personalExerciseQuery = ""
+    public var learningQuery: String {
+        get { learningScope == .library ? libraryQuery : personalExerciseQuery }
+        set {
+            if learningScope == .library { libraryQuery = newValue }
+            else { personalExerciseQuery = newValue }
+        }
+    }
     public var learningExerciseID: String?
     private enum ProfileAction { case unit(WeightUnit), record(ExercisePersonalRecord) }
     private var pendingProfileAction: ProfileAction?
@@ -119,7 +128,7 @@ public enum TrainingRowStatus: Equatable, Sendable { case empty, unfinished, rec
     @ObservationIgnored private let now: () -> Date
     @ObservationIgnored private var lastWritten: JournalSnapshot
     private struct PendingSave {
-        let snapshot: JournalSnapshot
+        let checked: ValidatedJournalSnapshot
         let onSuccess: (() -> Void)?
     }
     private var pendingSave: PendingSave?
@@ -139,10 +148,13 @@ public enum TrainingRowStatus: Equatable, Sendable { case empty, unfinished, rec
         let training = try TrainingWorkspace.migrate(saved, today: TrainingDay(now(), calendar: calendar), calendar: calendar)
         snapshot = try JournalSnapshot(journal: saved.journal, customExercises: saved.customExercises, training: training).validated()
     }
-    public func backupData() throws -> Data {
+    public func backupArchive() throws -> NotebookArchive {
         guard !backupRecoveryRequired else { throw NotebookBackupWorkflowError.recoveryRequired }
         guard profile.openingError == nil else { throw NotebookBackupWorkflowError.profileUnavailable }
-        return try NotebookBackupCodec.encode(NotebookArchive(snapshot: snapshot, profile: profile.details, createdAt: now()))
+        return NotebookArchive(snapshot: snapshot, profile: profile.details, createdAt: now())
+    }
+    public func backupData() throws -> Data {
+        try NotebookBackupCodec.encode(backupArchive())
     }
     public func csvData() throws -> Data {
         guard !backupRecoveryRequired else { throw NotebookBackupWorkflowError.recoveryRequired }
@@ -186,6 +198,7 @@ public enum TrainingRowStatus: Equatable, Sendable { case empty, unfinished, rec
         }
     }
     public func previousBackupData() throws -> Data? { try restoreStore.previousBackupData() }
+    public func previousBackupArchive() async throws -> NotebookArchive? { try await restoreStore.previousBackupArchive() }
     public func previousOriginalFilesData() throws -> Data? { try restoreStore.previousOriginalFilesData() }
     public func originalJournalData() throws -> Data? { try restoreStore.originalJournalData() }
     @discardableResult public func restoreBackup(_ archive: NotebookArchive) -> Bool {
@@ -209,7 +222,7 @@ public enum TrainingRowStatus: Equatable, Sendable { case empty, unfinished, rec
             if !archive.snapshot.journal.batches.isEmpty { hasSavedFirstSet = true }
             pendingSave = nil; pendingProfileAction = nil; revealRowID = nil
             errorMessage = nil; backupErrorMessage = nil; backupRecoveryRequired = false
-            learningExerciseID = nil; learningQuery = ""
+            resetLearn()
             isProgressPresented = false; progressExerciseID = nil; progressRange = .threeMonths; pendingProgressAction = false
             progressSessionDay = nil; progressSetID = nil; historyReturnContext = nil
             profile.reload()
@@ -303,8 +316,7 @@ public enum TrainingRowStatus: Equatable, Sendable { case empty, unfinished, rec
                 revealRowID = nil
                 historyReturnContext = nil
             } else if section == .learn {
-                learningExerciseID = nil
-                learningQuery = ""
+                resetLearn()
             }
             landingResetID &+= 1
         }) { state in
@@ -349,11 +361,30 @@ public enum TrainingRowStatus: Equatable, Sendable { case empty, unfinished, rec
     public var workout: DayWorkout? { selectedDay.flatMap { workspace.days[$0.rawValue] } }
     public var exercise: Exercise? { workout?.selectedExerciseID.map { exercise($0) } }
     public var exercises: [Exercise] {
-        let known = Exercise.catalog + (snapshot.customExercises ?? [])
+        let known = snapshot.exerciseLibrary
+        guard let legacy = workspace.legacyExerciseIDs, !legacy.isEmpty else { return known }
         let ids = Set(known.map(\.id))
-        return known + (workspace.legacyExerciseIDs ?? []).filter { !ids.contains($0) }.map {
+        return known + legacy.filter { !ids.contains($0) }.map {
             Exercise(id: $0, name: $0, shortName: $0, startingWeight: 0)
         }
+    }
+    public func learningResults(in exercises: [Exercise], gymFilter: ExerciseGymFilter) -> [Exercise] {
+        if learningScope == .library {
+            return ExerciseFormGuide.search(libraryQuery, in: exercises, gymFilter: gymFilter)
+        }
+        let customIDs = Set((snapshot.customExercises ?? []).map(\.id))
+        let personal = exercises.filter { exercise in
+            customIDs.contains(exercise.id) && (learningScope == .personal
+                || exercise.customSetup.gyms.isEmpty || exercise.customSetup.requiredEquipment == nil)
+        }
+        return ExerciseFormGuide.search(personalExerciseQuery, in: personal)
+    }
+
+    private func resetLearn() {
+        learningScope = .library
+        libraryQuery = ""
+        personalExerciseQuery = ""
+        learningExerciseID = nil
     }
     public var tabs: [Exercise] { workout?.exerciseIDs.map { exercise($0) } ?? [] }
     public var unit: WeightUnit { workout?.unit ?? workspace.preferredUnit }
@@ -523,6 +554,69 @@ public enum TrainingRowStatus: Equatable, Sendable { case empty, unfinished, rec
         }
         return (workout.exerciseIDs + hidden).map { exercise($0) }
     }
+
+    public var starterWorkouts: [WorkoutTemplate] {
+        guard snapshot.customExercises?.isEmpty == false else { return WorkoutTemplate.catalog }
+        let alternates = Dictionary(uniqueKeysWithValues: exercises.compactMap { exercise -> (String, String)? in
+            guard let preset = exercise.presetID, preset != exercise.id else { return nil }
+            return (preset, exercise.id)
+        })
+        guard !alternates.isEmpty else { return WorkoutTemplate.catalog }
+        return WorkoutTemplate.catalog.map { starter in
+            WorkoutTemplate(id: starter.id, name: starter.name,
+                exerciseIDs: starter.exerciseIDs.map { alternates[$0] ?? $0 },
+                exercisePlans: Dictionary(uniqueKeysWithValues: starter.exercisePlans.map { (alternates[$0.key] ?? $0.key, $0.value) }))
+        }
+    }
+
+    public var savedWorkouts: [WorkoutTemplate] { workspace.workoutTemplates ?? [] }
+
+    @discardableResult public func saveWorkout(_ template: WorkoutTemplate) -> Bool {
+        do {
+            let template = try template.validated(against: Set(exercises.map(\.id)))
+            guard !WorkoutTemplate.catalog.contains(where: { $0.id == template.id }) else {
+                errorMessage = "Save a copy to edit a starter workout."
+                return false
+            }
+            var workouts = savedWorkouts
+            if let index = workouts.firstIndex(where: { $0.id == template.id }) {
+                guard workouts[index] != template else { return true }
+                workouts[index] = template
+            } else {
+                workouts.append(template)
+            }
+            return commit(synchronizeInput: false) { $0.training!.workoutTemplates = workouts }
+        } catch {
+            errorMessage = error.localizedDescription
+            return false
+        }
+    }
+
+    @discardableResult public func deleteWorkout(id: String) -> Bool {
+        let remaining = savedWorkouts.filter { $0.id != id }
+        guard remaining.count != savedWorkouts.count else { return true }
+        return commit(synchronizeInput: false) {
+            $0.training!.workoutTemplates = remaining.isEmpty ? nil : remaining
+        }
+    }
+
+    @discardableResult public func applyWorkout(_ template: WorkoutTemplate) -> Bool {
+        guard let workout else {
+            errorMessage = TrainingError.invalidDay.localizedDescription
+            return false
+        }
+        do {
+            let source = starterWorkouts.first { $0.id == template.id } ?? template
+            let template = try source.validated(against: Set(exercises.map(\.id)))
+            let visible = Set(workout.exerciseIDs)
+            guard template.exerciseIDs.contains(where: { !visible.contains($0) }) else { return true }
+            return addExercises(template.exerciseIDs, plansFrom: template.exercisePlans, preserveExistingRows: true)
+        } catch {
+            errorMessage = error.localizedDescription
+            return false
+        }
+    }
+
     public var reusableWorkouts: [TrainingWorkoutStructure] {
         guard let selectedDay else { return [] }
         return workspace.days.keys.sorted(by: >).compactMap { key in
@@ -535,16 +629,19 @@ public enum TrainingRowStatus: Equatable, Sendable { case empty, unfinished, rec
     @discardableResult public func reuseWorkout(from day: TrainingDay) -> Bool {
         guard let structure = reusableWorkouts.first(where: { $0.day == day }),
               let source = workspace.days[day.rawValue] else { return false }
-        return addExercises(structure.exerciseIDs, plansFrom: source)
+        return addExercises(structure.exerciseIDs, plansFrom: source.exercisePlans ?? [:])
     }
     public var personalBest: TrainingPerformanceReference? { best(references) }
     private var references: [TrainingPerformanceReference] {
         guard let exercise else { return [] }
+        let values = Dictionary(uniqueKeysWithValues: journal.batches
+            .filter { $0.exerciseID == exercise.id }
+            .flatMap { $0.sets.map { ($0.id, $0.values) } })
         return workspace.days.keys.sorted().flatMap { key -> [TrainingPerformanceReference] in
-            guard let day = try? TrainingDay(key) else { return [] }
-            return (workspace.days[key]?.rows[exercise.id] ?? []).compactMap { row in
-                guard let id = row.performedSetID, let set = journal.reference(to: id)?.set else { return nil }
-                return TrainingPerformanceReference(day: day, exerciseID: exercise.id, rowID: row.id, values: set.values)
+            guard let rows = workspace.days[key]?.rows[exercise.id], let day = TrainingDay(rawValue: key) else { return [] }
+            return rows.compactMap { row in
+                guard let id = row.performedSetID, let value = values[id] else { return nil }
+                return TrainingPerformanceReference(day: day, exerciseID: exercise.id, rowID: row.id, values: value)
             }
         }
     }
@@ -594,7 +691,8 @@ public enum TrainingRowStatus: Equatable, Sendable { case empty, unfinished, rec
     @discardableResult public func addExercises(_ ids: [String]) -> Bool {
         addExercises(ids, plansFrom: nil)
     }
-    private func addExercises(_ ids: [String], plansFrom source: DayWorkout?) -> Bool {
+    private func addExercises(_ ids: [String], plansFrom source: [String: ExercisePlan]?,
+                              preserveExistingRows: Bool = false) -> Bool {
         guard ids.allSatisfy({ id in exercises.contains { $0.id == id } }) else { return false }
         var seen = Set<String>()
         let ordered = ids.filter { seen.insert($0).inserted }
@@ -607,20 +705,35 @@ public enum TrainingRowStatus: Equatable, Sendable { case empty, unfinished, rec
                     workout.exerciseIDs.append(id)
                     if firstNew == nil { firstNew = id }
                 }
-                ensureRows(for: id, on: day, in: &workout, workspace: state.training!, plansFrom: source)
+                if !preserveExistingRows || workout.rows[id] == nil {
+                    ensureRows(for: id, on: day, in: &workout, workspace: state.training!, plansFrom: source)
+                }
             }
             if let firstNew { workout.selectedExerciseID = firstNew }
             state.training!.days[day.rawValue] = workout; state.training!.undo = nil
         }
     }
-    @discardableResult public func createExercise(named name: String, group: MuscleGroup, equipment: ExerciseEquipment) -> Bool {
+    @discardableResult public func createExercise(named name: String, group: MuscleGroup, equipment: ExerciseEquipment,
+                                                  customSetup: CustomExerciseSetup = .init()) -> Bool {
         commit { state in
-            let created = try ExerciseLibrary.custom(named: name, existing: exercises, muscleGroup: group, equipment: equipment)
+            let created = try ExerciseLibrary.custom(named: name, existing: exercises, muscleGroup: group,
+                                                     equipment: equipment, customSetup: customSetup)
             try finalize(&state)
             state.customExercises = (state.customExercises ?? []) + [created]
             try add(created.id, in: &state)
         }
     }
+
+    @discardableResult public func updateCustomExerciseSetup(_ setup: CustomExerciseSetup, for id: String) -> Bool {
+        guard let index = snapshot.customExercises?.firstIndex(where: { $0.id == id }) else {
+            errorMessage = "Choose a custom exercise to edit its gym and equipment."
+            return false
+        }
+        return commit(synchronizeInput: false) { state in
+            state.customExercises?[index].customSetup = setup
+        }
+    }
+
     private func add(_ id: String, in state: inout JournalSnapshot) throws {
         guard let day = state.training!.selectedDay, var workout = state.training!.days[day.rawValue] else { throw TrainingError.invalidDay }
         if !workout.exerciseIDs.contains(id) { workout.exerciseIDs.append(id) }
@@ -629,13 +742,13 @@ public enum TrainingRowStatus: Equatable, Sendable { case empty, unfinished, rec
         state.training!.days[day.rawValue] = workout; state.training!.undo = nil
     }
     private func ensureRows(for id: String, on day: TrainingDay, in workout: inout DayWorkout,
-                            workspace: TrainingWorkspace, plansFrom source: DayWorkout? = nil) {
+                            workspace: TrainingWorkspace, plansFrom source: [String: ExercisePlan]? = nil) {
         let firstAddition = workout.rows[id] == nil
         if workout.rows[id]?.isEmpty ?? true { workout.rows[id] = [TrainingRow(unit: workout.unit, kind: .working)] }
         guard firstAddition else { return }
         let plan: ExercisePlan?
         if let source {
-            plan = source.exercisePlans?[id]
+            plan = source[id]
         } else {
             // An unplanned latest workout is authoritative: do not resurrect an older plan.
             let latest = workspace.days.keys.sorted(by: >).first {
@@ -994,13 +1107,14 @@ public enum TrainingRowStatus: Equatable, Sendable { case empty, unfinished, rec
         guard !backupRecoveryRequired else { errorMessage = NotebookBackupWorkflowError.recoveryRequired.localizedDescription; return false }
         var candidate = snapshot
         var recoveryCandidate = snapshot
+        let checked: ValidatedJournalSnapshot
         do {
             try update(&candidate)
             // Failed numeric writes retain raw input over the last durable journal.
             // Their pending transaction includes the matching performed-set update.
             recoveryCandidate = candidate
             if synchronizeInput { try synchronizeFocusedSet(&candidate) }
-            _ = try candidate.validated()
+            checked = try ValidatedJournalSnapshot(candidate)
         }
         catch { errorMessage = error.localizedDescription; return false }
         // A new intentional transaction supersedes an obsolete failed action.
@@ -1008,7 +1122,7 @@ public enum TrainingRowStatus: Equatable, Sendable { case empty, unfinished, rec
         pendingSave = nil
         pendingProfileAction = nil
         pendingProgressAction = false
-        let transaction = PendingSave(snapshot: candidate, onSuccess: onSuccess)
+        let transaction = PendingSave(checked: checked, onSuccess: onSuccess)
         if candidate == lastWritten {
             snapshot = candidate; errorMessage = nil; onSuccess?()
             return true
@@ -1021,9 +1135,9 @@ public enum TrainingRowStatus: Equatable, Sendable { case empty, unfinished, rec
         guard !backupRecoveryRequired else { errorMessage = NotebookBackupWorkflowError.recoveryRequired.localizedDescription; return false }
         do {
             // Retry always reaches storage, including while writes remain unavailable.
-            try repository.saveSnapshot(transaction.snapshot)
-            lastWritten = transaction.snapshot; snapshot = transaction.snapshot
-            if !hasSavedFirstSet && !transaction.snapshot.journal.batches.isEmpty { hasSavedFirstSet = true }
+            try repository.saveValidatedSnapshot(transaction.checked)
+            lastWritten = transaction.checked.snapshot; snapshot = transaction.checked.snapshot
+            if !hasSavedFirstSet && !transaction.checked.snapshot.journal.batches.isEmpty { hasSavedFirstSet = true }
             pendingSave = nil; pendingProfileAction = nil; pendingProgressAction = false; errorMessage = nil
             transaction.onSuccess?()
             return true

@@ -6,6 +6,7 @@ struct TrainingInputDock: View {
     @Bindable var model: TrainingNotebookModel
     let focus: TrainingFocus
     var beginInteraction: () -> Void = {}
+    let selectExercise: (String) -> Void
     @FocusState private var typing: Bool
     @AccessibilityFocusState(for: .voiceOver) private var editorFocused: Bool
     @Environment(\.dynamicTypeSize) private var textSize
@@ -41,8 +42,9 @@ struct TrainingInputDock: View {
     var body: some View {
         VStack(spacing: 8) {
             Rectangle().fill(NotebookStyle.rule).frame(height: 0.5)
+            adjacentExercises
             headerLayout {
-                Text(textSize.isAccessibilitySize ? setContext : "\(model.exercise?.name ?? "") · \(setContext)")
+                Text(textSize.isAccessibilitySize ? setContext : "\(model.exercise?.displayName ?? "") · \(setContext)")
                     .font(textSize.isAccessibilitySize ? .caption2 : .caption).foregroundStyle(NotebookStyle.quiet)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("input-set-context")
@@ -123,6 +125,34 @@ struct TrainingInputDock: View {
             if !Task.isCancelled { typing = focus.keyboard; editorFocused = true }
         }
     }
+
+    @ViewBuilder private var adjacentExercises: some View {
+        let exercises = model.tabs
+        if exercises.count > 1, let index = exercises.firstIndex(where: { $0.id == focus.exerciseID }) {
+            HStack(spacing: 8) {
+                if index > 0 { exerciseButton(exercises[index - 1], previous: true) }
+                Spacer(minLength: 4)
+                if index + 1 < exercises.count { exerciseButton(exercises[index + 1], previous: false) }
+            }
+        }
+    }
+
+    private func exerciseButton(_ exercise: Exercise, previous: Bool) -> some View {
+        Button { selectExercise(exercise.id) } label: {
+            HStack(spacing: 6) {
+                if previous { Image(systemName: "chevron.backward") }
+                Text(exercise.displayName).fixedSize(horizontal: false, vertical: true)
+                if !previous { Image(systemName: "chevron.forward") }
+            }
+            .font(.footnote.weight(.semibold))
+            .frame(minWidth: 44, minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .foregroundStyle(NotebookStyle.clay)
+        .accessibilityLabel(previous ? "Previous exercise, \(exercise.displayName)" : "Next exercise, \(exercise.displayName)")
+        .accessibilityIdentifier(previous ? "input-previous-exercise" : "input-next-exercise")
+    }
+
     private var valueInput: some View {
                 TextField("", text: Binding(
                     get: { model.inputText(for: focus) }, set: { beginInteraction(); model.typeInput($0, focus: focus) }))

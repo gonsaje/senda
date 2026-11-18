@@ -51,7 +51,7 @@ public struct TrainingPlanEditor: View {
                         .accessibilityIdentifier("save-exercise-plan")
                 }
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Plan \(model.exercise(context.exerciseID).name)")
+                    Text("Plan \(model.exercise(context.exerciseID).displayName)")
                         .font(NotebookTypography.heading(32)).accessibilityAddTraits(.isHeader)
                     Text("For this workout · \(ProgressFormatting.date(context.day, format: "MMM d, yyyy", calendar: model.calendar))")
                         .font(.subheadline).foregroundStyle(NotebookStyle.quiet)

@@ -7,13 +7,48 @@ public struct Exercise: Codable, Identifiable, Equatable, Sendable {
     public let startingWeight: Int
     public let muscleGroup: MuscleGroup?
     public let equipment: ExerciseEquipment?
-    public init(id: String, name: String, shortName: String, startingWeight: Int,
-                muscleGroup: MuscleGroup? = nil, equipment: ExerciseEquipment? = nil) {
-        self.id = id; self.name = name; self.shortName = shortName; self.startingWeight = startingWeight
-        self.muscleGroup = muscleGroup; self.equipment = equipment
+    private var savedCustomSetup: CustomExerciseSetup?
+    public var customSetup: CustomExerciseSetup {
+        get { savedCustomSetup ?? .init() }
+        set { savedCustomSetup = newValue.isEmpty ? nil : newValue }
+    }
+    // The resolved library decorates exercises for this notebook. The saved custom record
+    // retains its original identifiers and name, including those imported before a new preset.
+    enum LibraryOrigin: Equatable, Sendable {
+        case standard, custom(sharesName: Bool), alternatePreset(String)
+    }
+    var origin = LibraryOrigin.standard
+    // Lookup keeps both IDs when an older notebook has already named this movement.
+    public internal(set) var isLibraryChoice = true
+    var catalogAliasID: String?
+    private enum CodingKeys: String, CodingKey {
+        case id, name, shortName, startingWeight, muscleGroup, equipment
+        case savedCustomSetup = "customSetup"
     }
 
-    public static let catalog: [Exercise] = [
+    public var displayName: String {
+        origin == .custom(sharesName: true) ? "\(name) (custom)" : name
+    }
+    public var presetID: String? {
+        switch origin {
+        case .standard: ExerciseLibrary.presetIDs.contains(id) ? id : nil
+        case .custom: nil
+        case .alternatePreset(let source): source
+        }
+    }
+    public var muscleMap: ExerciseMuscleMap? { presetID.flatMap(ExerciseMuscleMap.map(for:)) }
+
+    public init(id: String, name: String, shortName: String, startingWeight: Int,
+                muscleGroup: MuscleGroup? = nil, equipment: ExerciseEquipment? = nil,
+                customSetup: CustomExerciseSetup = .init()) {
+        self.id = id; self.name = name; self.shortName = shortName; self.startingWeight = startingWeight
+        self.muscleGroup = muscleGroup; self.equipment = equipment
+        self.customSetup = customSetup
+    }
+
+    public static let catalog = originalCatalog + ExpandedExerciseCatalog.exercises + GymExerciseCatalog.exercises
+
+    static let originalCatalog: [Exercise] = [
         Exercise(id: "bench", name: "Bench", shortName: "Bench", startingWeight: 13_500),
         Exercise(id: "deadlift", name: "Deadlift", shortName: "DL", startingWeight: 22_500),
         Exercise(id: "squat", name: "Squat", shortName: "Squat", startingWeight: 18_500),

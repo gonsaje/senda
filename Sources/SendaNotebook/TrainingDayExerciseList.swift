@@ -47,7 +47,7 @@ public struct TrainingDayExerciseList: View {
                         } label: {
                             HStack(spacing: 12) {
                                 VStack(alignment: .leading, spacing: 4) {
-                                    Text(exercise.name).font(.body.weight(selected ? .semibold : .regular))
+                                    Text(exercise.displayName).font(.body.weight(selected ? .semibold : .regular))
                                         .foregroundStyle(NotebookStyle.ink).fixedSize(horizontal: false, vertical: true)
                                     Text(countLabel(count)).font(.caption.monospacedDigit()).foregroundStyle(NotebookStyle.quiet)
                                     if hidden {
@@ -63,7 +63,7 @@ public struct TrainingDayExerciseList: View {
                             .padding(.vertical, 14).frame(minHeight: 70)
                             .contentShape(Rectangle())
                         }
-                        .accessibilityLabel("\(exercise.name), \(countLabel(count))\(hidden ? ", Hidden tab, retained work" : "")")
+                        .accessibilityLabel("\(exercise.displayName), \(countLabel(count))\(hidden ? ", Hidden tab, retained work" : "")")
                         .accessibilityHint(hidden ? "Restore its tab and open retained sets and input" : "Open exercise")
                         .accessibilityAddTraits(selected ? .isSelected : [])
                         .accessibilityIdentifier("day-exercise-\(exercise.id)")

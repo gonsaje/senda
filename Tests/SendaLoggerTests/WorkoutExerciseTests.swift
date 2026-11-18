@@ -47,7 +47,7 @@ import SendaPersistence
     @Test func removedTabsKeepHistoryAndUnfinishedSessionsWhenReadded() throws {
         let store = MemoryJournalRepository()
         let model = try LoggerModel(repository: store)
-        #expect(model.createAndAddExercise(named: "Cable fly"))
+        #expect(model.createAndAddExercise(named: "Low cable press"))
         let id = model.selectedExerciseID
         model.selectSet(2, field: .reps)
         model.typeNumber("7")

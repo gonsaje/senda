@@ -288,6 +288,33 @@ import SendaDomain
         }
     }
 
+    @Test(arguments: [true, false])
+    func mismatchedCheckpointKeepsLiveAndStagedFilesUntouched(journalIsStaged: Bool) throws {
+        let root = try directory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let journal = root.appendingPathComponent("journal.json")
+        let profile = root.appendingPathComponent("profile.json")
+        let store = FileNotebookRestoreStore(journalURL: journal, profileURL: profile)
+        let staging = journal.appendingPathExtension("restore-staging")
+        let stagedJournal = staging.appendingPathComponent("journal")
+        let stagedProfile = staging.appendingPathComponent("profile")
+        let stagedBackup = staging.appendingPathComponent("backup")
+        try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
+        let live = [(journal, "live journal"), (profile, "live profile"), (store.backupURL, "live protected copy")]
+        var staged = [(stagedProfile, "staged profile"), (stagedBackup, "staged protected copy")]
+        var present = ["profile", "backup"]
+        if journalIsStaged { staged.append((stagedJournal, "staged journal")) }
+        else { present.append("journal") }
+        for (url, text) in live + staged { try Data(text.utf8).write(to: url) }
+        let marker = try JSONSerialization.data(withJSONObject: [
+            "format": "senda-restore-checkpoint", "version": 1, "present": present])
+        try marker.write(to: store.pendingURL)
+
+        #expect(throws: NotebookRestoreError.recoveryRequired) { try store.recoverInterruptedRestore() }
+        for (url, text) in live + staged { #expect((try? Data(contentsOf: url)) == Data(text.utf8)) }
+        #expect((try? Data(contentsOf: store.pendingURL)) == marker)
+    }
+
     @Test func failureToRemoveCommitMarkerRollsBackAndKeepsRecoverableState() throws {
         let root = try directory(); defer { try? FileManager.default.removeItem(at: root) }
         let journalURL = root.appendingPathComponent("journal.json"), profileURL = root.appendingPathComponent("profile.json")
@@ -306,6 +333,103 @@ import SendaDomain
         #expect(try FileJournalRepository(url: journalURL).loadSnapshot() == old.snapshot)
         #expect(try FileProfileRepository(url: profileURL).load() == old.profile)
         #expect(!FileManager.default.fileExists(atPath: store.pendingURL.path))
+    }
+
+    @Test(arguments: ["marker", "profile", "journal", "protected copy", "commit"])
+    func failedRestoreOfProtectedNotebookKeepsBothAfterReopening(failurePoint: String) throws {
+        let root = try directory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let journal = root.appendingPathComponent("journal.json")
+        let profile = root.appendingPathComponent("profile.json")
+        let original = try archive(name: "A", weight: 10_000)
+        let current = try archive(name: "B", weight: 20_000)
+        try seed(original, journal: journal, profile: profile)
+        let setup = FileNotebookRestoreStore(journalURL: journal, profileURL: profile)
+        try setup.restore(current, current: original)
+        let toRestore = try NotebookBackupCodec.decode(#require(try setup.previousBackupData()))
+        let writes = [setup.pendingURL: "marker", profile: "profile", journal: "journal",
+                      setup.backupURL: "protected copy"]
+        var interrupted = false
+        let failing = FileNotebookRestoreStore(journalURL: journal, profileURL: profile, writer: { data, url in
+            if interrupted { throw CocoaError(.fileWriteOutOfSpace) }
+            if writes[url] == failurePoint {
+                // Cover interruption after publication too, when the new file is already visible.
+                if failurePoint != "marker" { try data.write(to: url, options: .atomic) }
+                interrupted = true
+                throw CocoaError(.fileWriteOutOfSpace)
+            }
+            try data.write(to: url, options: .atomic)
+        }, remover: { url in
+            if url == setup.pendingURL && failurePoint == "commit" { interrupted = true }
+            if interrupted { throw CocoaError(.fileWriteOutOfSpace) }
+            try FileManager.default.removeItem(at: url)
+        })
+        #expect(throws: (any Error).self) { try failing.restore(toRestore, current: current) }
+        #expect(interrupted)
+        let reopened = FileNotebookRestoreStore(journalURL: journal, profileURL: profile)
+        try reopened.recoverInterruptedRestore()
+        #expect(try FileJournalRepository(url: journal).loadSnapshot() == current.snapshot)
+        #expect(try FileProfileRepository(url: profile).load() == current.profile)
+        let protected = try NotebookBackupCodec.decode(#require(try reopened.previousBackupData()))
+        try #require(protected == original)
+        try reopened.restore(protected, current: current)
+        #expect(try FileJournalRepository(url: journal).loadSnapshot() == original.snapshot)
+        #expect(try FileProfileRepository(url: profile).load() == original.profile)
+        #expect(try NotebookBackupCodec.decode(#require(try reopened.previousBackupData())) == current)
+    }
+
+    @Test func earlierBuildMarkerRestoresLiveFilesAndLeavesProtectedCopyAvailable() throws {
+        let root = try directory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let journal = root.appendingPathComponent("journal.json")
+        let profile = root.appendingPathComponent("profile.json")
+        let original = try archive(name: "A")
+        let current = try archive(name: "B", weight: 20_000)
+        let store = FileNotebookRestoreStore(journalURL: journal, profileURL: profile)
+        try seed(original, journal: journal, profile: profile)
+        try store.restore(current, current: original)
+        // This is the exact JSON shape written to the pending marker by the previous build.
+        let marker: [String: Any] = [
+            "format": "senda-restore-recovery", "version": 1,
+            "journal": ["existed": true, "contents": try Data(contentsOf: journal).base64EncodedString()],
+            "profile": ["existed": true, "contents": try Data(contentsOf: profile).base64EncodedString()]
+        ]
+        try JSONSerialization.data(withJSONObject: marker).write(to: store.pendingURL)
+        try seed(original, journal: journal, profile: profile)
+        let reopened = FileNotebookRestoreStore(journalURL: journal, profileURL: profile)
+        try reopened.recoverInterruptedRestore()
+        #expect(try FileJournalRepository(url: journal).loadSnapshot() == current.snapshot)
+        #expect(try FileProfileRepository(url: profile).load() == current.profile)
+        #expect(try NotebookBackupCodec.decode(#require(try reopened.previousBackupData())) == original)
+    }
+
+    @Test func interruptedRestoreKeepsAnExistingRawRecoveryCopy() throws {
+        let root = try directory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let journal = root.appendingPathComponent("journal.json")
+        let profile = root.appendingPathComponent("profile.json")
+        let current = try archive(name: "B")
+        let target = try archive(name: "C", weight: 20_000)
+        try Data("original damaged journal".utf8).write(to: journal)
+        let setup = FileNotebookRestoreStore(journalURL: journal, profileURL: profile)
+        try setup.restore(current, current: nil)
+        let raw = try #require(try setup.previousOriginalFilesData())
+        var interrupted = false
+        let failing = FileNotebookRestoreStore(journalURL: journal, profileURL: profile, writer: { data, url in
+            if interrupted { throw CocoaError(.fileWriteOutOfSpace) }
+            try data.write(to: url, options: .atomic)
+        }, remover: { url in
+            if url == setup.pendingURL { interrupted = true }
+            if interrupted { throw CocoaError(.fileWriteOutOfSpace) }
+            try FileManager.default.removeItem(at: url)
+        })
+        #expect(throws: (any Error).self) { try failing.restore(target, current: current) }
+        let reopened = FileNotebookRestoreStore(journalURL: journal, profileURL: profile)
+        try reopened.recoverInterruptedRestore()
+        #expect(try FileJournalRepository(url: journal).loadSnapshot() == current.snapshot)
+        #expect(try FileProfileRepository(url: profile).load() == current.profile)
+        #expect(try reopened.previousOriginalFilesData() == raw)
+        #expect(try reopened.previousBackupData() == nil)
     }
 
     @Test func restoringThePreviousBackupProtectsTheReplacedNotebookForAnotherRoundtrip() throws {

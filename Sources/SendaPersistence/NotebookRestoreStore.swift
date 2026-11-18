@@ -6,12 +6,17 @@ import SendaDomain
     func recoverInterruptedRestore() throws
     func restore(_ archive: NotebookArchive, current: NotebookArchive?) throws
     func previousBackupData() throws -> Data?
+    func previousBackupArchive() async throws -> NotebookArchive?
     func previousOriginalFilesData() throws -> Data?
     func originalJournalData() throws -> Data?
 }
 
 public extension NotebookRestoreStore {
     func previousOriginalFilesData() throws -> Data? { nil }
+    func previousBackupArchive() async throws -> NotebookArchive? {
+        guard let data = try previousBackupData() else { return nil }
+        return try await Task.detached(priority: .userInitiated) { try NotebookBackupCodec.decode(data) }.value
+    }
 }
 
 public enum NotebookRestoreError: LocalizedError {
@@ -48,23 +53,51 @@ public enum NotebookRestoreError: LocalizedError {
         let previous = try current.map(NotebookBackupCodec.encode)
         // A pending transaction owns the destination files until rollback succeeds.
         try recoverInterruptedRestore()
-        let originals = try OriginalPair(journal: capture(journalURL), profile: capture(profileURL))
-        let recoveryData = try JSONEncoder().encode(originals)
-        try FileManager.default.createDirectory(at: journalURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        if let previous {
-            try writer(previous, backupURL)
-            try removeIfPresent(originalsURL)
-        } else {
-            try writer(recoveryData, originalsURL)
-            try removeIfPresent(backupURL)
+        if FileManager.default.fileExists(atPath: stagingURL.path) {
+            try FileManager.default.removeItem(at: stagingURL)
         }
-        // This durable marker is written before either live file is touched.
-        try writer(recoveryData, pendingURL)
+        try FileManager.default.createDirectory(at: stagingURL, withIntermediateDirectories: true)
+        var present = Set<RestorePart>()
+        for part in RestorePart.allCases {
+            do {
+                try FileManager.default.copyItem(at: liveURL(for: part), to: stagedURL(for: part))
+                present.insert(part)
+            } catch {
+                if !isMissing(error) { throw error }
+            }
+        }
+        var rawRecovery: Data?
+        if previous == nil {
+            let originals = try OriginalPair(journal: capture(stagedURL(for: .journal)),
+                                            profile: capture(stagedURL(for: .profile)))
+            rawRecovery = try JSONEncoder().encode(originals)
+        }
+        // Even the first restore keeps the current notebook (including any in-memory draft)
+        // available as a protected copy after rollback.
+        if !present.contains(.backup), !present.contains(.rawBackup) {
+            if let previous {
+                try writer(previous, stagedURL(for: .backup))
+                present.insert(.backup)
+            } else if let rawRecovery {
+                try writer(rawRecovery, stagedURL(for: .rawBackup))
+                present.insert(.rawBackup)
+            }
+        }
+        // Publish the marker only after every rollback file has been staged.
+        try writer(try JSONEncoder().encode(RestoreCheckpoint(present: present)), pendingURL)
         do {
             try FileProfileRepository(url: profileURL, writer: writer).save(archive.profile)
             try FileJournalRepository(url: journalURL, writer: writer).saveSnapshot(archive.snapshot)
+            if let previous {
+                try writer(previous, backupURL)
+                try removeIfPresent(originalsURL)
+            } else if let rawRecovery {
+                try writer(rawRecovery, originalsURL)
+                try removeIfPresent(backupURL)
+            }
             // Until removal succeeds, a relaunch rolls back to the original pair.
             try remover(pendingURL)
+            discardStaging()
         } catch {
             let originalError = error
             do { try recoverInterruptedRestore() }
@@ -74,29 +107,86 @@ public enum NotebookRestoreError: LocalizedError {
     }
 
     public func recoverInterruptedRestore() throws {
-        guard let data = try readIfPresent(pendingURL) else { return }
-        let originals: OriginalPair
-        do { originals = try JSONDecoder().decode(OriginalPair.self, from: data).validated() }
-        catch { throw NotebookRestoreError.recoveryRequired }
-        var failed = false
-        // Attempt both restorations even if one device write is still unavailable.
-        for (file, url) in [(originals.journal, journalURL), (originals.profile, profileURL)] {
-            do {
-                if let contents = file.contents {
-                    try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-                    try writer(contents, url)
-                } else { try removeIfPresent(url) }
-            } catch { failed = true }
+        guard let data = try readIfPresent(pendingURL) else {
+            // A quit before the marker was published, or after commit, can leave staging files.
+            discardStaging()
+            return
         }
-        guard !failed else { throw NotebookRestoreError.recoveryRequired }
-        do { try remover(pendingURL) }
-        catch { throw NotebookRestoreError.recoveryRequired }
+        do {
+            let decoder = JSONDecoder()
+            if try decoder.decode(RestoreHeader.self, from: data).format == "senda-restore-checkpoint" {
+                let checkpoint = try decoder.decode(RestoreCheckpoint.self, from: data)
+                let stagedNames = try FileManager.default.contentsOfDirectory(atPath: stagingURL.path)
+                guard checkpoint.version == 1,
+                      !checkpoint.present.isDisjoint(with: [.backup, .rawBackup]),
+                      Set(stagedNames) == Set(checkpoint.present.map(\.rawValue)) else {
+                    throw NotebookRestoreError.recoveryRequired
+                }
+                // Verify every rollback source before replacing or removing any live file.
+                var originals: [RestorePart: Data] = [:]
+                for part in checkpoint.present {
+                    originals[part] = try Data(contentsOf: stagedURL(for: part), options: .mappedIfSafe)
+                }
+                var failed = false
+                for part in RestorePart.allCases {
+                    do { try restoreFile(at: liveURL(for: part), contents: originals[part]) }
+                    catch { failed = true }
+                }
+                guard !failed else { throw NotebookRestoreError.recoveryRequired }
+            } else {
+                // Markers from older builds stored only the original live files inline.
+                let live = try decoder.decode(OriginalPair.self, from: data).validated()
+                var failed = false
+                for (url, file) in [(journalURL, live.journal), (profileURL, live.profile)] {
+                    do { try restoreFile(at: url, contents: file.contents) }
+                    catch { failed = true }
+                }
+                guard !failed else { throw NotebookRestoreError.recoveryRequired }
+            }
+            try remover(pendingURL)
+            discardStaging()
+        } catch { throw NotebookRestoreError.recoveryRequired }
+    }
+
+    private var stagingURL: URL { journalURL.appendingPathExtension("restore-staging") }
+
+    private func stagedURL(for part: RestorePart) -> URL {
+        stagingURL.appendingPathComponent(part.rawValue)
+    }
+
+    private func liveURL(for part: RestorePart) -> URL {
+        switch part {
+        case .journal: journalURL
+        case .profile: profileURL
+        case .backup: backupURL
+        case .rawBackup: originalsURL
+        }
+    }
+
+    private func discardStaging() {
+        try? FileManager.default.removeItem(at: stagingURL)
+    }
+
+    private func restoreFile(at url: URL, contents: Data?) throws {
+        if try readIfPresent(url) == contents { return }
+        if let contents {
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try writer(contents, url)
+        } else {
+            try removeIfPresent(url)
+        }
     }
 
     public func previousBackupData() throws -> Data? {
         guard let data = try readIfPresent(backupURL) else { return nil }
         _ = try NotebookBackupCodec.decode(data)
         return data
+    }
+    public func previousBackupArchive() async throws -> NotebookArchive? {
+        try await Task.detached(priority: .userInitiated) { [backupURL] in
+            guard let data = try self.readIfPresent(backupURL) else { return nil }
+            return try NotebookBackupCodec.decode(data)
+        }.value
     }
     public func previousOriginalFilesData() throws -> Data? {
         guard let data = try readIfPresent(originalsURL) else { return nil }
@@ -109,17 +199,37 @@ public enum NotebookRestoreError: LocalizedError {
         let data = try readIfPresent(url)
         return OriginalFile(existed: data != nil, contents: data)
     }
-    private func readIfPresent(_ url: URL) throws -> Data? {
-        do { return try Data(contentsOf: url) }
+    private nonisolated func readIfPresent(_ url: URL) throws -> Data? {
+        do { return try Data(contentsOf: url, options: .mappedIfSafe) }
         catch { if isMissing(error) { return nil }; throw error }
     }
     private func removeIfPresent(_ url: URL) throws {
         do { try remover(url) }
         catch { if !isMissing(error) { throw error } }
     }
-    private func isMissing(_ error: any Error) -> Bool {
+    private nonisolated func isMissing(_ error: any Error) -> Bool {
         guard let error = error as? CocoaError else { return false }
         return error.code == .fileReadNoSuchFile || error.code == .fileNoSuchFile
+    }
+}
+
+private struct RestoreHeader: Decodable {
+    let format: String
+}
+
+private enum RestorePart: String, Codable, CaseIterable {
+    case journal, profile, backup, rawBackup
+}
+
+private struct RestoreCheckpoint: Codable {
+    let format: String
+    let version: Int
+    let present: Set<RestorePart>
+
+    init(present: Set<RestorePart>) {
+        format = "senda-restore-checkpoint"
+        version = 1
+        self.present = present
     }
 }
 
@@ -159,11 +269,11 @@ private struct OriginalPair: Codable {
         let previousData = try current.map(NotebookBackupCodec.encode)
         try recoverInterruptedRestore()
         let original = try (repository.loadSnapshot(), profileRepository.load())
-        previous = previousData
         pending = original
         do {
             try profileRepository.save(archive.profile)
             try repository.saveSnapshot(archive.snapshot)
+            previous = previousData
             pending = nil
         } catch {
             let originalError = error

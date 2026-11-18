@@ -3,20 +3,28 @@ import Foundation
 public enum ExerciseLibrary {
     public static let initialWorkoutIDs = ["bench", "deadlift", "squat"]
 
-    public static func custom(named name: String, existing: [Exercise] = Exercise.catalog, muscleGroup: MuscleGroup? = nil, equipment: ExerciseEquipment? = nil) throws -> Exercise {
+    public static func custom(named name: String, existing: [Exercise] = Exercise.catalog, muscleGroup: MuscleGroup? = nil,
+                              equipment: ExerciseEquipment? = nil, customSetup: CustomExerciseSetup = .init()) throws -> Exercise {
         let name = cleaned(name)
         guard validName(name) else { throw ExerciseLibraryError.invalidName }
-        guard !existing.contains(where: { keys($0).contains(searchKey(name)) }) else {
+        let key = matchingKey(name)
+        guard !existing.contains(where: { $0.searchNames.contains { matchingKey($0) == key } }) else {
             throw ExerciseLibraryError.duplicateName(name)
         }
-        return Exercise(id: "custom-\(UUID().uuidString.lowercased())", name: name, shortName: name, startingWeight: 0, muscleGroup: muscleGroup, equipment: equipment)
+        return Exercise(id: "custom-\(UUID().uuidString.lowercased())", name: name, shortName: name, startingWeight: 0,
+                        muscleGroup: muscleGroup, equipment: equipment, customSetup: customSetup)
     }
 
+    private static let originalIDs = Set(Exercise.originalCatalog.map(\.id))
+    private static let originalNames = Set(Exercise.originalCatalog.flatMap(keys))
+    static let presetIDs = Set(Exercise.catalog.map(\.id))
+    private static let presetIndex = Dictionary(uniqueKeysWithValues: Exercise.catalog.enumerated().map { ($0.element.id, $0.offset) })
+    private static let presetNames = Set(Exercise.catalog.map { searchKey($0.name) })
+
     public static func validated(custom: [Exercise]) throws -> [Exercise] {
-        let exercises = Exercise.catalog + custom
-        var ids = Set<String>()
-        var names = Set<String>()
-        for exercise in exercises {
+        var ids = originalIDs
+        var names = originalNames
+        for exercise in custom {
             let namesForExercise = keys(exercise)
             guard !exercise.id.isEmpty, exercise.id.count <= 80,
                   exercise.id.unicodeScalars.allSatisfy({ !$0.properties.isWhitespace && $0.properties.generalCategory != .control }),
@@ -27,7 +35,52 @@ public enum ExerciseLibrary {
                   names.isDisjoint(with: namesForExercise) else { throw ExerciseLibraryError.invalidLibrary }
             names.formUnion(namesForExercise)
         }
-        return exercises
+        return resolved(custom: custom)
+    }
+
+    /// Old custom IDs keep their meaning in recorded history, drafts, goals and backups.
+    /// Only a preset introduced later needs an alternate ID in that particular notebook.
+    public static func resolved(custom: [Exercise]) -> [Exercise] {
+        guard !custom.isEmpty else { return Exercise.catalog }
+        let customIDs = Set(custom.map(\.id))
+        var presets = Exercise.catalog
+        for id in customIDs {
+            guard let position = presetIndex[id] else { continue }
+            let preset = presets[position]
+            var index = 1
+            var alternateID = "preset:\(index):\(preset.id)"
+            while customIDs.contains(alternateID) {
+                index += 1
+                alternateID = "preset:\(index):\(preset.id)"
+            }
+            var alternate = Exercise(id: alternateID, name: preset.name, shortName: preset.shortName,
+                                     startingWeight: preset.startingWeight, muscleGroup: preset.group, equipment: preset.equipmentType)
+            alternate.origin = .alternatePreset(preset.id)
+            presets[position] = alternate
+        }
+        let personal = custom.map { exercise in
+            if let id = GymExerciseCatalog.newIDByName[matchingKey(exercise.name)], let position = presetIndex[id] {
+                presets[position].isLibraryChoice = false
+                var result = exercise
+                result.origin = .custom(sharesName: false)
+                result.catalogAliasID = id
+                return result
+            }
+            let sharesName = presetNames.contains(searchKey(exercise.name))
+            guard sharesName || presetIDs.contains(exercise.id) else { return exercise }
+            var result = exercise
+            result.origin = .custom(sharesName: sharesName)
+            return result
+        }
+        return presets + personal
+    }
+
+    public static func matchingKey(_ text: String) -> String {
+        let key = searchKey(text)
+        let compact = key.unicodeScalars.filter {
+            !$0.properties.isWhitespace && $0.properties.generalCategory != .dashPunctuation && $0 != "'" && $0 != "’"
+        }
+        return compact.isEmpty ? key : String(compact)
     }
 
     public static func searchKey(_ name: String) -> String {
@@ -38,6 +91,33 @@ public enum ExerciseLibrary {
         (1...80).contains(name.count) && name.unicodeScalars.allSatisfy { $0.properties.generalCategory != .control }
     }
     private static func keys(_ exercise: Exercise) -> Set<String> { [searchKey(exercise.name), searchKey(exercise.shortName)] }
+}
+
+public extension Exercise {
+    func matchesCatalogSearch(key: String) -> Bool {
+        if matchesExerciseName(key: key) { return true }
+        var terms = [group.rawValue, equipmentType.rawValue] + (muscleMap?.primary.map(\.name) ?? [])
+        if let required = customSetup.requiredEquipment {
+            if required.contains(where: { $0.matchesSearch(key: key) }) { return true }
+        } else if let id = catalogAliasID ?? presetID, let setup = GymExerciseCatalog.entriesByID[id]?.setup {
+            terms.append(setup)
+        }
+        return terms.contains { ExerciseLibrary.matchingKey($0).contains(key) }
+    }
+
+    var searchNames: [String] {
+        var names = [name]
+        if shortName != name { names.append(shortName) }
+        // Several long-established notebook names use “bench” for the bench press.
+        if name.lowercased().split(separator: " ").last == "bench" { names.append(name + " press") }
+        if let id = catalogAliasID, let entry = GymExerciseCatalog.entriesByID[id] { names.append(entry.name) }
+        if let id = catalogAliasID ?? presetID { names.append(contentsOf: GymExerciseCatalog.aliases(for: id)) }
+        return names
+    }
+
+    func matchesExerciseName(key: String) -> Bool {
+        searchNames.contains { ExerciseLibrary.matchingKey($0).contains(key) }
+    }
 }
 
 public enum ExerciseLibraryError: LocalizedError, Equatable {

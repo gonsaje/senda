@@ -45,3 +45,15 @@ struct ExerciseVisualResourceTests {
         }
     }
 }
+
+
+extension ExerciseVisualResourceTests {
+    @Test @MainActor func detailSubtitlesIdentifyEquipmentOrTheGuidedVariation() throws {
+        let facePull = try #require(Exercise.catalog.first { $0.id == "face-pull" })
+        #expect(ExerciseLearningDetail(exercise: facePull).subtitle == "Shoulders · Cable")
+        let bench = try #require(Exercise.catalog.first { $0.id == "bench" })
+        #expect(ExerciseLearningDetail(exercise: bench).subtitle == "Flat barbell bench press")
+        let kettlebell = try #require(Exercise.catalog.first { $0.name == "Kettlebell goblet squat" })
+        #expect(ExerciseLearningDetail(exercise: kettlebell).subtitle == "Legs · Kettlebell")
+    }
+}

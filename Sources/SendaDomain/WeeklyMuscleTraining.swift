@@ -63,9 +63,10 @@ public extension JournalSnapshot {
             }
         }
 
+        let library = Dictionary(exerciseLibrary.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         var contributions: [MuscleRegion: (lifts: [WeeklyMuscleTraining.Lift], days: Set<TrainingDay>)] = [:]
         for (exerciseID, dailyCounts) in countsByLift {
-            guard let map = ExerciseMuscleMap.map(for: exerciseID) else { continue }
+            guard let map = library[exerciseID]?.muscleMap else { continue }
             let lift = WeeklyMuscleTraining.Lift(exerciseID: exerciseID, count: dailyCounts.values.reduce(0, +))
             for muscle in map.primary {
                 contributions[muscle, default: ([], [])].lifts.append(lift)

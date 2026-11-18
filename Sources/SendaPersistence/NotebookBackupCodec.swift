@@ -35,7 +35,7 @@ public struct NotebookArchive: Codable, Equatable, Sendable {
         }
     }
 
-    private enum CodingKeys: String, CodingKey { case format, version, createdAt, snapshot, profile }
+    private enum CodingKeys: String, CodingKey { case format, version, createdAt, snapshot, profile, workoutTemplateCount }
 
     /// Backups require the library even when it is empty: a missing library must not silently erase names.
     private struct SnapshotPayload: Codable {
@@ -64,8 +64,18 @@ public struct NotebookArchive: Codable, Equatable, Sendable {
                 throw NotebookBackupError.incompatibleFormat
             }
             let version = try box.decode(Int.self, forKey: .version)
-            guard (1...6).contains(version) else { throw NotebookBackupError.unsupportedVersion(version) }
-            self = try NotebookArchive(snapshot: box.decode(SnapshotPayload.self, forKey: .snapshot).snapshot,
+            guard (1...8).contains(version) else { throw NotebookBackupError.unsupportedVersion(version) }
+            let payload = try box.decode(SnapshotPayload.self, forKey: .snapshot)
+            if version == 7, payload.training.workoutTemplates?.isEmpty != false {
+                throw NotebookBackupError.invalidBackup
+            }
+            let snapshot = payload.snapshot
+            if version == 8 {
+                guard snapshot.hasCustomExerciseSetups,
+                      try box.decode(Int.self, forKey: .workoutTemplateCount) == (payload.training.workoutTemplates?.count ?? 0)
+                else { throw NotebookBackupError.invalidBackup }
+            }
+            self = try NotebookArchive(snapshot: snapshot,
                 profile: box.decode(ProfileDetails.self, forKey: .profile), createdAt: box.decode(Date.self, forKey: .createdAt)).validated()
         } catch let error as NotebookBackupError {
             throw error
@@ -78,8 +88,15 @@ public struct NotebookArchive: Codable, Equatable, Sendable {
         let archive = try validated()
         var box = encoder.container(keyedBy: CodingKeys.self)
         try box.encode("senda-backup", forKey: .format)
-        let version = if !archive.profile.weeklyMuscleTargets.isEmpty { 6 } else if !archive.profile.goals.isEmpty { 5 } else { 4 }
+        let version = if archive.snapshot.hasCustomExerciseSetups { 8 }
+            else if archive.snapshot.training?.workoutTemplates?.isEmpty == false { 7 }
+            else if !archive.profile.weeklyMuscleTargets.isEmpty { 6 }
+            else if !archive.profile.goals.isEmpty { 5 }
+            else { 4 }
         try box.encode(version, forKey: .version)
+        if version == 8 {
+            try box.encode(archive.snapshot.training?.workoutTemplates?.count ?? 0, forKey: .workoutTemplateCount)
+        }
         try box.encode(archive.createdAt, forKey: .createdAt)
         try box.encode(SnapshotPayload(archive.snapshot), forKey: .snapshot)
         try box.encode(archive.profile, forKey: .profile)
@@ -119,16 +136,18 @@ public enum NotebookBackupCodec {
         let validated: JournalSnapshot
         do { validated = try snapshot.validated() }
         catch { throw NotebookBackupError.invalidBackup }
-        let exercises = Dictionary(uniqueKeysWithValues: (Exercise.catalog + (validated.customExercises ?? [])).map { ($0.id, $0.name) })
+        let exercises = Dictionary(uniqueKeysWithValues: validated.exerciseLibrary.map { ($0.id, $0.name) })
         var daysBySet: [UUID: String] = [:]
         var annotationsBySet: [UUID: TrainingRow] = [:]
         var plansBySet: [UUID: ExercisePlan] = [:]
         var dropStagesBySet: [UUID: Int] = [:]
+        var workoutPositions: [UUID: Int] = [:]
         for (day, workout) in validated.training?.days ?? [:] {
             for (exerciseID, rows) in workout.rows {
-                for entry in TrainingSetEntry.grouping(rows) {
+                for (position, entry) in TrainingSetEntry.grouping(rows).enumerated() {
                     for (stage, row) in entry.rows.enumerated() {
                         if let id = row.performedSetID {
+                            workoutPositions[id] = position + 1
                             daysBySet[id] = day
                             annotationsBySet[id] = row
                             plansBySet[id] = workout.exercisePlans?[exerciseID]
@@ -142,6 +161,7 @@ public enum NotebookBackupCodec {
         formatter.timeZone = TimeZone(secondsFromGMT: 0)
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         var lines = ["Day,Recorded At,Exercise,Exercise ID,Set Position,Weight (lb),Weight (kg),Reps,Batch ID,Set ID,Set Type,Reps Left,Planned Working Sets,Minimum Reps,Maximum Reps,Drop Group ID,Drop Stage"]
+        var legacyPositions: [String: [String: Int]] = [:]
         for batch in validated.journal.batches {
             // TrainingDay and the readable ISO timestamp support Gregorian years 1 through 9999.
             guard notebookDateRange.contains(batch.recordedAt.timeIntervalSince1970) else {
@@ -155,9 +175,17 @@ public enum NotebookBackupCodec {
                 let reserve = annotation?.repsInReserve.map { $0 == 5 ? "5+" : String($0) } ?? ""
                 let dropGroupID = annotation?.dropGroupID?.uuidString ?? ""
                 let dropStage = dropStagesBySet[set.id].map { String($0) } ?? ""
+                let position: Int
+                if let savedPosition = workoutPositions[set.id] {
+                    position = savedPosition
+                } else {
+                    // Earlier journals have no row order. Continue across batches for this exercise and day.
+                    legacyPositions[fallbackDay, default: [:]][batch.exerciseID, default: 0] += 1
+                    position = legacyPositions[fallbackDay]![batch.exerciseID]!
+                }
                 let fields = [daysBySet[set.id] ?? fallbackDay, date,
                     spreadsheetText(exercises[batch.exerciseID] ?? batch.exerciseID), spreadsheetText(batch.exerciseID),
-                    String(set.position), exactWeight(set.values.weight, unit: .pounds), exactWeight(set.values.weight, unit: .kilograms),
+                    String(position), exactWeight(set.values.weight, unit: .pounds), exactWeight(set.values.weight, unit: .kilograms),
                     String(set.values.reps), batch.id.uuidString, set.id.uuidString,
                     annotation?.kind?.rawValue ?? "", reserve, plan.map { String($0.workingSets) } ?? "",
                     plan.map { String($0.minimumReps) } ?? "", plan.map { String($0.maximumReps) } ?? "",

@@ -101,12 +101,12 @@ struct TrainingWeekNavigation: View {
             ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4))
             : AnyLayout(HStackLayout(alignment: .center, spacing: 8))
         return layout {
-            Text(days == 0 ? "No workouts yet" : summary)
+            Text(days == 0 ? "No workouts logged" : summary)
                 .font(.footnote)
                 .foregroundStyle(NotebookStyle.ivory.opacity(0.82))
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .accessibilityLabel(days == 0 ? "No workouts yet, 0 sets" : summary)
+                .accessibilityLabel(days == 0 ? "No workouts logged, 0 sets" : summary)
                 .accessibilityIdentifier("week-summary")
             Button(action: showMuscles) {
                 HStack(spacing: 6) {

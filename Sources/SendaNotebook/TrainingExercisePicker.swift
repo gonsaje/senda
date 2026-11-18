@@ -5,9 +5,14 @@ import SendaLogger
 public struct TrainingExercisePicker: View {
     @Bindable private var model: TrainingNotebookModel
     private let close: () -> Void
+    private let inlineBrowse: ((String) -> Void)?
+    @State private var recentSuggestions: [Exercise] = []
     @State private var search = ""
     @State private var group: MuscleGroup?
     @State private var equipment: ExerciseEquipment?
+    @StoredExerciseGymFilter private var gymFilter
+    @State private var draft = FilterDraft()
+    @State private var editingGym = false
     @State private var creating = false
     @State private var reusing = false
     @State private var filtersExpanded = false
@@ -24,38 +29,60 @@ public struct TrainingExercisePicker: View {
         let selectedID: String?
     }
 
-    public init(model: TrainingNotebookModel, close: @escaping () -> Void) {
-        self.model = model; self.close = close
+    private struct FilterDraft {
+        var group: MuscleGroup?
+        var equipment: ExerciseEquipment?
+        var gymFilter = ExerciseGymFilter()
+
+        var count: Int {
+            (group == nil ? 0 : 1) + (equipment == nil ? 0 : 1) + gymFilter.activeCount
+        }
+    }
+
+    public init(model: TrainingNotebookModel, initialSearch: String = "", close: @escaping () -> Void) {
+        self.model = model; self.close = close; inlineBrowse = nil
+        _search = State(initialValue: initialSearch)
+    }
+
+    init(inline model: TrainingNotebookModel, close: @escaping () -> Void, browse: @escaping (String) -> Void) {
+        self.model = model; self.close = close; inlineBrowse = browse
     }
 
     /// Seeds otherwise local presentation state for deterministic native preview captures.
     @_spi(Preview) public init(model: TrainingNotebookModel, search: String, group: MuscleGroup? = nil,
         equipment: ExerciseEquipment? = nil, showsFilters: Bool = false, selectedIDs: [String]? = nil,
         close: @escaping () -> Void) {
-        self.model = model; self.close = close
+        self.model = model; self.close = close; inlineBrowse = nil
         _search = State(initialValue: search); _group = State(initialValue: group)
         _equipment = State(initialValue: equipment); _filtersExpanded = State(initialValue: showsFilters)
+        _draft = State(initialValue: FilterDraft(group: group, equipment: equipment))
         _selectingSeveral = State(initialValue: selectedIDs != nil)
         _selectedIDs = State(initialValue: selectedIDs ?? [])
     }
 
-    private var filterCount: Int { (group == nil ? 0 : 1) + (equipment == nil ? 0 : 1) }
-    private var resultCount: Int { recent.count + matches.count }
-
+    private var currentFilters: FilterDraft { FilterDraft(group: group, equipment: equipment, gymFilter: gymFilter) }
+    private var filterCount: Int { currentFilters.count }
     private var recent: [Exercise] {
-        ExerciseSelectionFilter.results(in: model.recentExercises(), query: search, group: group, equipment: equipment)
+        ExerciseSelectionFilter.results(in: model.recentExercises(), query: search, group: group, equipment: equipment,
+                                        gymFilter: gymFilter)
     }
-    private var matches: [Exercise] {
+
+    private func libraryMatches(excluding recent: [Exercise]) -> [Exercise] {
         let recentIDs = Set(recent.map(\.id))
-        return ExerciseSelectionFilter.results(in: model.exercises, query: search, group: group, equipment: equipment)
+        let library = ExerciseSelectionFilter.results(in: model.exercises, query: search, group: group, equipment: equipment,
+                                                     gymFilter: gymFilter)
             .filter { !recentIDs.contains($0.id) }
-            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        if inlineBrowse != nil { return library }
+        if !search.isEmpty { return ExerciseSelectionFilter.rankedMatches(library, query: search) }
+        return library.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
     private var visibleIDs: [String] { model.workout?.exerciseIDs ?? [] }
 
     public var body: some View {
         Group {
-            if creating {
+            if let inlineBrowse {
+                inlineChooser(browse: inlineBrowse)
+            } else if creating {
                 CreateTrainingExercise(model: model, name: search, group: group ?? model.exercise?.group ?? .chest,
                     equipment: equipment ?? .other, back: { creating = false }, close: close)
             } else if reusing {
@@ -71,29 +98,117 @@ public struct TrainingExercisePicker: View {
         .onChange(of: search) { _, _ in cancelPendingAdd() }
         .onChange(of: group) { _, _ in cancelPendingAdd() }
         .onChange(of: equipment) { _, _ in cancelPendingAdd() }
+        .onChange(of: gymFilter) { _, _ in cancelPendingAdd() }
+        .sheet(isPresented: $editingGym) {
+            ExerciseGymFilterEditor(filter: $draft.gymFilter, resultCount: resultCount, onApply: applyFilters)
+        }
         .onChange(of: model.canRetrySave) { _, _ in completePendingAdd() }
         .onChange(of: model.errorMessage) { _, _ in completePendingAdd() }
         .onChange(of: model.selectedDay) { _, _ in pendingAdd = nil }
-        .onDisappear { cancelPendingAdd() }
+        .onDisappear {
+            // Inline tab navigation can already have replaced a failed add with a new save.
+            if inlineBrowse == nil { cancelPendingAdd() }
+        }
         #if os(macOS)
-        .frame(minWidth: 320, idealWidth: 470, minHeight: 568, idealHeight: 740)
+        .frame(minWidth: inlineBrowse == nil ? 320 : nil, idealWidth: inlineBrowse == nil ? 470 : nil,
+               minHeight: inlineBrowse == nil ? 568 : nil, idealHeight: inlineBrowse == nil ? 740 : nil)
         #endif
     }
 
+    private func inlineChooser(browse: @escaping (String) -> Void) -> some View {
+        let recent = ExerciseSelectionFilter.results(in: recentSuggestions, query: search, group: nil, equipment: nil,
+                                                    gymFilter: gymFilter)
+        let suggestions = ExerciseSelectionFilter.inlineSuggestions(from: recent + libraryMatches(excluding: recent), query: search)
+        let recovery = searchRecovery(alongside: Array(suggestions))
+        let controls = textSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 0))
+            : AnyLayout(HStackLayout(spacing: 8))
+        return VStack(alignment: .leading, spacing: 4) {
+            controls {
+                searchField
+                Button {
+                    cancelPendingAdd()
+                    searching = false
+                    close()
+                } label: {
+                    Text("Cancel").font(.callout).fixedSize(horizontal: false, vertical: true)
+                        .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+                }
+                .foregroundStyle(NotebookStyle.clay)
+                .accessibilityLabel("Cancel adding exercises")
+                .accessibilityIdentifier("close-exercise-picker")
+            }
+            GymSetupSwitcher(onSwitch: { cancelPendingAdd(); searching = false }, onBrowseAll: {
+                group = nil
+                equipment = nil
+            })
+            Button {
+                cancelPendingAdd()
+                searching = false
+                browse(search)
+            } label: {
+                Text(gymFilter.activeCount > 0 ? "Browse filtered exercises" : "Browse all exercises")
+                    .font(.subheadline.weight(.medium))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(minWidth: 44, minHeight: 44, alignment: .leading).contentShape(Rectangle())
+            }
+            .foregroundStyle(NotebookStyle.clay)
+            .accessibilityIdentifier("browse-all-exercises")
+            if let recovery {
+                ExerciseSearchRecoveryView(recovery: recovery, row: exerciseRow)
+            }
+            if suggestions.isEmpty && recovery == nil {
+                Text(gymFilter.activeCount > 0
+                     ? "No matches. Browse filtered exercises to change your filters."
+                     : "No exercises found")
+                    .font(.subheadline).foregroundStyle(NotebookStyle.quiet)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.vertical, 8)
+            } else {
+                VStack(spacing: 0) {
+                    ForEach(suggestions) { exercise in
+                        exerciseRow(exercise)
+                        rule
+                    }
+                }
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("workout-inline-search")
+        .task {
+            recentSuggestions = model.recentExercises()
+            await Task.yield()
+            if !Task.isCancelled { searching = true }
+        }
+    }
+
+    private func searchRecovery(alongside visible: [Exercise]) -> ExerciseSearchRecovery? {
+        guard filterCount > 0, !search.isEmpty else { return nil }
+        return ExerciseSearchRecovery.find(query: search, in: model.exercises, gymFilter: gymFilter, group: group,
+                                           equipment: equipment, includePartialMatch: visible.isEmpty,
+                                           excludingAlternatives: Set(visible.map(\.id)))
+    }
+
     private var chooser: some View {
-        ScrollView {
+        let recent = self.recent
+        let matches = libraryMatches(excluding: recent)
+        let recovery = searchRecovery(alongside: recent + matches)
+        return ScrollView {
             VStack(alignment: .leading, spacing: 22) {
                 if textSize.isAccessibilitySize {
                     pickerTitle
                     pickerTools
                 }
+                if let recovery { ExerciseSearchRecoveryView(recovery: recovery, row: exerciseRow) }
                 if !recent.isEmpty { exerciseSection("Recent", exercises: recent) }
                 if !matches.isEmpty { exerciseSection(recent.isEmpty ? "Exercises" : "All exercises", exercises: matches) }
-                if resultCount == 0 {
+                if recent.isEmpty && matches.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("No exercises found").font(.body.weight(.semibold)).accessibilityAddTraits(.isHeader)
-                        Text(filterCount > 0 ? "Try another name or clear your filters." : "Try another name or create an exercise.")
-                            .font(.callout).foregroundStyle(NotebookStyle.quiet)
+                        if recovery == nil {
+                            Text("No exercises found").font(.body.weight(.semibold)).accessibilityAddTraits(.isHeader)
+                            Text(filterCount > 0 ? "Try another name or clear your filters." : "Try another name or create an exercise.")
+                                .font(.callout).foregroundStyle(NotebookStyle.quiet)
+                        }
                         if filterCount > 0 { clearFilters }
                         Button { openCreate() } label: {
                             Label("Create exercise", systemImage: "plus").frame(minHeight: 44)
@@ -160,6 +275,10 @@ public struct TrainingExercisePicker: View {
             } else {
                 HStack(spacing: 8) { searchField; filterButton }
             }
+            GymSetupSwitcher(onSwitch: { cancelPendingAdd(); searching = false }, onBrowseAll: {
+                group = nil
+                equipment = nil
+            })
             if filterCount > 0 {
                 TrainingFlowLayout(spacing: 8) {
                     if let group {
@@ -170,6 +289,17 @@ public struct TrainingExercisePicker: View {
                     if let equipment {
                         activeFilter(equipment.rawValue, label: "Remove \(equipment.rawValue) equipment filter", identifier: "remove-equipment-filter") {
                             self.equipment = nil
+                        }
+                    }
+                    if let gym = gymFilter.gym {
+                        activeFilter(gym.label, label: "Remove \(gym.label) gym filter", identifier: "remove-gym-filter") {
+                            gymFilter.gym = nil
+                        }
+                    }
+                    if gymFilter.availableEquipment != nil {
+                        activeFilter(gymFilter.equipmentSummary, label: "Remove available equipment filter, \(gymFilter.equipmentSummary)",
+                                     identifier: "remove-available-equipment-filter") {
+                            gymFilter.availableEquipment = nil
                         }
                     }
                 }
@@ -193,7 +323,7 @@ public struct TrainingExercisePicker: View {
             Image(systemName: "magnifyingglass").foregroundStyle(NotebookStyle.quiet).accessibilityHidden(true)
             TextField("Find an exercise", text: $search).textFieldStyle(.plain).autocorrectionDisabled()
                 .focused($searching).submitLabel(.search).onSubmit { searching = false }
-                .accessibilityLabel("Find an exercise").accessibilityIdentifier("exercise-search")
+                .accessibilityLabel("Find an exercise").accessibilityIdentifier(inlineBrowse == nil ? "exercise-search" : "picker-search")
             if !search.isEmpty {
                 Button { search = "" } label: {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(NotebookStyle.quiet)
@@ -206,11 +336,11 @@ public struct TrainingExercisePicker: View {
 
     private var filterButton: some View {
         Button {
-            cancelPendingAdd(); searching = false; filtersExpanded = true
+            cancelPendingAdd(); searching = false; draft = currentFilters; filtersExpanded = true
         } label: {
             HStack(spacing: 6) {
-                Image(systemName: "line.3.horizontal.decrease")
-                if textSize.isAccessibilitySize { Text("Filters") }
+                Image(systemName: "line.3.horizontal.decrease").accessibilityHidden(true)
+                Text("Filters").font(.subheadline.weight(.medium))
                 if filterCount > 0 { Text("\(filterCount)").font(.subheadline.weight(.semibold).monospacedDigit()) }
             }.frame(minWidth: 44, minHeight: 48).contentShape(Rectangle())
         }.foregroundStyle(filterCount > 0 ? NotebookStyle.clay : NotebookStyle.ink)
@@ -246,38 +376,68 @@ public struct TrainingExercisePicker: View {
     }
 
     private var filterPanel: some View {
-        ScrollView {
+        let count = resultCount(draft.gymFilter)
+        return ScrollView {
             VStack(alignment: .leading, spacing: 20) {
+                Text("Filters").font(NotebookTypography.heading(24, relativeTo: .title2))
+                    .fixedSize(horizontal: false, vertical: true).accessibilityAddTraits(.isHeader)
+                Button { editingGym = true } label: {
+                    HStack(spacing: 12) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Gym & available equipment").font(.body.weight(.semibold))
+                            Text([draft.gymFilter.gym?.label ?? "Any gym", draft.gymFilter.equipmentSummary].joined(separator: " · "))
+                                .font(.subheadline).foregroundStyle(NotebookStyle.quiet)
+                        }.fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 0)
+                        Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(NotebookStyle.clay)
+                    }
+                    .padding(.bottom, 10).frame(minHeight: 44).contentShape(Rectangle())
+                }.overlay(alignment: .bottom) { rule }.accessibilityIdentifier("picker-gym-equipment")
                 filterChoices("Muscle group") {
-                    chip("All", selected: group == nil) { group = nil }.accessibilityIdentifier("group-All")
+                    chip("All", selected: draft.group == nil) { draft.group = nil }.accessibilityIdentifier("group-All")
                     ForEach(MuscleGroup.allCases, id: \.self) { item in
-                        chip(item.rawValue, selected: item == group) { group = item }.accessibilityIdentifier("group-\(item.rawValue)")
+                        chip(item.rawValue, selected: item == draft.group) { draft.group = item }.accessibilityIdentifier("group-\(item.rawValue)")
                     }
                 }
-                filterChoices("Equipment") {
-                    chip("All", selected: equipment == nil) { equipment = nil }.accessibilityIdentifier("equipment-All")
+                filterChoices("Main equipment") {
+                    chip("All", selected: draft.equipment == nil) { draft.equipment = nil }.accessibilityIdentifier("equipment-All")
                     ForEach(ExerciseEquipment.allCases, id: \.self) { item in
-                        chip(item.rawValue, selected: item == equipment) { equipment = item }.accessibilityIdentifier("equipment-\(item.rawValue)")
+                        chip(item.rawValue, selected: item == draft.equipment) { draft.equipment = item }.accessibilityIdentifier("equipment-\(item.rawValue)")
                     }
                 }
             }.padding(24).frame(maxWidth: 560).frame(maxWidth: .infinity)
         }.accessibilityIdentifier("exercise-filters-scroll")
             .safeAreaInset(edge: .top, spacing: 0) {
-                HStack(alignment: .top, spacing: 12) {
-                    Text("Filters").font(NotebookTypography.heading(24, relativeTo: .title2))
-                        .fixedSize(horizontal: false, vertical: true).accessibilityAddTraits(.isHeader)
-                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                    clearFilters.disabled(filterCount == 0)
-                }.padding(.horizontal, 24).padding(.vertical, 8).frame(maxWidth: 560).frame(maxWidth: .infinity)
+                HStack(spacing: 12) {
+                    Button { filtersExpanded = false } label: {
+                        Text("Cancel").frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+                    }.accessibilityIdentifier("picker-filter-cancel")
+                    Spacer(minLength: 0)
+                    Button { draft = FilterDraft() } label: {
+                        Text("Clear filters").frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+                    }.disabled(draft.count == 0).accessibilityIdentifier("clear-exercise-filters")
+                }.font(.callout).foregroundStyle(NotebookStyle.clay)
+                    .padding(.horizontal, 24).padding(.vertical, 4).frame(maxWidth: 560).frame(maxWidth: .infinity)
                     .background(NotebookStyle.ivory).overlay(alignment: .bottom) { rule }
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
-                RecordButton(title: resultCount == 0 ? "Show results" : "Show \(resultCount) \(resultCount == 1 ? "exercise" : "exercises")") {
-                    filtersExpanded = false
-                }.accessibilityIdentifier("picker-show-results")
+                RecordButton(title: "Show \(count) \(count == 1 ? "exercise" : "exercises")", action: applyFilters)
+                    .accessibilityIdentifier("picker-show-results")
                     .padding(.horizontal, 24).padding(.vertical, 12).frame(maxWidth: 560).frame(maxWidth: .infinity)
                     .background(NotebookStyle.ivory).overlay(alignment: .top) { rule }
             }
+    }
+
+    private func resultCount(_ gym: ExerciseGymFilter) -> Int {
+        ExerciseSelectionFilter.results(in: model.exercises, query: search, group: draft.group,
+                                        equipment: draft.equipment, gymFilter: gym).count
+    }
+
+    private func applyFilters() {
+        group = draft.group
+        equipment = draft.equipment
+        gymFilter = draft.gymFilter
+        filtersExpanded = false
     }
 
     private func filterChoices<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
@@ -295,16 +455,16 @@ public struct TrainingExercisePicker: View {
 
     private var clearFilters: some View {
         Button {
-            cancelPendingAdd(); group = nil; equipment = nil
+            cancelPendingAdd(); group = nil; equipment = nil; gymFilter = ExerciseGymFilter()
         } label: { Text("Clear filters").font(.callout).frame(minWidth: 44, minHeight: 44).contentShape(Rectangle()) }
-            .foregroundStyle(NotebookStyle.clay).accessibilityHint("Keep your search and show all muscle groups and equipment")
+            .foregroundStyle(NotebookStyle.clay).accessibilityHint("Keep your search and reset all exercise filters")
             .accessibilityIdentifier("clear-exercise-filters")
     }
 
     private func exerciseSection(_ title: String, exercises: [Exercise]) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(title).font(NotebookTypography.heading(20, relativeTo: .title3)).accessibilityAddTraits(.isHeader)
-            VStack(spacing: 0) {
+            LazyVStack(spacing: 0) {
                 Rectangle().fill(NotebookStyle.rule).frame(height: 0.5)
                 ForEach(exercises) { exercise in
                     exerciseRow(exercise)
@@ -316,8 +476,16 @@ public struct TrainingExercisePicker: View {
 
     private func exerciseRow(_ exercise: Exercise) -> some View {
         let added = visibleIDs.contains(exercise.id)
+        let isCustom = model.snapshot.customExercises?.contains { $0.id == exercise.id } == true
+        let details = "\(exercise.group.rawValue) · \(exercise.equipmentLabel)"
+        let current = inlineBrowse != nil && model.exercise?.id == exercise.id
         let position = selectedIDs.firstIndex(of: exercise.id)
         let pending = pendingAdd?.ids.contains(exercise.id) == true
+        var accessibilityDetails = [exercise.name, exercise.group.rawValue, exercise.equipmentLabel]
+        if isCustom { accessibilityDetails.append("custom exercise") }
+        if added { accessibilityDetails.append("added") }
+        else if let position { accessibilityDetails.append("selected \(position + 1)") }
+        if pending { accessibilityDetails.append("not saved yet") }
         return Button {
             if selectingSeveral {
                 cancelPendingAdd()
@@ -331,10 +499,10 @@ public struct TrainingExercisePicker: View {
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
                         if position != nil { Image(systemName: "checkmark").font(.caption.weight(.semibold)).foregroundStyle(NotebookStyle.clay) }
-                        Text(exercise.name).font(.body.weight(position == nil ? .regular : .semibold))
+                        Text(exercise.name).font(.body.weight(current || position != nil ? .semibold : .regular))
                             .fixedSize(horizontal: false, vertical: true)
                     }
-                    Text("\(exercise.group.rawValue) · \(exercise.equipmentType.rawValue)")
+                    Text(isCustom ? "Custom · \(details)" : details)
                         .font(.caption).foregroundStyle(NotebookStyle.quiet).fixedSize(horizontal: false, vertical: true)
                     if pending && !selectingSeveral {
                         Text("Not saved yet").font(.caption).foregroundStyle(NotebookStyle.clay)
@@ -351,8 +519,8 @@ public struct TrainingExercisePicker: View {
             }.padding(.vertical, 10).frame(minHeight: 56).contentShape(Rectangle())
         }
         .disabled(selectingSeveral && added)
-        .accessibilityLabel("\(exercise.name), \(exercise.group.rawValue), \(exercise.equipmentType.rawValue)" + (added ? ", added" : position.map { ", selected \($0 + 1)" } ?? "") + (pending ? ", not saved yet" : ""))
-        .accessibilityAddTraits(position == nil && !pending ? [] : .isSelected)
+        .accessibilityLabel(accessibilityDetails.joined(separator: ", "))
+        .accessibilityAddTraits(current || position != nil || pending ? .isSelected : [])
         .accessibilityIdentifier("picker-\(exercise.id)")
     }
 
@@ -361,7 +529,14 @@ public struct TrainingExercisePicker: View {
         guard !ids.isEmpty, let day = model.selectedDay else { return }
         let selection = several ? ids.first(where: { !visibleIDs.contains($0) }) ?? model.exercise?.id : ids.first
         pendingAdd = PendingAdd(day: day, ids: ids, selectedID: selection)
-        let saved = several ? model.addExercises(ids) : model.addExercise(ids[0])
+        let saved: Bool
+        if several {
+            saved = model.addExercises(ids)
+        } else if inlineBrowse != nil && visibleIDs.contains(ids[0]) {
+            saved = model.selectExercise(ids[0])
+        } else {
+            saved = model.addExercise(ids[0])
+        }
         if saved { completePendingAdd() }
         else if !model.canRetrySave { pendingAdd = nil }
     }
@@ -393,6 +568,7 @@ private struct CreateTrainingExercise: View {
     @State var name: String
     @State var group: MuscleGroup
     @State var equipment: ExerciseEquipment
+    @State private var setup = CustomExerciseSetup()
     let back: () -> Void
     let close: () -> Void
     @State private var pendingDay: TrainingDay?
@@ -406,8 +582,9 @@ private struct CreateTrainingExercise: View {
                     .accessibilityIdentifier("custom-name")
                 Picker("Muscle group", selection: $group) { ForEach(MuscleGroup.allCases, id: \.self) { Text($0.rawValue).tag($0) } }.pickerStyle(.menu)
                     .frame(minHeight: 44).accessibilityIdentifier("custom-group")
-                Picker("Equipment", selection: $equipment) { ForEach(ExerciseEquipment.allCases, id: \.self) { Text($0.rawValue).tag($0) } }.pickerStyle(.menu)
+                Picker("Main equipment", selection: $equipment) { ForEach(ExerciseEquipment.allCases, id: \.self) { Text($0.rawValue).tag($0) } }.pickerStyle(.menu)
                     .frame(minHeight: 44).accessibilityIdentifier("custom-equipment")
+                CustomExerciseSetupButton(setup: $setup, onOpen: { typing = false })
             }.padding(24).frame(maxWidth: 560).frame(maxWidth: .infinity, alignment: .leading)
         }
         .accessibilityIdentifier("custom-exercise-scroll")
@@ -425,7 +602,7 @@ private struct CreateTrainingExercise: View {
                 if let error = model.errorMessage { TrainingSaveError(model: model, message: error, retrySucceeded: completePending) }
             RecordButton(title: "Add exercise") {
                 cancelPending(); pendingDay = model.selectedDay
-                if model.createExercise(named: name, group: group, equipment: equipment) { completePending() }
+                if model.createExercise(named: name, group: group, equipment: equipment, customSetup: setup) { completePending() }
                 else if !model.canRetrySave { pendingDay = nil }
             }.disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || pendingDay != nil)
                 .accessibilityIdentifier("save-custom-exercise")
@@ -436,6 +613,7 @@ private struct CreateTrainingExercise: View {
         .onChange(of: name) { _, _ in cancelPending() }
         .onChange(of: group) { _, _ in cancelPending() }
         .onChange(of: equipment) { _, _ in cancelPending() }
+        .onChange(of: setup) { _, _ in cancelPending() }
         .onChange(of: model.canRetrySave) { _, _ in completePending() }
         .onChange(of: model.errorMessage) { _, _ in completePending() }
         .onDisappear { cancelPending() }
@@ -443,7 +621,7 @@ private struct CreateTrainingExercise: View {
     private func completePending() {
         guard let day = pendingDay, model.selectedDay == day, model.errorMessage == nil, !model.canRetrySave,
               let exercise = model.exercise, ExerciseLibrary.searchKey(exercise.name) == ExerciseLibrary.searchKey(name),
-              exercise.group == group, exercise.equipmentType == equipment else { return }
+              exercise.group == group, exercise.equipmentType == equipment, exercise.customSetup == setup else { return }
         pendingDay = nil; close()
     }
     private func cancelPending() {

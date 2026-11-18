@@ -7,22 +7,30 @@ public struct ExerciseLearningDetail: View {
 
     public init(exercise: Exercise) { self.exercise = exercise }
 
+    private var visual: ExerciseFormVisual? { exercise.presetID.flatMap(ExerciseFormVisual.guide(for:)) }
+
+    var subtitle: String {
+        if let variation = visual?.variationLabel ?? exercise.muscleMap?.variation, variation != exercise.name {
+            return variation
+        }
+        return "\(exercise.group.rawValue) · \(exercise.equipmentLabel)"
+    }
+
     public var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             VStack(alignment: .leading, spacing: 8) {
-                Text(exercise.name)
+                Text(exercise.displayName)
                     .font(NotebookTypography.heading(31))
                     .accessibilityAddTraits(.isHeader)
                     .accessibilityIdentifier("form-guide-\(exercise.id)")
-                Text(ExerciseFormVisual.guide(for: exercise.id)?.variationLabel
-                     ?? ExerciseMuscleMap.map(for: exercise.id)?.variation
-                     ?? "\(exercise.group.rawValue) · \(exercise.equipmentType.rawValue)")
+                Text(subtitle)
                     .font(.subheadline).foregroundStyle(NotebookStyle.quiet)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            if let guide = ExerciseFormGuide.guide(for: exercise.id) {
-                if let visual = ExerciseFormVisual.guide(for: exercise.id) {
+            let guide = exercise.presetID.flatMap(ExerciseFormGuide.guide(for:))
+            if let guide {
+                if let visual {
                     ExerciseFormVisualView(visual: visual)
                 }
 
@@ -30,27 +38,30 @@ public struct ExerciseLearningDetail: View {
                 guideSection("Move", guide.movement)
                 guideSection("Keep in mind", guide.cue)
 
-                if let muscles = ExerciseMuscleMap.map(for: exercise.id) {
-                    Divider().overlay(NotebookStyle.rule)
-                    VStack(alignment: .leading, spacing: 16) {
-                        sectionTitle("Muscles worked")
-                        ExerciseMuscleMapView(map: muscles)
-                    }.accessibilityIdentifier("exercise-muscles-\(exercise.id)")
-                }
+            } else {
+                Text("No form guide yet.")
+                    .foregroundStyle(NotebookStyle.quiet)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
 
+            if let muscles = exercise.muscleMap {
+                Divider().overlay(NotebookStyle.rule)
+                VStack(alignment: .leading, spacing: 16) {
+                    sectionTitle("Muscles worked")
+                    ExerciseMuscleMapView(map: muscles)
+                }.accessibilityIdentifier("exercise-muscles-\(exercise.id)")
+            }
+
+            if let guide {
                 VStack(alignment: .leading, spacing: 4) {
                     Link(destination: guide.sourceURL) {
                         Label(guide.sourceTitle, systemImage: "arrow.up.right")
                             .font(.callout).frame(minHeight: 44, alignment: .leading)
                     }.accessibilityIdentifier("form-source")
-                    if let visual = ExerciseFormVisual.guide(for: exercise.id) {
+                    if let visual {
                         ExerciseIllustrationCredits(visual: visual)
                     }
                 }
-            } else {
-                Text("A form guide hasn’t been added for this custom exercise yet.")
-                    .foregroundStyle(NotebookStyle.quiet)
-                    .fixedSize(horizontal: false, vertical: true)
             }
         }.foregroundStyle(NotebookStyle.ink)
     }

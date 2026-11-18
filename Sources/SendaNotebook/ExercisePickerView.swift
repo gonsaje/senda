@@ -7,30 +7,48 @@ struct ExercisePickerView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var search = ""
     @State private var creating = false
+    @StoredExerciseGymFilter private var gymFilter
     private var matches: [Exercise] {
-        let query = ExerciseLibrary.searchKey(search)
-        return model.availableExercises.filter {
-            query.isEmpty || ExerciseLibrary.searchKey($0.name).contains(query) || ExerciseLibrary.searchKey($0.shortName).contains(query)
-        }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        let matches = ExerciseSelectionFilter.results(in: model.availableExercises, query: search, group: nil, equipment: nil, gymFilter: gymFilter)
+        if !search.isEmpty { return ExerciseSelectionFilter.rankedMatches(matches, query: search) }
+        return matches.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+
+    private func exerciseRow(_ exercise: Exercise) -> some View {
+        Button {
+            if model.addExercise(exercise.id) { dismiss() }
+        } label: {
+            HStack(spacing: 12) {
+                Text(exercise.displayName).foregroundStyle(NotebookStyle.ink)
+                Spacer()
+                if model.workoutExerciseIDs.contains(exercise.id) {
+                    Image(systemName: "checkmark").foregroundStyle(NotebookStyle.clay).accessibilityHidden(true)
+                }
+            }.frame(minHeight: 44).contentShape(Rectangle())
+        }
+        .accessibilityLabel(exercise.displayName + (model.workoutExerciseIDs.contains(exercise.id) ? ", in workout" : ""))
+        .accessibilityIdentifier("picker-exercise-\(exercise.id)")
     }
 
     var body: some View {
         NavigationStack {
             List {
-                ForEach(matches) { exercise in
-                    Button {
-                        if model.addExercise(exercise.id) { dismiss() }
-                    } label: {
-                        HStack(spacing: 12) {
-                            Text(exercise.name).foregroundStyle(NotebookStyle.ink)
-                            Spacer()
-                            if model.workoutExerciseIDs.contains(exercise.id) {
-                                Image(systemName: "checkmark").foregroundStyle(NotebookStyle.clay).accessibilityHidden(true)
-                            }
-                        }.frame(minHeight: 38).contentShape(Rectangle())
-                    }
-                    .accessibilityLabel(exercise.name + (model.workoutExerciseIDs.contains(exercise.id) ? ", in workout" : ""))
-                    .accessibilityIdentifier("picker-exercise-\(exercise.id)")
+                let results = matches
+                let recovery = ExerciseSearchRecovery.find(query: search, in: model.availableExercises, gymFilter: gymFilter,
+                    includePartialMatch: results.isEmpty, excludingAlternatives: Set(results.map(\.id)))
+                GymSetupSwitcher().listRowBackground(NotebookStyle.ivory)
+                if let recovery {
+                    ExerciseSearchRecoveryView(recovery: recovery, row: exerciseRow)
+                        .buttonStyle(.plain).listRowBackground(NotebookStyle.ivory)
+                }
+                if results.isEmpty && gymFilter.activeCount > 0 {
+                    VStack(alignment: .leading) {
+                        if recovery == nil { Text("No exercises found").font(.headline) }
+                        Button("Clear filters") { gymFilter = .init() }.frame(minHeight: 44)
+                    }.listRowBackground(NotebookStyle.ivory)
+                }
+                ForEach(results) { exercise in
+                    exerciseRow(exercise)
                     .listRowBackground(NotebookStyle.ivory)
                 }
                 if let error = model.errorMessage {
@@ -44,6 +62,11 @@ struct ExercisePickerView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }.accessibilityIdentifier("cancel-exercise-picker")
+                }
+                ToolbarItem(placement: .primaryAction) {
+                    LibraryGymFilterButton(filter: $gymFilter, identifier: "legacy-gym-filters", resultCount: {
+                        ExerciseSelectionFilter.results(in: model.availableExercises, query: search, group: nil, equipment: nil, gymFilter: $0).count
+                    })
                 }
             }
             .safeAreaInset(edge: .bottom) {
@@ -67,6 +90,7 @@ private struct CustomExerciseView: View {
     @Bindable var model: LoggerModel
     var close: () -> Void
     @State private var name: String
+    @State private var setup = CustomExerciseSetup()
     @FocusState private var typing: Bool
 
     init(model: LoggerModel, initialName: String, close: @escaping () -> Void) {
@@ -74,17 +98,19 @@ private struct CustomExerciseView: View {
         _name = State(initialValue: initialName.trimmingCharacters(in: .whitespacesAndNewlines))
     }
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            TextField("Exercise name", text: $name)
-                .font(.system(size: 28, design: .serif)).textFieldStyle(.plain).focused($typing)
-                .accessibilityLabel("Exercise name").accessibilityIdentifier("custom-exercise-name")
-                .padding(.vertical, 16)
-                .overlay(alignment: .bottom) { Rectangle().fill(NotebookStyle.rule).frame(height: 1) }
-            if let error = model.errorMessage { Text(error).font(.callout).foregroundStyle(NotebookStyle.clay) }
-            Spacer()
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                TextField("Exercise name", text: $name)
+                    .font(.system(size: 28, design: .serif)).textFieldStyle(.plain).focused($typing)
+                    .accessibilityLabel("Exercise name").accessibilityIdentifier("custom-exercise-name")
+                    .padding(.vertical, 16)
+                    .overlay(alignment: .bottom) { Rectangle().fill(NotebookStyle.rule).frame(height: 1) }
+                CustomExerciseSetupButton(setup: $setup, onOpen: { typing = false })
+                if let error = model.errorMessage { Text(error).font(.callout).foregroundStyle(NotebookStyle.clay) }
+            }
+            .padding(.horizontal, 24).padding(.top, 20)
         }
-        .padding(.horizontal, 24).padding(.top, 20)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .scrollDismissesKeyboard(.interactively)
         .background(NotebookStyle.ivory).foregroundStyle(NotebookStyle.ink)
         .navigationTitle("New exercise")
         .toolbar {
@@ -94,7 +120,7 @@ private struct CustomExerciseView: View {
         }
         .safeAreaInset(edge: .bottom) {
             RecordButton(title: "Add exercise") {
-                if model.createAndAddExercise(named: name) { typing = false; close() }
+                if model.createAndAddExercise(named: name, customSetup: setup) { typing = false; close() }
             }
             .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             .accessibilityIdentifier("add-custom-exercise")

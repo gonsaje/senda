@@ -85,7 +85,7 @@ public struct TrainingWorkoutReusePicker: View {
     }
 
     private func workoutRow(_ workout: TrainingWorkoutStructure) -> some View {
-        let names = workout.exerciseIDs.map { model.exercise($0).name }.joined(separator: ", ")
+        let names = workout.exerciseIDs.map { model.exercise($0).displayName }.joined(separator: ", ")
         let date = TrainingText.date(workout.day, format: "EEEE, MMM d, yyyy")
         return Button {
             if pendingReuse?.source == workout.day { retryPendingReuse() }

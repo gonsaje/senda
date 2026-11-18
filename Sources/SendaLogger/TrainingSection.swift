@@ -10,3 +10,7 @@ public enum TrainingSection: String, CaseIterable, Sendable {
         }
     }
 }
+
+public enum LearnExerciseScope: Sendable {
+    case library, personal, needsDetails
+}

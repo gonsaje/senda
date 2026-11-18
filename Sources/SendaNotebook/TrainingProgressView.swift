@@ -119,7 +119,8 @@ public struct TrainingProgressView: View {
     private var exerciseCatalog: some View {
         let exercises = catalogExercises
         let search = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        let results = search.isEmpty ? exercises : exercises.filter { $0.name.localizedStandardContains(search) }
+        let key = ExerciseLibrary.matchingKey(search)
+        let results = key.isEmpty ? exercises : exercises.filter { $0.matchesExerciseName(key: key) }
         return VStack(alignment: .leading, spacing: 20) {
             Text("Exercise history").font(NotebookTypography.heading(31)).accessibilityAddTraits(.isHeader)
                 .fixedSize(horizontal: false, vertical: true)
@@ -160,8 +161,8 @@ public struct TrainingProgressView: View {
                             } label: {
                                 HStack(spacing: 14) {
                                     VStack(alignment: .leading, spacing: 5) {
-                                        Text(exercise.name).font(.body.weight(.semibold))
-                                        Text("\(exercise.group.rawValue) · \(exercise.equipmentType.rawValue)")
+                                        Text(exercise.displayName).font(.body.weight(.semibold))
+                                        Text("\(exercise.group.rawValue) · \(exercise.equipmentLabel)")
                                             .font(.caption).foregroundStyle(NotebookStyle.quiet)
                                     }
                                     .fixedSize(horizontal: false, vertical: true)
@@ -185,9 +186,9 @@ public struct TrainingProgressView: View {
     private func exerciseDetail(_ exercise: Exercise, progress: ExerciseProgress, recorded: [ExerciseProgressSession]) -> some View {
         VStack(alignment: .leading, spacing: 20) {
             VStack(alignment: .leading, spacing: 9) {
-                Text(exercise.name).font(NotebookTypography.heading(31)).accessibilityAddTraits(.isHeader)
+                Text(exercise.displayName).font(NotebookTypography.heading(31)).accessibilityAddTraits(.isHeader)
                     .fixedSize(horizontal: false, vertical: true)
-                Text("\(exercise.group.rawValue) · \(exercise.equipmentType.rawValue)")
+                Text("\(exercise.group.rawValue) · \(exercise.equipmentLabel)")
                     .font(.subheadline).foregroundStyle(NotebookStyle.quiet)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -210,7 +211,7 @@ public struct TrainingProgressView: View {
                 ExerciseProgressFrequencyChart(progress: progress, calendar: model.calendar)
             } else {
                 emptyState(title: "No sets in this window.",
-                    message: recorded.isEmpty ? "Record a set for \(exercise.name) to see it here." : "Recorded days below include all saved dates.")
+                    message: recorded.isEmpty ? "Record a set for \(exercise.displayName) to see it here." : "Recorded days below include all saved dates.")
             }
             if !recorded.isEmpty { sessions(recorded, exercise: exercise) }
         }
@@ -253,7 +254,7 @@ public struct TrainingProgressView: View {
     private func sessionDetail(_ session: ExerciseProgressSession, exercise: Exercise) -> some View {
         VStack(alignment: .leading, spacing: 24) {
             VStack(alignment: .leading, spacing: 10) {
-                Text(exercise.name).font(NotebookTypography.heading(31)).accessibilityAddTraits(.isHeader)
+                Text(exercise.displayName).font(NotebookTypography.heading(31)).accessibilityAddTraits(.isHeader)
                     .fixedSize(horizontal: false, vertical: true)
                 Text(date(session.day, format: "EEEE, MMMM d, yyyy")).font(.title3)
                     .fixedSize(horizontal: false, vertical: true)
@@ -443,9 +444,17 @@ enum ProgressFormatting {
         return formatter.string(from: day.date(in: calendar))
     }
     static func set(_ values: SetValues, exercise: Exercise, unit: WeightUnit) -> String {
-        if !exercise.requiresWeight {
-            return values.weight == 0 ? "BW × \(values.reps)" : "BW + \(unit.text(for: values.weight)) \(unit.symbol) × \(values.reps)"
+        guard let load = load(values.weight, exercise: exercise, unit: unit) else {
+            return "\(values.reps) \(values.reps == 1 ? "rep" : "reps")"
         }
-        return "\(unit.text(for: values.weight)) \(unit.symbol) × \(values.reps)"
+        return "\(load) × \(values.reps)"
+    }
+
+    static func load(_ weight: Int, exercise: Exercise, unit: WeightUnit) -> String? {
+        if exercise.equipmentType == .bodyweight {
+            return weight == 0 ? "BW" : "BW + \(unit.text(for: weight)) \(unit.symbol)"
+        }
+        if weight == 0 && !exercise.requiresWeight { return nil }
+        return "\(unit.text(for: weight)) \(unit.symbol)"
     }
 }

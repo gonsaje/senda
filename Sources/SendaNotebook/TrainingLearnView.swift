@@ -6,6 +6,9 @@ struct TrainingLearnView: View {
     @Bindable var model: TrainingNotebookModel
     @FocusState private var searchFocused: Bool
     @State private var presentedGuideID: String?
+    @State private var editingSetup: Exercise?
+    @StoredExerciseGymFilter private var gymFilter
+    @Environment(\.dynamicTypeSize) private var textSize
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.layoutDirection) private var layoutDirection
 
@@ -14,7 +17,6 @@ struct TrainingLearnView: View {
         _presentedGuideID = State(initialValue: model.learningExerciseID)
     }
 
-    private var results: [Exercise] { ExerciseFormGuide.search(model.learningQuery, in: model.exercises) }
     private var motion: TrainingPageMotion { TrainingPageMotion(reduceMotion: reduceMotion) }
     private var guideOffset: CGFloat {
         layoutDirection == .rightToLeft ? -TrainingPageMotion.detailOffset : TrainingPageMotion.detailOffset
@@ -47,31 +49,76 @@ struct TrainingLearnView: View {
             withAnimation(motion.animation) { presentedGuideID = next }
         }
         .onChange(of: model.landingResetID) { _, _ in searchFocused = false }
+        .sheet(item: $editingSetup) { exercise in
+            CustomExerciseSetupEditor(setup: exercise.customSetup, saveError: { model.errorMessage },
+                onCancelPending: { if model.canRetrySave { _ = model.cancelPendingAction() } },
+                onSave: { model.updateCustomExerciseSetup($0, for: exercise.id) })
+        }
     }
 
     private var exerciseList: some View {
-        ScrollViewReader { proxy in
+        let exercises = model.exercises
+        let results = model.learningResults(in: exercises, gymFilter: gymFilter)
+        let byGroup = Dictionary(grouping: results, by: \.group)
+        let groups = MuscleGroup.allCases.filter { byGroup[$0] != nil }
+        return ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    Text("Learn").font(NotebookTypography.heading(31)).accessibilityAddTraits(.isHeader)
+                    let controls = textSize.isAccessibilitySize
+                        ? AnyLayout(VStackLayout(alignment: .leading, spacing: 0))
+                        : AnyLayout(HStackLayout(spacing: 12))
+                    controls {
+                        Text("Learn").font(NotebookTypography.heading(31)).accessibilityAddTraits(.isHeader)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        if model.learningScope == .library {
+                            LibraryGymFilterButton(filter: $gymFilter, identifier: "learn-gym-filters", resultCount: {
+                                ExerciseFormGuide.search(model.learningQuery, in: exercises, gymFilter: $0).count
+                            }, onOpen: { searchFocused = false })
+                        }
+                    }
                     search
-                    if results.isEmpty { emptyState }
-                    ForEach(MuscleGroup.allCases, id: \.self) { group in
-                        let exercises = results.filter { $0.group == group }
-                        if !exercises.isEmpty {
-                            VStack(alignment: .leading, spacing: 0) {
+                    scopeControls
+                    if model.learningScope == .library {
+                        GymSetupSwitcher(onSwitch: { searchFocused = false })
+                        let recovery = gymFilter.activeCount > 0 && !model.learningQuery.isEmpty
+                            ? ExerciseSearchRecovery.find(query: model.learningQuery, in: exercises, gymFilter: gymFilter,
+                                includePartialMatch: results.isEmpty, excludingAlternatives: Set(results.map(\.id)))
+                            : nil
+                        if let recovery {
+                            ExerciseSearchRecoveryView(recovery: recovery, row: exerciseRow)
+                            if recovery.reason == .gymsUnspecified || recovery.reason == .equipmentUnspecified,
+                               let custom = model.snapshot.customExercises?.first(where: { $0.id == recovery.exercise.id }) {
+                                Button { searchFocused = false; editingSetup = custom } label: {
+                                    Text("Edit gym & equipment").frame(minHeight: 44).contentShape(Rectangle())
+                                }.accessibilityIdentifier("learn-edit-missing-setup")
+                            }
+                        }
+                        if results.isEmpty { emptyState(explained: recovery != nil) }
+                    } else {
+                        personalFilters
+                        if results.isEmpty { personalEmptyState }
+                    }
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(groups, id: \.self) { group in
+                            Section {
+                                ForEach(byGroup[group] ?? []) { exercise in
+                                    VStack(spacing: 0) {
+                                        exerciseRow(exercise)
+                                        Rectangle().fill(NotebookStyle.rule).frame(height: 0.5).accessibilityHidden(true)
+                                    }
+                                    .id("learn-exercise-\(exercise.id)")
+                                }
+                            } header: {
                                 Text(group.rawValue)
                                     .font(NotebookTypography.heading(22, relativeTo: .title2))
                                     .accessibilityAddTraits(.isHeader)
                                     .padding(.bottom, 8)
-                                ForEach(exercises) { exercise in
-                                    exerciseRow(exercise)
-                                        .id("learn-exercise-\(exercise.id)")
-                                    Rectangle().fill(NotebookStyle.rule).frame(height: 0.5)
-                                }
+                                    .padding(.top, group == groups.first ? 0 : 16)
                             }
                         }
                     }
+                    // A gym switch can replace hundreds of rows. Reset their layout while keeping the search field mounted.
+                    .id(model.learningScope == .library ? gymFilter : .init())
                 }
                 .padding(24).padding(.bottom, 8)
                 .frame(maxWidth: 560).frame(maxWidth: .infinity)
@@ -89,11 +136,86 @@ struct TrainingLearnView: View {
         }
     }
 
+    private var scopeControls: some View {
+        let layout = textSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 0))
+                                                  : AnyLayout(HStackLayout(spacing: 20))
+        return layout {
+            scopeButton("All exercises", personal: false, identifier: "learn-all-exercises")
+            scopeButton("My exercises", personal: true, identifier: "learn-my-exercises")
+        }
+    }
+
+    private func scopeButton(_ title: String, personal: Bool, identifier: String) -> some View {
+        let selected = personal == (model.learningScope != .library)
+        return Button {
+            guard !selected else { return }
+            searchFocused = false
+            model.learningScope = personal ? .personal : .library
+        } label: {
+            HStack(spacing: 5) {
+                if selected { Image(systemName: "checkmark").font(.caption.bold()).accessibilityHidden(true) }
+                Text(title).font(.subheadline.weight(selected ? .semibold : .regular))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(minHeight: 44).contentShape(Rectangle())
+        }
+        .buttonStyle(.plain).foregroundStyle(selected ? NotebookStyle.clay : NotebookStyle.ink)
+        .accessibilityAddTraits(selected ? .isSelected : []).accessibilityIdentifier(identifier)
+    }
+
+    private var personalFilters: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Toggle("Needs details", isOn: Binding(get: { model.learningScope == .needsDetails }, set: {
+                searchFocused = false
+                model.learningScope = $0 ? .needsDetails : .personal
+            }))
+            .frame(minHeight: 44).tint(NotebookStyle.clay).accessibilityIdentifier("learn-needs-details")
+            if gymFilter.activeCount > 0 {
+                Text("Includes exercises from all gyms.").font(.caption).foregroundStyle(NotebookStyle.quiet)
+            }
+        }
+    }
+
+    @ViewBuilder private var personalEmptyState: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if !model.learningQuery.isEmpty {
+                Text("No matching custom exercises").font(.headline).accessibilityAddTraits(.isHeader)
+                Button { model.learningQuery = ""; searchFocused = false } label: {
+                    Text("Clear search").frame(minHeight: 44).contentShape(Rectangle())
+                }
+            } else if model.snapshot.customExercises?.isEmpty != false {
+                Text("No custom exercises yet").font(.headline).accessibilityAddTraits(.isHeader)
+                Text("To create one, open Add exercise in a workout.").foregroundStyle(NotebookStyle.quiet)
+            } else {
+                Text("All your exercises have gym and equipment details.").font(.headline).accessibilityAddTraits(.isHeader)
+                Button { model.learningScope = .personal } label: {
+                    Text("Show all my exercises").frame(minHeight: 44).contentShape(Rectangle())
+                }
+            }
+        }
+        .fixedSize(horizontal: false, vertical: true).accessibilityIdentifier("learn-personal-empty")
+    }
+
     private func guide(_ id: String) -> some View {
-        ScrollView {
-            ExerciseLearningDetail(exercise: model.exercise(id))
-                .padding(24).padding(.bottom, 8)
-                .frame(maxWidth: 560).frame(maxWidth: .infinity)
+        let custom = model.snapshot.customExercises?.first { $0.id == id }
+        return ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                ExerciseLearningDetail(exercise: model.exercise(id))
+                if let custom {
+                    Divider().overlay(NotebookStyle.rule)
+                    Button { editingSetup = custom } label: {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Edit gym & equipment").font(.body.weight(.semibold)).foregroundStyle(NotebookStyle.clay)
+                            Text(custom.customSetup.summary).font(.subheadline).foregroundStyle(NotebookStyle.quiet)
+                        }
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading).contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain).accessibilityIdentifier("edit-custom-setup")
+                }
+            }
+            .padding(24).padding(.bottom, 8)
+            .frame(maxWidth: 560).frame(maxWidth: .infinity)
         }
         .clipped()
         .accessibilityIdentifier("learn-guide-scroll")
@@ -106,7 +228,7 @@ struct TrainingLearnView: View {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 16))
                 .foregroundStyle(NotebookStyle.quiet).accessibilityHidden(true)
-            TextField("Find an exercise", text: $model.learningQuery)
+            TextField(model.learningScope == .library ? "Find an exercise" : "Find a custom exercise", text: $model.learningQuery)
                 .textFieldStyle(.plain).autocorrectionDisabled()
                 .focused($searchFocused).submitLabel(.search)
                 .onSubmit { searchFocused = false }
@@ -126,21 +248,34 @@ struct TrainingLearnView: View {
         .overlay(RoundedRectangle(cornerRadius: 7).stroke(NotebookStyle.rule, lineWidth: 1))
     }
 
-    private var emptyState: some View {
+    private func emptyState(explained: Bool) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("No exercises found")
-                .font(NotebookTypography.heading(22, relativeTo: .title2))
-                .accessibilityAddTraits(.isHeader)
-            Text("Try a different exercise name, muscle group, or equipment.")
-                .foregroundStyle(NotebookStyle.quiet)
-                .fixedSize(horizontal: false, vertical: true)
-            Button {
-                searchFocused = false
-                model.learningQuery = ""
-            } label: {
-                Text("Clear search").frame(minHeight: 44, alignment: .leading)
+            if !explained {
+                Text("No exercises found")
+                    .font(NotebookTypography.heading(22, relativeTo: .title2))
+                    .accessibilityAddTraits(.isHeader)
+                Text(gymFilter.activeCount > 0 ? "Try another search or clear your gym and equipment filters." : "Try a different exercise name, muscle group, or equipment.")
+                    .foregroundStyle(NotebookStyle.quiet)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            .accessibilityIdentifier("learn-empty-clear")
+            if gymFilter.activeCount > 0 {
+                Button {
+                    searchFocused = false
+                    gymFilter = .init()
+                } label: {
+                    Text("Clear filters").frame(minHeight: 44, alignment: .leading)
+                }
+                .accessibilityIdentifier("learn-clear-gym-filters")
+            }
+            if !model.learningQuery.isEmpty {
+                Button {
+                    searchFocused = false
+                    model.learningQuery = ""
+                } label: {
+                    Text("Clear search").frame(minHeight: 44, alignment: .leading)
+                }
+                .accessibilityIdentifier("learn-empty-clear")
+            }
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("learn-empty-state")
@@ -149,21 +284,24 @@ struct TrainingLearnView: View {
     private func exerciseRow(_ exercise: Exercise) -> some View {
         Button {
             searchFocused = false
-            model.learningExerciseID = exercise.id
+            if model.learningScope == .needsDetails { editingSetup = exercise }
+            else { model.learningExerciseID = exercise.id }
         } label: {
             HStack(spacing: 12) {
-                Group {
-                    if let visual = ExerciseFormVisual.guide(for: exercise.id), let frame = visual.frames.first {
-                        ExerciseArtworkImage(name: frame.resourceName, maximumPixelSize: 192)
-                            .scaledToFit().blendMode(.multiply)
-                    } else if let muscles = ExerciseMuscleMap.map(for: exercise.id) {
-                        ExerciseMuscleThumbnail(map: muscles)
-                    } else {
-                        Color.clear
-                    }
-                }.frame(width: 58, height: 58).accessibilityHidden(true)
+                if model.learningScope == .library {
+                    Group {
+                        if let visual = exercise.presetID.flatMap(ExerciseFormVisual.guide(for:)), let frame = visual.frames.first {
+                            ExerciseArtworkImage(name: frame.resourceName, maximumPixelSize: 192)
+                                .scaledToFit().blendMode(.multiply)
+                        } else if let muscles = exercise.muscleMap {
+                            ExerciseMuscleThumbnail(map: muscles)
+                        } else {
+                            Color.clear
+                        }
+                    }.frame(width: 58, height: 58).accessibilityHidden(true)
+                }
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(exercise.name).font(.body.weight(.medium))
+                    Text(exercise.displayName).font(.body.weight(.medium))
                         .fixedSize(horizontal: false, vertical: true)
                     Text(exerciseSubtitle(exercise))
                         .font(.caption).foregroundStyle(NotebookStyle.quiet)
@@ -197,8 +335,16 @@ struct TrainingLearnView: View {
     }
 
     private func exerciseSubtitle(_ exercise: Exercise) -> String {
-        guard ExerciseFormGuide.guide(for: exercise.id) != nil else { return "Guide not added yet" }
-        guard let muscles = ExerciseMuscleMap.map(for: exercise.id) else { return exercise.equipmentType.rawValue }
-        return muscles.primary.map(\.name).joined(separator: ", ") + " · " + exercise.equipmentType.rawValue
+        if model.learningScope != .library {
+            let setup = exercise.customSetup
+            if setup.isEmpty { return "Add gym type and equipment" }
+            if setup.gyms.isEmpty { return "Add gym type" }
+            if setup.requiredEquipment == nil { return "Add required equipment" }
+            return setup.summary
+        }
+        guard let muscles = exercise.muscleMap else {
+            return exercise.presetID == nil ? "Guide not added yet" : exercise.equipmentLabel
+        }
+        return muscles.primary.map(\.name).joined(separator: ", ") + " · " + exercise.equipmentLabel
     }
 }

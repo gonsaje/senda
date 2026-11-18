@@ -15,17 +15,18 @@ public enum NumericField: String, CaseIterable, Identifiable, Codable, Sendable 
     }
     public func parse(_ text: String) -> Int? {
         guard !text.isEmpty, text.count <= 10 else { return nil }
+        if self != .weight {
+            guard text.utf8.allSatisfy({ (48...57).contains($0) }),
+                  let value = Int(text), range.contains(value) else { return nil }
+            return value
+        }
         let normalized = text.replacingOccurrences(of: ",", with: ".")
         let pieces = normalized.split(separator: ".", omittingEmptySubsequences: false)
-        guard pieces.count <= (self == .weight ? 2 : 1),
-              pieces.allSatisfy({ !$0.isEmpty && $0.allSatisfy({ $0.isASCII && $0.isNumber }) }),
-              let whole = Int(pieces[0]) else { return nil }
-        let value: Int
-        if self == .weight {
-            let fractional = pieces.count == 2 ? String(pieces[1]) : ""
-            guard fractional.count <= 2, whole <= 10_000 else { return nil }
-            value = whole * 100 + (Int(fractional.padding(toLength: 2, withPad: "0", startingAt: 0)) ?? 0)
-        } else { value = whole }
+        guard pieces.count <= 2, pieces.allSatisfy({ !$0.isEmpty && $0.allSatisfy({ $0.isASCII && $0.isNumber }) }),
+              let whole = Int(pieces[0]), whole <= 10_000 else { return nil }
+        let fractional = pieces.count == 2 ? String(pieces[1]) : ""
+        guard fractional.count <= 2 else { return nil }
+        let value = whole * 100 + (Int(fractional.padding(toLength: 2, withPad: "0", startingAt: 0)) ?? 0)
         return range.contains(value) ? value : nil
     }
     public func text(_ value: Int) -> String {

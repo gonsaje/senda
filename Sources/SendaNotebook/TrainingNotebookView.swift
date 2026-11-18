@@ -7,6 +7,7 @@ import UIKit
 
 public struct TrainingNotebookView: View {
     @Bindable private var model: TrainingNotebookModel
+    @State private var isSoftwareKeyboardVisible = false
     public init(model: TrainingNotebookModel) { self.model = model }
     public var body: some View {
         Group {
@@ -44,7 +45,19 @@ public struct TrainingNotebookView: View {
                 .accessibilityIdentifier("history-return-workout")
             }
         }
-        .safeAreaInset(edge: .bottom, spacing: 0) { if !model.backupRecoveryRequired { TrainingDock(model: model) } }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            let isTypingInWorkout = model.section == .log && model.selectedDay != nil && isSoftwareKeyboardVisible
+            if !model.backupRecoveryRequired && !isTypingInWorkout {
+                TrainingDock(model: model)
+            }
+        }
+        #if canImport(UIKit)
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { notification in
+            guard let screen = notification.object as? UIScreen,
+                  let frame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
+            isSoftwareKeyboardVisible = !screen.coordinateSpace.bounds.intersection(frame).isEmpty
+        }
+        #endif
         .background(NotebookStyle.ivory).foregroundStyle(NotebookStyle.ink)
         .scrollIndicators(.never)
         .tint(NotebookStyle.clay).buttonStyle(.plain)
@@ -133,7 +146,7 @@ struct TrainingWeekView: View {
                     initialDay: week.contains(model.today) ? model.today : model.workspace.visibleWeek)
             case .muscles:
                 TrainingWeekMusclesView(training: training, targets: model.profile.details.weeklyMuscleTargets,
-                    exerciseName: { model.exercise($0).name })
+                    exerciseName: { model.exercise($0).displayName })
             }
         }
         .background(NotebookStyle.ivory)
@@ -144,7 +157,19 @@ struct TrainingWeekView: View {
         let bodyParts = summary.muscleGroups.map(\.rawValue)
         let unfinished = model.unfinishedSetCount(for: day)
         let isToday = day == model.today
-        let action = unfinished > 0 ? "Continue workout" : "Add workout"
+        let exerciseCount = model.workspace.days[day.rawValue]?.exerciseIDs.count ?? 0
+        let action: String
+        let symbol: String
+        if unfinished > 0 {
+            action = "Continue workout"
+            symbol = "pencil"
+        } else if exerciseCount > 0 {
+            action = "\(exerciseCount) \(exerciseCount == 1 ? "exercise" : "exercises") planned"
+            symbol = "list.bullet"
+        } else {
+            action = "Add workout"
+            symbol = "plus"
+        }
         let date = TrainingText.date(day, format: "EEEE, MMM d, yyyy")
         let dateLabel = isToday ? "Today, \(date)" : date
         let setLabel = "\(summary.setCount) \(summary.setCount == 1 ? "set" : "sets")"
@@ -201,7 +226,7 @@ struct TrainingWeekView: View {
                             .font(.caption).foregroundStyle(NotebookStyle.quiet)
                         }
                     } else {
-                        Label(action, systemImage: unfinished > 0 ? "pencil" : "plus")
+                        Label(action, systemImage: symbol)
                             .font(.callout)
                             .foregroundStyle(unfinished > 0 ? NotebookStyle.clay : NotebookStyle.quiet)
                     }

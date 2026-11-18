@@ -52,7 +52,7 @@ public struct TrainingSetDetailsEditor: View {
                 }
                 VStack(alignment: .leading, spacing: 8) {
                     Text("\(setContext) reps left").font(NotebookTypography.heading(32)).accessibilityAddTraits(.isHeader)
-                    Text(model.exercise(context.exerciseID).name).font(.subheadline).foregroundStyle(NotebookStyle.quiet)
+                    Text(model.exercise(context.exerciseID).displayName).font(.subheadline).foregroundStyle(NotebookStyle.quiet)
                 }.fixedSize(horizontal: false, vertical: true)
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Reps left").font(.headline).accessibilityAddTraits(.isHeader)

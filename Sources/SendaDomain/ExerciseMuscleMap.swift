@@ -46,7 +46,7 @@ public enum MuscleRegion: String, CaseIterable, Codable, Sendable {
     }
 }
 
-/// A qualitative map for the variation described by `ExerciseFormGuide`.
+/// A qualitative map for the named exercise variation.
 /// Primary regions produce the main movement; supporting regions assist it.
 /// Stabilizing regions hold position or grip and are kept separate from movers.
 /// The surface map is selective, not an exhaustive list or activation measurement.
@@ -125,7 +125,7 @@ public struct ExerciseMuscleMap: Equatable, Sendable {
             ExerciseMuscleMap(primary: [.chest], supporting: [.frontShoulders, .triceps],
                 stabilizing: [.abdominals, .glutes], variation: "Floor push-up with legs extended")
         default:
-            nil
+            ExpandedExerciseCatalog.muscleMaps[id] ?? GymExerciseCatalog.entriesByID[id]?.muscleMap
         }
     }
 }

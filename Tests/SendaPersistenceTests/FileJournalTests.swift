@@ -31,6 +31,24 @@ struct FileJournalTests {
         #expect(throws: (any Error).self) { try reopened.record(request, at: Date()) }
     }
 
+    @Test func correctingRemovingAndAppendingSetsAcrossLongHistoryReopensExactly() throws {
+        let url = try location()
+        defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+        let store = FileJournalRepository(url: url)
+        var journal = Journal()
+        for _ in 0..<140 { _ = try journal.record(draft(), at: Date()) }
+        try store.save(journal)
+        let removed = journal.batches[58]
+        _ = try journal.undo(batchID: removed.id, revision: removed.revision)
+        let changed = journal.batches[129]
+        _ = try journal.updateSet(changed.sets[0].id, values: SetValues(weight: 14_000, reps: 7))
+        try store.save(journal)
+        #expect(try FileJournalRepository(url: url).load() == journal)
+        _ = try journal.record(draft(), at: Date())
+        try store.save(journal)
+        #expect(try FileJournalRepository(url: url).load() == journal)
+    }
+
     @Test func testCorruptOrFutureFileIsNotTreatedAsAnEmptyJournal() throws {
         let url = try location()
         for data in [Data("broken".utf8), Data("{\"version\":999,\"journal\":{}}".utf8)] {

@@ -41,7 +41,7 @@ public final class LoggerModel {
     }
 
     public var exercise: Exercise { availableExercises.first { $0.id == selectedExerciseID }! }
-    public var availableExercises: [Exercise] { Exercise.catalog + customExercises }
+    public var availableExercises: [Exercise] { ExerciseLibrary.resolved(custom: customExercises) }
     public var workoutExercises: [Exercise] {
         let library = Dictionary(uniqueKeysWithValues: availableExercises.map { ($0.id, $0) })
         return workoutExerciseIDs.compactMap { library[$0] }
@@ -51,9 +51,9 @@ public final class LoggerModel {
         guard let exercise = availableExercises.first(where: { $0.id == id }), prepareWorkoutChange() else { return false }
         return addToWorkout(exercise, custom: customExercises)
     }
-    @discardableResult public func createAndAddExercise(named name: String) -> Bool {
+    @discardableResult public func createAndAddExercise(named name: String, customSetup: CustomExerciseSetup = .init()) -> Bool {
         do {
-            let exercise = try ExerciseLibrary.custom(named: name, existing: availableExercises)
+            let exercise = try ExerciseLibrary.custom(named: name, existing: availableExercises, customSetup: customSetup)
             guard prepareWorkoutChange() else { return false }
             return addToWorkout(exercise, custom: customExercises + [exercise])
         } catch { errorMessage = error.localizedDescription; return false }

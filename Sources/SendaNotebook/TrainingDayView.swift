@@ -5,13 +5,17 @@ import SendaLogger
 import UIKit
 #endif
 
-private enum TrainingDaySheet: String, Identifiable {
-    case picker, exercises, reuse
-    var id: String { rawValue }
+private enum TrainingDaySheet: Hashable, Identifiable {
+    case catalog(String), exercises, reuse, library
+    var id: Self { self }
 }
 
-private struct TrainingPendingSheet {
-    let destination: TrainingDaySheet
+private enum TrainingDayDestination {
+    case addExercise, sheet(TrainingDaySheet)
+}
+
+private struct TrainingPendingNavigation {
+    let destination: TrainingDayDestination
     let day: TrainingDay
     let exerciseID: String?
     let rowIDs: [UUID]
@@ -33,9 +37,12 @@ struct TrainingDayView: View {
     @Bindable var model: TrainingNotebookModel
     let day: TrainingDay
     @State private var presentedSheet: TrainingDaySheet?
-    @State private var pendingSheet: TrainingPendingSheet?
+    @State private var showingSearch = false
+    @State private var searchAfterDismissal: TrainingDay?
+    @State private var pendingNavigation: TrainingPendingNavigation?
     @State private var planContext: TrainingMetadataContext?
     @State private var measuredFocusLayout: TrainingFocusedRowLayout?
+    @State private var entryNavigationTarget: String?
     @State private var showsFirstSetConfirmation = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dynamicTypeSize) private var textSize
@@ -60,13 +67,14 @@ struct TrainingDayView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 8) {
                     dayNavigation.id("day-header")
-                    if let exercise = model.exercise {
-                        exerciseNavigation(exercise)
-                        TrainingReferenceBanners(model: model, beginNavigation: { pendingSheet = nil }, editPlan: {
-                            pendingSheet = nil
-                            planContext = TrainingMetadataContext(day: day, exerciseID: exercise.id, rowIDs: model.rows.map(\.id))
-                        })
-                        TrainingSetRows(model: model, beginInteraction: { pendingSheet = nil }).id("\(day.rawValue)/\(exercise.id)")
+                    workoutExercises.id("active-exercise")
+                    if showingSearch {
+                        TrainingExercisePicker(inline: model, close: { showingSearch = false },
+                            browse: { query in open(.sheet(.catalog(query))) })
+                    } else if let exercise = model.exercise {
+                        exerciseControls(exercise)
+                        TrainingReferenceBanners(model: model, beginNavigation: { pendingNavigation = nil })
+                        TrainingSetRows(model: model, beginInteraction: { pendingNavigation = nil }).id("\(day.rawValue)/\(exercise.id)")
                         if model.focus == nil && model.errorMessage == nil && !model.canRetrySave {
                             TrainingNextWorkoutFeedback(model: model, day: day, exercise: exercise)
                         }
@@ -83,16 +91,23 @@ struct TrainingDayView: View {
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 VStack(spacing: 0) {
                     if let error = model.errorMessage ?? (model.canRetrySave ? model.saveStatus : nil) {
-                        TrainingSaveError(model: model, message: error, retrySucceeded: presentPendingSheet)
+                        TrainingSaveError(model: model, message: error, retrySucceeded: presentPendingNavigation)
                             .padding(.horizontal, 24).padding(.top, 8)
                             .padding(.bottom, model.focus == nil ? 12 : 0)
                     }
                     if let focus = model.focus {
-                        TrainingInputDock(model: model, focus: focus, beginInteraction: { pendingSheet = nil }).id(focus.id)
+                        TrainingInputDock(model: model, focus: focus, beginInteraction: {
+                            pendingNavigation = nil
+                            entryNavigationTarget = nil
+                        }, selectExercise: { id in
+                            pendingNavigation = nil
+                            entryNavigationTarget = id
+                            model.selectExercise(id)
+                        }).id(focus.id)
                     }
                     else if model.errorMessage == nil, let label = model.undoLabel {
                         Button {
-                            pendingSheet = nil
+                            pendingNavigation = nil
                             if model.undoChange() { TrainingAccessibility.announce("Change undone.") }
                         } label: {
                             Text("Undo last change").underline()
@@ -121,15 +136,22 @@ struct TrainingDayView: View {
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("day-controls")
             }
-            .sheet(item: $presentedSheet) { destination in
+            .sheet(item: $presentedSheet, onDismiss: {
+                if searchAfterDismissal == day && model.selectedDay == day && model.section == .log {
+                    showingSearch = true
+                }
+                searchAfterDismissal = nil
+            }) { destination in
                 switch destination {
-                case .picker:
-                    TrainingExercisePicker(model: model, close: { presentedSheet = nil })
+                case .catalog(let query):
+                    TrainingExercisePicker(model: model, initialSearch: query, close: { presentedSheet = nil })
                 case .exercises:
                     TrainingDayExerciseList(model: model, day: day, close: { presentedSheet = nil },
-                        add: { presentedSheet = .picker })
+                        add: { searchAfterDismissal = day; presentedSheet = nil })
                 case .reuse:
                     TrainingWorkoutReusePicker(model: model, close: { presentedSheet = nil })
+                case .library:
+                    TrainingWorkoutLibrary(model: model, close: { presentedSheet = nil })
                 }
             }
             .sheet(item: $planContext) { context in
@@ -167,56 +189,88 @@ struct TrainingDayView: View {
             }
             .onChange(of: day) { _, _ in
                 showsFirstSetConfirmation = false
-                pendingSheet = nil
+                showingSearch = false
+                searchAfterDismissal = nil
+                entryNavigationTarget = nil
+                pendingNavigation = nil
                 presentedSheet = nil
                 planContext = nil
                 if model.revealRowID == nil { scroll.scrollTo("day-top", anchor: .top) }
             }
-            .onChange(of: model.rows) { _, _ in reconcilePendingSheet() }
-            .onChange(of: model.focus?.id) { _, _ in reconcilePendingSheet() }
-            .onChange(of: model.canRetrySave) { _, _ in reconcilePendingSheet() }
-            .onChange(of: model.errorMessage) { _, _ in reconcilePendingSheet() }
-            .onChange(of: model.exercise?.id) { _, _ in pendingSheet = nil; planContext = nil }
-            .onChange(of: model.section) { _, _ in pendingSheet = nil }
+            .onChange(of: showingSearch) { _, isOpen in
+                if !isOpen && presentedSheet == nil && model.section == .log && model.selectedDay == day {
+                    scroll.scrollTo("active-exercise", anchor: .top)
+                }
+            }
+            .onChange(of: model.rows) { _, _ in reconcilePendingNavigation() }
+            .onChange(of: model.focus?.id) { _, _ in reconcilePendingNavigation() }
+            .onChange(of: model.canRetrySave) { _, _ in reconcilePendingNavigation() }
+            .onChange(of: model.errorMessage) { _, _ in reconcilePendingNavigation() }
+            .onChange(of: model.exercise?.id) { _, id in
+                if let id, entryNavigationTarget == id { scroll.scrollTo("active-exercise", anchor: .top) }
+                entryNavigationTarget = nil
+                pendingNavigation = nil
+                planContext = nil
+            }
+            .onChange(of: model.section) { _, _ in
+                pendingNavigation = nil
+                showingSearch = false
+                searchAfterDismissal = nil
+            }
         }.background(NotebookStyle.ivory)
     }
 
-    private func requestSheet(_ destination: TrainingDaySheet) {
-        pendingSheet = nil
-        if model.finishEditing() { presentedSheet = destination }
+    private func open(_ destination: TrainingDayDestination) {
+        pendingNavigation = nil
+        if model.finishEditing() { present(destination) }
         else {
-            pendingSheet = TrainingPendingSheet(destination: destination, day: day,
+            pendingNavigation = TrainingPendingNavigation(destination: destination, day: day,
                 exerciseID: model.exercise?.id, rowIDs: model.rows.map(\.id))
         }
     }
-    private func presentPendingSheet() {
-        guard let request = pendingSheet else { return }
-        pendingSheet = nil
+    private func presentPendingNavigation() {
+        guard let request = pendingNavigation else { return }
+        pendingNavigation = nil
         guard model.section == .log, model.selectedDay == request.day, model.focus == nil,
               model.errorMessage == nil, !model.canRetrySave,
               model.exercise?.id == request.exerciseID, model.rows.map(\.id) == request.rowIDs else { return }
-        presentedSheet = request.destination
+        present(request.destination)
     }
-    private func reconcilePendingSheet() {
-        guard let request = pendingSheet else { return }
+
+    private func present(_ destination: TrainingDayDestination) {
+        switch destination {
+        case .addExercise:
+            showingSearch = true
+        case .sheet(let sheet):
+            showingSearch = false
+            presentedSheet = sheet
+        }
+    }
+    private func reconcilePendingNavigation() {
+        guard let request = pendingNavigation else { return }
         guard model.section == .log, model.selectedDay == request.day,
               model.exercise?.id == request.exerciseID, model.rows.map(\.id) == request.rowIDs else {
-            pendingSheet = nil
+            pendingNavigation = nil
             return
         }
         if model.errorMessage == nil, !model.canRetrySave {
-            if model.focus == nil { presentPendingSheet() }
-            else { pendingSheet = nil }
+            if model.focus == nil { presentPendingNavigation() }
+            else { pendingNavigation = nil }
         }
     }
 
     private var emptyWorkout: some View {
         VStack(alignment: .leading, spacing: 6) {
-            if !model.indexedExercises(on: day).isEmpty { exerciseSelector }
-            Button { requestSheet(.picker) } label: { WorkoutPrimaryActionLabel(title: "Add exercise") }
-                .accessibilityIdentifier("add-exercise")
+            Button { open(.sheet(.library)) } label: {
+                Label("Choose workout", systemImage: "list.bullet.rectangle")
+                    .font(.subheadline.weight(.medium))
+                    .frame(minWidth: 44, minHeight: 44)
+                    .contentShape(Rectangle())
+            }
+            .foregroundStyle(NotebookStyle.clay)
+            .accessibilityIdentifier("choose-workout")
             if !model.reusableWorkouts.isEmpty {
-                Button { requestSheet(.reuse) } label: {
+                Button { open(.sheet(.reuse)) } label: {
                     Text("Use a previous workout")
                         .font(.subheadline.weight(.medium))
                         .fixedSize(horizontal: false, vertical: true)
@@ -262,7 +316,7 @@ struct TrainingDayView: View {
             Text("Today").font(.callout).foregroundStyle(NotebookStyle.clay)
         } else {
             Button {
-                pendingSheet = nil
+                pendingNavigation = nil
                 if model.openToday() { TrainingAccessibility.announce("Today, \(TrainingText.date(model.today, format: "MMM d, yyyy")).") }
             } label: {
                 Text("Go to today")
@@ -275,46 +329,82 @@ struct TrainingDayView: View {
         }
     }
 
-    @ViewBuilder private func exerciseNavigation(_ exercise: Exercise) -> some View {
-        if textSize >= .xxxLarge {
-            VStack(alignment: .leading, spacing: 0) {
-                exerciseSelector
-                HStack(spacing: 4) {
-                    Spacer(minLength: 8)
-                    progressButton(exercise)
-                    unitToggle
+    private var workoutExercises: some View {
+        let addLayout = textSize >= .accessibility3
+            ? AnyLayout(VStackLayout(spacing: 0))
+            : AnyLayout(HStackLayout(spacing: 5))
+        return HStack(alignment: .top, spacing: 8) {
+            if model.tabs.isEmpty {
+                Text("Exercises").font(.headline)
+                    .accessibilityAddTraits(.isHeader)
+                Spacer(minLength: 0)
+                if !model.indexedExercises(on: day).isEmpty { workoutOptions }
+            } else {
+                TrainingWorkoutExerciseList(exercises: model.tabs, selectedID: model.exercise?.id) { id in
+                    guard showingSearch || id != model.exercise?.id else { return }
+                    pendingNavigation = nil
+                    showingSearch = false
+                    model.selectExercise(id)
                 }
             }
-        } else {
+            Button { open(.addExercise) } label: {
+                addLayout {
+                    Image(systemName: "plus").font(.caption.weight(.semibold))
+                    Text("Add").font(.subheadline.weight(.semibold))
+                }
+                .frame(minWidth: 44, minHeight: 46)
+                .contentShape(Rectangle())
+            }
+            .fixedSize()
+            .foregroundStyle(NotebookStyle.clay)
+            .disabled(showingSearch)
+            .accessibilityLabel("Add exercise")
+            .accessibilityIdentifier("add-exercise")
+        }
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(NotebookStyle.rule).frame(height: 0.5).accessibilityHidden(true)
+        }
+    }
+
+    private func exerciseControls(_ exercise: Exercise) -> some View {
+        let layout = textSize >= .xxxLarge
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 0))
+            : AnyLayout(HStackLayout(spacing: 4))
+        return layout {
+            TrainingPlanSummary(model: model) {
+                pendingNavigation = nil
+                planContext = TrainingMetadataContext(day: day, exerciseID: exercise.id, rowIDs: model.rows.map(\.id))
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
             HStack(spacing: 4) {
-                exerciseSelector.frame(maxWidth: .infinity, alignment: .leading)
                 progressButton(exercise)
                 unitToggle
+                workoutOptions
             }
         }
     }
 
-    private var exerciseSelector: some View {
-        TrainingExerciseMenu(model: model, day: day, addExercise: { requestSheet(.picker) },
-            showAll: { requestSheet(.exercises) }, beginNavigation: { pendingSheet = nil })
+    private var workoutOptions: some View {
+        TrainingWorkoutOptions(model: model, day: day, showAll: { open(.sheet(.exercises)) },
+            chooseWorkout: { open(.sheet(.library)) }, beginNavigation: { pendingNavigation = nil })
     }
     private func progressButton(_ exercise: Exercise) -> some View {
-        Button { pendingSheet = nil; model.openProgress(for: exercise.id) } label: {
+        Button { pendingNavigation = nil; model.openProgress(for: exercise.id) } label: {
             Image(systemName: "chart.xyaxis.line").padding(8).frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
         }
         .foregroundStyle(NotebookStyle.quiet)
-        .accessibilityLabel("View \(exercise.name) progress")
+        .accessibilityLabel("View \(exercise.displayName) progress")
         .accessibilityIdentifier("exercise-progress")
     }
     private var weekButton: some View {
-        Button { pendingSheet = nil; model.showWeek() } label: {
+        Button { pendingNavigation = nil; model.showWeek() } label: {
             Label("Week", systemImage: "chevron.left").font(.subheadline).fixedSize(horizontal: true, vertical: true).frame(minHeight: 44).contentShape(Rectangle())
         }.accessibilityIdentifier("back-to-week")
     }
 
     private var unitToggle: some View {
         Button {
-            pendingSheet = nil
+            pendingNavigation = nil
             model.changeUnit(model.unit.alternate)
         } label: {
             HStack(spacing: 5) {
@@ -336,12 +426,12 @@ struct TrainingDayView: View {
 
     private var dateControls: some View {
         HStack(spacing: 0) {
-            Button { pendingSheet = nil; model.changeDay(-1) } label: {
+            Button { pendingNavigation = nil; model.changeDay(-1) } label: {
                 Image(systemName: "chevron.left").padding(8).frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
             }
             .disabled((try? day.adding(days: -1)) == nil)
             .accessibilityLabel("Previous day").accessibilityIdentifier("previous-day")
-            Button { pendingSheet = nil; model.changeDay(1) } label: {
+            Button { pendingNavigation = nil; model.changeDay(1) } label: {
                 Image(systemName: "chevron.right").padding(8).frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
             }
             .disabled((try? day.adding(days: 1)) == nil)
@@ -376,23 +466,15 @@ private struct TrainingSetDetailsRequest: Identifiable {
 struct TrainingReferenceBanners: View {
     @Bindable var model: TrainingNotebookModel
     var beginNavigation: () -> Void = {}
-    let editPlan: () -> Void
     @State private var expanded = false
     @Environment(\.dynamicTypeSize) private var textSize
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if textSize >= .xxxLarge {
-                TrainingPlanSummary(model: model, edit: editPlan)
-                if hasReferences { disclosure }
-            } else {
-                HStack(spacing: 12) {
-                    TrainingPlanSummary(model: model, edit: editPlan).frame(maxWidth: .infinity, alignment: .leading)
-                    if hasReferences { disclosure.fixedSize(horizontal: true, vertical: false) }
-                }
-            }
+            if hasReferences { disclosure }
             if expanded { references }
         }
         .onChange(of: model.focus?.rowID) { _, rowID in if rowID != nil { expanded = false } }
+        .onChange(of: model.exercise?.id) { _, _ in expanded = false }
     }
     private var hasReferences: Bool { model.lastReference != nil || model.personalBest != nil }
     private var disclosure: some View {
@@ -717,7 +799,7 @@ struct TrainingSetRows: View {
         .accessibilityIdentifier("repeat-set")
     }
     private func weightText(_ row: TrainingRow) -> String {
-        row.weight.isEmpty ? (model.exercise?.requiresWeight == false ? "BW" : "—") : row.weight
+        row.weight.isEmpty ? (model.exercise?.equipmentType == .bodyweight ? "BW" : "—") : row.weight
     }
     private func typeButton(_ row: TrainingRow, index: Int, includesSetNumber: Bool = false) -> some View {
         Button {

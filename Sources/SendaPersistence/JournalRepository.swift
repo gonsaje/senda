@@ -1,13 +1,27 @@
 import Foundation
 import SendaDomain
 
+/// Carries the result of checking the entire notebook across the persistence boundary.
+public struct ValidatedJournalSnapshot: Sendable {
+    public let snapshot: JournalSnapshot
+
+    public init(_ snapshot: JournalSnapshot) throws {
+        self.snapshot = try snapshot.validated()
+    }
+}
+
 /// A performed-history change and its matching recovery state are one transaction.
 @MainActor public protocol JournalRepository {
     func loadSnapshot() throws -> JournalSnapshot
     func saveSnapshot(_ snapshot: JournalSnapshot) throws
+    func saveValidatedSnapshot(_ checked: ValidatedJournalSnapshot) throws
 }
 
 public extension JournalRepository {
+    func saveValidatedSnapshot(_ checked: ValidatedJournalSnapshot) throws {
+        try saveSnapshot(checked.snapshot)
+    }
+
     func load() throws -> Journal { try loadSnapshot().journal }
     /// Legacy journal-only callers preserve recovery, and fail if their change makes it inconsistent.
     func save(_ journal: Journal) throws {

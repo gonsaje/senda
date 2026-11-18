@@ -6,6 +6,20 @@ struct TrainingTrendFeedbackTests {
     private let bench = Exercise(id: "bench", name: "Bench", shortName: "Bench", startingWeight: 13_500)
     private let pullUp = Exercise(id: "pull-up", name: "Pull-up", shortName: "Pull-up", startingWeight: 0)
 
+    @Test func optionalBandResistanceShowsRepsAndUsesOnlyRecordedWeight() throws {
+        let band = try #require(Exercise.catalog.first { $0.id == "banded-good-morning" })
+        let unloaded = SetValues(weight: 0, reps: 8)
+        let loaded = SetValues(weight: 1_000, reps: 8)
+        #expect(ProgressFormatting.set(unloaded, exercise: band, unit: .pounds) == "8 reps")
+        #expect(ProgressFormatting.set(loaded, exercise: band, unit: .pounds) == "10 lb × 8")
+        let comparison = TrainingTrendFeedback.make(comparison: .repsAtSameWeight(delta: 1, weight: 0),
+            latest: unloaded, previous: SetValues(weight: 0, reps: 7), exercise: band, unit: .pounds)
+        #expect(comparison.text == "1 more rep")
+        let guidance = NextWorkoutGuidance(plan: ExercisePlan(workingSets: 2, minimumReps: 8, maximumReps: 12),
+            status: .buildReps, reason: .moreReps, referenceWeight: 0)
+        #expect(TrainingNextWorkoutText.make(guidance, exercise: band, unit: .pounds) == "Build toward 12 reps in each working set.")
+    }
+
     @Test func mixedChangesDescribeBothDifferencesWithoutCallingEitherAnImprovement() {
         for (weight, reps, statement) in [
             (14_500, 3, "10 lb more · 2 fewer reps"),

@@ -3,52 +3,18 @@ import SendaLogger
 
 struct TrainingDock: View {
     @Bindable var model: TrainingNotebookModel
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var textSize
 
     var body: some View {
         let outline = RoundedRectangle(cornerRadius: 24)
-        HStack(spacing: 0) {
-            ForEach(TrainingSection.allCases, id: \.self) { section in
-                let selected = model.section == section
-                Button { model.selectDockSection(section) } label: {
-                    VStack(spacing: 3) {
-                        Image(systemName: section.symbol)
-                            .symbolVariant(selected ? .fill : .none)
-                            .font(.system(size: 19, weight: .medium))
-                            .frame(width: 54, height: 28)
-                            .anchorPreference(key: DockIconBounds.self, value: .bounds) { [section: $0] }
-                            .accessibilityHidden(true)
-                        Text(section.rawValue)
-                            .font(.caption.weight(selected ? .semibold : .medium))
-                            .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
-                            .lineLimit(1).fixedSize()
-                    }.frame(maxWidth: .infinity, minHeight: 54).contentShape(Rectangle())
+        Group {
+            if textSize.isAccessibilitySize {
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 0) {
+                    tabs
                 }
-                .foregroundStyle(selected ? NotebookStyle.clay : NotebookStyle.quiet)
-                .accessibilityLabel(section.rawValue)
-                .accessibilityAddTraits(selected ? .isSelected : [])
-                .accessibilityIdentifier("dock-\(section.rawValue.lowercased())")
-                #if os(iOS)
-                .accessibilityShowsLargeContentViewer {
-                    Label(section.rawValue, systemImage: section.symbol)
-                        .symbolVariant(selected ? .fill : .none)
-                }
-                #endif
+            } else {
+                HStack(spacing: 0) { tabs }
             }
-        }
-        .backgroundPreferenceValue(DockIconBounds.self) { bounds in
-            GeometryReader { geometry in
-                if let anchor = bounds[model.section] {
-                    let icon = geometry[anchor]
-                    Capsule()
-                        .fill(NotebookStyle.clay.opacity(0.05))
-                        .frame(width: icon.width, height: icon.height)
-                        .position(x: icon.midX, y: icon.midY)
-                        .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: model.section)
-                }
-            }
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
         }
         .padding(.horizontal, 6)
         .padding(.vertical, 2)
@@ -67,12 +33,48 @@ struct TrainingDock: View {
         .padding(.bottom, 4)
         .frame(maxWidth: .infinity)
     }
-}
-
-private struct DockIconBounds: PreferenceKey {
-    static var defaultValue: [TrainingSection: Anchor<CGRect>] { [:] }
-
-    static func reduce(value: inout [TrainingSection: Anchor<CGRect>], nextValue: () -> [TrainingSection: Anchor<CGRect>]) {
-        value.merge(nextValue(), uniquingKeysWith: { _, next in next })
+    private var tabs: some View {
+        ForEach(TrainingSection.allCases, id: \.self) { section in
+            let selected = model.section == section
+            Button { model.selectDockSection(section) } label: {
+                let title = Text(section.rawValue)
+                    .font(.caption.weight(selected ? .bold : .medium))
+                    .foregroundStyle(selected ? NotebookStyle.ink : NotebookStyle.quiet)
+                    .fixedSize(horizontal: false, vertical: true)
+                if textSize.isAccessibilitySize {
+                    HStack(spacing: 5) {
+                        if selected {
+                            Image(systemName: "checkmark").font(.footnote.weight(.bold))
+                                .accessibilityHidden(true)
+                        }
+                        title
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .contentShape(Rectangle())
+                } else {
+                    VStack(spacing: 3) {
+                        Image(systemName: section.symbol)
+                            .symbolVariant(selected ? .fill : .none)
+                            .font(.system(size: 19, weight: .medium))
+                            .frame(width: 54, height: 28)
+                            .accessibilityHidden(true)
+                        title
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 54)
+                    .contentShape(Rectangle())
+                }
+            }
+            .foregroundStyle(selected ? NotebookStyle.clay : NotebookStyle.quiet)
+            .accessibilityLabel(section.rawValue)
+            .accessibilityAddTraits(selected ? .isSelected : [])
+            .accessibilityIdentifier("dock-\(section.rawValue.lowercased())")
+            #if os(iOS)
+            .accessibilityShowsLargeContentViewer {
+                Label(section.rawValue, systemImage: section.symbol)
+                    .symbolVariant(selected ? .fill : .none)
+            }
+            #endif
+        }
     }
+
 }

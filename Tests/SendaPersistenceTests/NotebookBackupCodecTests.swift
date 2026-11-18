@@ -125,7 +125,7 @@ struct NotebookBackupCodecTests {
             var candidate = original; candidate["format"] = value
             #expect(throws: (any Error).self) { try NotebookBackupCodec.decode(data(candidate)) }
         }
-        for value: Any in [0, 7, -1, 1.5, "1", NSNull()] {
+        for value: Any in [0, 8, -1, 1.5, "1", NSNull()] {
             var candidate = original; candidate["version"] = value
             #expect(throws: (any Error).self) { try NotebookBackupCodec.decode(data(candidate)) }
         }
@@ -295,6 +295,39 @@ struct NotebookBackupCodecTests {
         #expect(!csv.contains("31."))
         #expect(csv.contains("\"Cable, \"\"high\"\" row\""))
         #expect(csv.hasSuffix("\r\n"))
+    }
+
+    @Test func csvReportsWorkoutSetNumbersForIndividuallyRecordedSetsAndDropStages() throws {
+        let day = try TrainingDay("2026-11-09")
+        var journal = Journal()
+        var rows: [TrainingRow] = []
+        let group = UUID()
+        for reps in [12, 10, 8, 6] {
+            let batch = try journal.record(DraftBatch(exerciseID: "bench", sets: [SetValues(weight: 9_000, reps: reps)]),
+                                           at: day.date(in: calendar))
+            var row = TrainingRow(set: batch.sets[0], unit: .pounds)
+            if reps == 10 || reps == 8 { row.kind = .dropSet; row.dropGroupID = group }
+            rows.append(row)
+        }
+        // The second logged batch is the top stage of the workout's first set.
+        let workout = DayWorkout(exerciseIDs: ["bench"], selectedExerciseID: "bench",
+            rows: ["bench": [rows[1], rows[2], rows[0], rows[3]]])
+        let training = TrainingWorkspace(visibleWeek: day, days: [day.rawValue: workout])
+        let data = try NotebookBackupCodec.csv(snapshot: JournalSnapshot(journal: journal, training: training))
+        let records = parseCSV(String(decoding: data, as: UTF8.self)).dropFirst()
+        #expect(records.map { [$0[7], $0[4], $0[16]] } ==
+            [["12", "2", ""], ["10", "1", "1"], ["8", "1", "2"], ["6", "3", ""]])
+    }
+
+    @Test func csvNumbersLegacyBatchesWithinTheirExerciseAndCivilDay() throws {
+        var journal = Journal()
+        let day = try TrainingDay("2026-11-09")
+        for (offset, exercise) in [(0, "bench"), (0, "squat"), (0, "bench"), (1, "bench")] {
+            _ = try journal.record(DraftBatch(exerciseID: exercise, sets: [SetValues(weight: 500, reps: 6)]),
+                                   at: day.adding(days: offset).date(in: calendar))
+        }
+        let data = try NotebookBackupCodec.csv(snapshot: JournalSnapshot(journal: journal), calendar: calendar)
+        #expect(parseCSV(String(decoding: data, as: UTF8.self)).dropFirst().map { $0[4] } == ["1", "1", "2", "1"])
     }
 
     @Test func csvUsesCalendarForLegacyDaysAndUTCForRecordedTimestamps() throws {

@@ -36,7 +36,7 @@ struct TrainingStrengthGoalEditor: View {
     private var exercise: Exercise? { exerciseID.map { model.exercise($0) } }
 
     private var exercises: [Exercise] {
-        var exercises = model.exercises
+        var exercises = model.exercises.filter(\.isLibraryChoice)
         if let exercise, !exercises.contains(where: { $0.id == exercise.id }) {
             exercises.append(exercise)
         }
@@ -61,8 +61,8 @@ struct TrainingStrengthGoalEditor: View {
                         .fixedSize(horizontal: false, vertical: true)
                     exercisePicker
                     targets
-                    if exercise?.requiresWeight == false {
-                        Text("Leave added weight blank for body weight.")
+                    if let exercise, !exercise.requiresWeight {
+                        Text(exercise.equipmentType == .bodyweight ? "Leave added weight blank for body weight." : "Leave weight blank for a rep goal.")
                             .font(.subheadline)
                             .foregroundStyle(NotebookStyle.quiet)
                             .fixedSize(horizontal: false, vertical: true)
@@ -132,15 +132,15 @@ struct TrainingStrengthGoalEditor: View {
                         exerciseID = option.id
                         errorMessage = nil
                     } label: {
-                        if exerciseID == option.id { Label(option.name, systemImage: "checkmark") }
-                        else { Text(option.name) }
+                        if exerciseID == option.id { Label(option.displayName, systemImage: "checkmark") }
+                        else { Text(option.displayName) }
                     }
                     .accessibilityAddTraits(exerciseID == option.id ? .isSelected : [])
                     .accessibilityIdentifier("strength-goal-exercise-\(option.id)")
                 }
             } label: {
                 HStack(spacing: 8) {
-                    Text(exercise?.name ?? "Choose exercise")
+                    Text(exercise?.displayName ?? "Choose exercise")
                         .fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 0)
                     Image(systemName: "chevron.down").font(.caption)
@@ -151,7 +151,7 @@ struct TrainingStrengthGoalEditor: View {
                 .contentShape(Rectangle())
             }
             .accessibilityLabel("Exercise")
-            .accessibilityValue(exercise?.name ?? "Choose exercise")
+            .accessibilityValue(exercise?.displayName ?? "Choose exercise")
             .accessibilityIdentifier("strength-goal-exercise")
             rule
         }
@@ -161,7 +161,7 @@ struct TrainingStrengthGoalEditor: View {
         let layout = textSize >= .xxLarge
             ? AnyLayout(VStackLayout(alignment: .leading, spacing: 12))
             : AnyLayout(HStackLayout(alignment: .top, spacing: 20))
-        let weightTitle = exercise?.requiresWeight == false ? "Added weight" : "Target weight"
+        let weightTitle = exercise?.equipmentType == .bodyweight ? "Added weight" : "Target weight"
         return layout {
             targetField("\(weightTitle) (\(unit.symbol))", text: $weight,
                 decimal: true, identifier: "strength-goal-weight")
@@ -200,9 +200,10 @@ struct TrainingStrengthGoalEditor: View {
             targetWeight = unit.parse(weight)
         }
         guard let targetWeight, targetWeight > 0 || !exercise.requiresWeight else {
-            return report(exercise.requiresWeight
-                ? "Enter a target weight greater than zero."
-                : "Enter a valid added weight or leave it blank.")
+            if exercise.requiresWeight { return report("Enter a target weight greater than zero.") }
+            return report(exercise.equipmentType == .bodyweight
+                ? "Enter a valid added weight or leave it blank."
+                : "Enter a valid weight or leave it blank.")
         }
         guard let targetReps = NumericField.reps.parse(reps) else {
             return report("Enter 1 to 999 reps.")

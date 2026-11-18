@@ -30,6 +30,8 @@ struct TrainingDomainTests {
         #expect(row.parsed(for: bench) == SetValues(weight: 0, reps: 10))
         row.weight = "31."
         #expect(row.parsed(for: bench) == nil)
+        let savedBlank = TrainingRow(reps: "10", unit: .pounds, canonicalWeight: 0, performedSetID: UUID())
+        #expect(savedBlank.parsed(for: bench) == nil)
     }
 
     @Test func unitChangesPreserveCanonicalWeightAndRejectPartialNumbers() {

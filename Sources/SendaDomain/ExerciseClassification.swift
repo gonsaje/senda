@@ -9,7 +9,14 @@ public enum ExerciseEquipment: String, Codable, CaseIterable, Sendable {
 public extension Exercise {
     var group: MuscleGroup { muscleGroup ?? defaults.0 }
     var equipmentType: ExerciseEquipment { equipment ?? defaults.1 }
-    var requiresWeight: Bool { equipmentType != .bodyweight }
+    var equipmentLabel: String {
+        if equipmentType == .other, let presetID, let setup = GymExerciseCatalog.entriesByID[presetID]?.setup { return setup }
+        return equipmentType.rawValue
+    }
+    var requiresWeight: Bool {
+        if equipmentType == .bodyweight || customSetup.requiredEquipment?.isEmpty == true { return false }
+        return presetID.flatMap { GymExerciseCatalog.entriesByID[$0]?.optionalLoad } != true
+    }
     private var defaults: (MuscleGroup, ExerciseEquipment) {
         switch id {
         case "bench": (.chest, .barbell)

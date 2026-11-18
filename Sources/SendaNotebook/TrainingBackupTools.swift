@@ -11,6 +11,7 @@ struct NotebookBackupTools: View {
     let exportBackup: (() throws -> Data)?
     let exportCSV: (() throws -> Data)?
     let previousBackup: () throws -> Data?
+    let previousArchive: @MainActor () async throws -> NotebookArchive?
     let previousOriginalFiles: (() throws -> Data?)?
     let originalJournal: (() throws -> Data?)?
     let restore: (NotebookArchive) -> String?
@@ -20,17 +21,21 @@ struct NotebookBackupTools: View {
     @State private var showsRestoreConfirmation = false
     @State private var exportDocument: NotebookExportDocument?
     @State private var exportKind = NotebookExportKind.backup
-    @State private var preview: NotebookArchive?
+    @State private var preview: (archive: NotebookArchive, source: String)?
     @State private var isReading = false
     @State private var importTask: Task<Void, Never>?
+    private enum FeedbackSection { case restore, save }
+
     @State private var errorMessage: String?
     @State private var statusMessage: String?
+    @State private var feedbackSection = FeedbackSection.restore
 
     init(
         showsHeading: Bool = true,
         exportBackup: (() throws -> Data)? = nil,
         exportCSV: (() throws -> Data)? = nil,
         previousBackup: @escaping () throws -> Data?,
+        previousArchive: @escaping @MainActor () async throws -> NotebookArchive?,
         previousOriginalFiles: (() throws -> Data?)? = nil,
         originalJournal: (() throws -> Data?)? = nil,
         restore: @escaping (NotebookArchive) -> String?
@@ -39,6 +44,7 @@ struct NotebookBackupTools: View {
         self.exportBackup = exportBackup
         self.exportCSV = exportCSV
         self.previousBackup = previousBackup
+        self.previousArchive = previousArchive
         self.previousOriginalFiles = previousOriginalFiles
         self.originalJournal = originalJournal
         self.restore = restore
@@ -47,41 +53,30 @@ struct NotebookBackupTools: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             if showsHeading {
-                Text("Backup & restore").font(NotebookTypography.heading(22)).accessibilityAddTraits(.isHeader)
+                Text("Workout recovery").font(NotebookTypography.heading(22)).accessibilityAddTraits(.isHeader)
             }
-            Text("Your notebook is stored on this device and does not sync automatically. Save a full backup somewhere you can find it, such as Files or iCloud Drive.")
-                .font(.subheadline).foregroundStyle(NotebookStyle.quiet).fixedSize(horizontal: false, vertical: true)
-            if let exportBackup {
-                action("Save full backup", icon: "square.and.arrow.up", identifier: "export-backup") {
-                    prepareExport(.backup, data: exportBackup)
+            VStack(alignment: .leading, spacing: 8) {
+                sectionHeading("Restore a backup")
+                action("Choose backup file", icon: "square.and.arrow.down", identifier: "restore-import") {
+                    feedbackSection = .restore
+                    errorMessage = nil
+                    statusMessage = nil
+                    preview = nil
+                    showsImporter = true
                 }
-                Text("A full backup includes recorded workouts, lift goals, custom exercises, unfinished rows, units, your optional local name, and any profile details saved by earlier versions. Senda does not encrypt backup files.")
-                    .font(.subheadline).foregroundStyle(NotebookStyle.quiet).fixedSize(horizontal: false, vertical: true)
-            }
-            if let exportCSV {
-                action("Export recorded sets (CSV)", icon: "tablecells", identifier: "export-csv") {
-                    prepareExport(.csv, data: exportCSV)
+                detail("Choose a Senda backup (.json, up to 50 MB) from iCloud Drive or another location in Files.")
+                action("Review pre-restore copy", icon: "clock.arrow.circlepath", identifier: "restore-pre-restore-backup") {
+                    reviewPreviousBackup()
                 }
-                Text("CSV is for viewing recorded sets in a spreadsheet. Use a full backup to restore your notebook.")
-                    .font(.subheadline).foregroundStyle(NotebookStyle.quiet).fixedSize(horizontal: false, vertical: true)
+                detail("Senda keeps a copy on this device before replacing the notebook.")
             }
-            Rectangle().fill(NotebookStyle.rule).frame(height: 0.5)
-            action("Choose backup to restore", icon: "square.and.arrow.down", identifier: "restore-import") {
-                errorMessage = nil
-                statusMessage = nil
-                preview = nil
-                showsImporter = true
-            }
-            Text("Choose a Senda full backup (.json, up to 50 MB). You can review it before replacing anything.")
-                .font(.subheadline).foregroundStyle(NotebookStyle.quiet).fixedSize(horizontal: false, vertical: true)
             if isReading {
                 ProgressView("Checking backup…").font(.subheadline).accessibilityIdentifier("restore-checking")
             }
             if let preview {
                 VStack(alignment: .leading, spacing: 16) {
-                    NotebookRestorePreview(archive: preview)
-                    Text("Restoring replaces the current notebook and local details; it does not merge them. Senda keeps a pre-restore copy on this device before making the change.")
-                        .font(.subheadline).foregroundStyle(NotebookStyle.quiet).fixedSize(horizontal: false, vertical: true)
+                    NotebookRestorePreview(archive: preview.archive, source: preview.source)
+                    detail("Restoring replaces your current notebook and profile details. Senda saves a copy first.")
                     Button { showsRestoreConfirmation = true } label: {
                         Text("Restore this backup").fontWeight(.semibold)
                             .frame(maxWidth: .infinity, minHeight: 48)
@@ -95,24 +90,33 @@ struct NotebookBackupTools: View {
                 }
                 .padding(16).background(NotebookStyle.ink.opacity(0.035), in: RoundedRectangle(cornerRadius: 8))
             }
-            action("Save pre-restore copy", icon: "clock.arrow.circlepath", identifier: "export-pre-restore-backup") {
-                preparePreviousCopyExport()
-            }
-            if let originalJournal {
-                action("Save original notebook file", icon: "doc", identifier: "export-original-notebook") {
-                    prepareOptionalExport(.original, missing: "There is no original notebook file to save.", data: originalJournal)
+            if feedbackSection == .restore { feedback }
+            Rectangle().fill(NotebookStyle.rule).frame(height: 0.5).accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 8) {
+                sectionHeading("Save a copy")
+                if let exportBackup {
+                    action("Save full backup", icon: "square.and.arrow.up", identifier: "export-backup") {
+                        prepareExport(.backup, data: exportBackup)
+                    }
+                    detail("Choose iCloud Drive in Files to keep a backup off this device. A full backup includes workouts, goals, exercises, drafts, units, and profile details. The backup file is unencrypted.")
                 }
-                Text("Keeps an unchanged copy of the saved file for recovery, even if Senda cannot open it.")
-                    .font(.subheadline).foregroundStyle(NotebookStyle.quiet).fixedSize(horizontal: false, vertical: true)
+                if let exportCSV {
+                    action("Export recorded sets (CSV)", icon: "tablecells", identifier: "export-csv") {
+                        prepareExport(.csv, data: exportCSV)
+                    }
+                    detail("CSV is for spreadsheets. Use a full backup to restore your notebook.")
+                }
+                action("Save pre-restore copy", icon: "clock.arrow.circlepath", identifier: "export-pre-restore-backup") {
+                    preparePreviousCopyExport()
+                }
+                if let originalJournal {
+                    action("Save original notebook file", icon: "doc", identifier: "export-original-notebook") {
+                        prepareOptionalExport(.original, missing: "There is no original notebook file to save.", data: originalJournal)
+                    }
+                    detail("Keeps an unchanged copy of the saved file for recovery, even if Senda cannot open it.")
+                }
             }
-            if let errorMessage {
-                Text(errorMessage).font(.callout).foregroundStyle(NotebookStyle.clay)
-                    .fixedSize(horizontal: false, vertical: true).accessibilityIdentifier("backup-error")
-            }
-            if let statusMessage {
-                Text(statusMessage).font(.callout).foregroundStyle(NotebookStyle.quiet)
-                    .fixedSize(horizontal: false, vertical: true).accessibilityIdentifier("backup-status")
-            }
+            if feedbackSection == .save { feedback }
         }
         .fileImporter(isPresented: $showsImporter, allowedContentTypes: [.json], allowsMultipleSelection: false, onCompletion: importSelectedFile)
         .fileExporter(
@@ -132,6 +136,28 @@ struct NotebookBackupTools: View {
         .onDisappear { importTask?.cancel() }
     }
 
+    @ViewBuilder private var feedback: some View {
+        if let errorMessage {
+            Text(errorMessage).font(.callout).foregroundStyle(NotebookStyle.clay)
+                .fixedSize(horizontal: false, vertical: true).accessibilityIdentifier("backup-error")
+        }
+        if let statusMessage {
+            Text(statusMessage).font(.callout).foregroundStyle(NotebookStyle.quiet)
+                .fixedSize(horizontal: false, vertical: true).accessibilityIdentifier("backup-status")
+        }
+    }
+
+    private func sectionHeading(_ title: String) -> some View {
+        Text(title).font(NotebookTypography.heading(22))
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityAddTraits(.isHeader)
+    }
+
+    private func detail(_ message: String) -> some View {
+        Text(message).font(.subheadline).foregroundStyle(NotebookStyle.quiet)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
     private func action(_ title: String, icon: String, identifier: String, perform: @escaping () -> Void) -> some View {
         Button(action: perform) {
             Label(title, systemImage: icon).fixedSize(horizontal: false, vertical: true)
@@ -141,6 +167,7 @@ struct NotebookBackupTools: View {
     }
 
     private func prepareExport(_ kind: NotebookExportKind, data: () throws -> Data) {
+        feedbackSection = .save
         errorMessage = nil
         statusMessage = nil
         do {
@@ -151,6 +178,7 @@ struct NotebookBackupTools: View {
     }
 
     private func prepareOptionalExport(_ kind: NotebookExportKind, missing: String, data: () throws -> Data?) {
+        feedbackSection = .save
         errorMessage = nil
         statusMessage = nil
         do {
@@ -164,6 +192,7 @@ struct NotebookBackupTools: View {
     }
 
     private func preparePreviousCopyExport() {
+        feedbackSection = .save
         errorMessage = nil
         statusMessage = nil
         do {
@@ -196,19 +225,39 @@ struct NotebookBackupTools: View {
             if !NotebookBackupImport.isCancellation(error) { reportError(error.localizedDescription) }
         case .success(let urls):
             guard let url = urls.first else { return }
-            importTask?.cancel()
-            isReading = true
-            importTask = Task { @MainActor in
-                defer { isReading = false; importTask = nil }
-                do {
-                    let archive = try await NotebookBackupImport.readArchive(at: url)
-                    try Task.checkCancellation()
-                    preview = archive
-                    errorMessage = nil
-                    statusMessage = nil
-                    TrainingAccessibility.announce("Backup checked. Review the contents before restoring.")
-                } catch {
-                    if !NotebookBackupImport.isCancellation(error) { reportError(error.localizedDescription) }
+            reviewBackup(source: "Backup file") { try await NotebookBackupImport.readArchive(at: url) }
+        }
+    }
+
+    private func reviewPreviousBackup() {
+        reviewBackup(source: "Pre-restore copy") {
+            guard let archive = try await previousArchive() else {
+                let message = "There is no pre-restore copy to review."
+                statusMessage = message
+                TrainingAccessibility.announce(message)
+                return nil
+            }
+            return archive
+        }
+    }
+
+    private func reviewBackup(source: String, load: @escaping @MainActor () async throws -> NotebookArchive?) {
+        guard !isReading else { return }
+        feedbackSection = .restore
+        isReading = true
+        preview = nil
+        errorMessage = nil
+        statusMessage = nil
+        importTask = Task { @MainActor in
+            defer { isReading = false; importTask = nil }
+            do {
+                guard let archive = try await load() else { return }
+                try Task.checkCancellation()
+                preview = (archive, source)
+                TrainingAccessibility.announce("Backup checked. Review the contents before restoring.")
+            } catch {
+                if !Task.isCancelled && !NotebookBackupImport.isCancellation(error) {
+                    reportError(error.localizedDescription)
                 }
             }
         }
@@ -216,9 +265,10 @@ struct NotebookBackupTools: View {
 
     private func confirmRestore() {
         guard let preview else { return }
+        feedbackSection = .restore
         errorMessage = nil
         statusMessage = nil
-        if let error = restore(preview) { reportError(error) }
+        if let error = restore(preview.archive) { reportError(error) }
         else {
             self.preview = nil
             let message = "Notebook restored. A pre-restore copy is saved on this device."
@@ -236,8 +286,12 @@ struct NotebookBackupTools: View {
 
 public struct NotebookRestorePreview: View {
     let archive: NotebookArchive
+    let source: String?
 
-    public init(archive: NotebookArchive) { self.archive = archive }
+    public init(archive: NotebookArchive, source: String? = nil) {
+        self.archive = archive
+        self.source = source
+    }
 
     private var snapshot: JournalSnapshot { archive.snapshot }
     private var recordedDays: Int {
@@ -260,7 +314,7 @@ public struct NotebookRestorePreview: View {
     }
     private var unfinishedRows: Int {
         guard let training = snapshot.training else { return legacyUnfinishedRows }
-        let exercises = Dictionary(uniqueKeysWithValues: (Exercise.catalog + (snapshot.customExercises ?? [])).map { ($0.id, $0) })
+        let exercises = Dictionary(uniqueKeysWithValues: snapshot.exerciseLibrary.map { ($0.id, $0) })
         let recordedValues = Dictionary(uniqueKeysWithValues: snapshot.journal.batches.flatMap { $0.sets.map { ($0.id, $0.values) } })
         return training.days.values.reduce(0) { count, day in
             count + day.rows.reduce(0) { count, item in
@@ -291,9 +345,11 @@ public struct NotebookRestorePreview: View {
     public var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Review backup").font(NotebookTypography.heading(25)).accessibilityAddTraits(.isHeader)
+            if let source { summary("Source", value: source) }
             summary("Created", value: archive.createdAt.formatted(date: .abbreviated, time: .shortened))
             summary("Recorded workout days", value: String(recordedDays))
             summary("Recorded sets", value: String(recordedSets))
+            summary("Saved workouts", value: String(snapshot.training?.workoutTemplates?.count ?? 0))
             summary("Custom exercises", value: String(snapshot.customExercises?.count ?? 0))
             summary("Lift goals", value: String(archive.profile.goals.count))
             summary("Unfinished rows", value: String(unfinishedRows))

@@ -13,7 +13,7 @@ let package = Package(
         .executable(name: "senda-preview", targets: ["SendaPreview"])
     ],
     targets: [
-        .target(name: "SendaDomain"),
+        .target(name: "SendaDomain", resources: [.process("Resources")]),
         .target(name: "SendaPersistence", dependencies: ["SendaDomain"]),
         .target(name: "SendaLogger", dependencies: ["SendaDomain", "SendaPersistence"]),
         .target(name: "SendaNotebook", dependencies: ["SendaDomain", "SendaLogger", "SendaPersistence"],

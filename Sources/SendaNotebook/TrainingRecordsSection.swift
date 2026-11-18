@@ -45,7 +45,7 @@ struct TrainingRecordsSection: View {
             VStack(spacing: 0) {
                 HStack(alignment: .firstTextBaseline, spacing: 12) {
                     VStack(alignment: .leading, spacing: 6) {
-                        Text(exercise.name).font(.body.weight(.medium))
+                        Text(exercise.displayName).font(.body.weight(.medium))
                         Group {
                             if textSize >= .xxxLarge {
                                 VStack(alignment: .leading, spacing: 5) {
@@ -79,7 +79,7 @@ struct TrainingRecordsSection: View {
             }
             .contentShape(Rectangle())
         }
-        .accessibilityLabel("\(exercise.name), \(value), \(date)")
+        .accessibilityLabel("\(exercise.displayName), \(value), \(date)")
         .accessibilityHint("Open the recorded set")
         .accessibilityIdentifier("records-pr-\(record.exerciseID)")
     }

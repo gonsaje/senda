@@ -149,7 +149,7 @@ struct TrainingProfileView: View {
             Button { sheet = .goal(goal) } label: {
                 HStack(alignment: .top, spacing: 12) {
                     VStack(alignment: .leading, spacing: 5) {
-                        Text(exercise.name).font(.body.weight(.semibold))
+                        Text(exercise.displayName).font(.body.weight(.semibold))
                         Text("Goal · \(ProgressFormatting.set(goal.target, exercise: exercise, unit: unit))")
                             .font(.body.monospacedDigit())
                         goalDetail(progress, exercise: exercise)
@@ -179,7 +179,7 @@ struct TrainingProfileView: View {
     }
 
     private var untargetedMuscles: [MuscleRegion] {
-        let mapped = Set(model.exercises.flatMap { ExerciseMuscleMap.map(for: $0.id)?.primary ?? [] })
+        let mapped = Set(model.exercises.flatMap { $0.muscleMap?.primary ?? [] })
         let targeted = Set(model.profile.details.weeklyMuscleTargets.map(\.muscle))
         return mapped.subtracting(targeted).sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
@@ -317,8 +317,8 @@ private struct TrainingProfileSettingsIndex: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     Button { destination = .details } label: {
-                        destinationRow(title: "Name",
-                            detail: model.profile.details.name.isEmpty ? "Optional" : model.profile.details.name)
+                        destinationRow(title: "Edit profile",
+                            detail: model.profile.details.name.isEmpty ? "Display name" : model.profile.details.name)
                     }
                     .disabled(model.profile.openingError != nil)
                     .accessibilityElement(children: .combine)
@@ -332,14 +332,14 @@ private struct TrainingProfileSettingsIndex: View {
                     .accessibilityIdentifier("profile-weight-units")
                     profileRule
                     Button { destination = .backup } label: {
-                        destinationRow(title: "Backup & restore", detail: "Save a copy or restore your notebook")
+                        destinationRow(title: "Workout recovery", detail: "Save or restore a backup file")
                     }
                     .accessibilityElement(children: .combine)
                     .accessibilityIdentifier("profile-backup")
                     profileRule
                     sampleWorkouts
                     profileRule
-                    Text("Your notebook is saved on this device and does not sync automatically.")
+                    Text("Your notebook is saved on this device.")
                         .font(.subheadline)
                         .foregroundStyle(NotebookStyle.quiet)
                         .fixedSize(horizontal: false, vertical: true)

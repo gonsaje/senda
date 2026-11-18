@@ -1,6 +1,6 @@
 import Foundation
 
-struct ActionReceipt: Codable, Equatable, Sendable {
+package struct ActionReceipt: Codable, Equatable, Sendable {
     let request: DraftBatch
     let batchID: UUID
     var undone: Bool
@@ -9,7 +9,7 @@ struct ActionReceipt: Codable, Equatable, Sendable {
 /// Pure domain state. Commands validate complete candidates before mutating anything.
 public struct Journal: Codable, Equatable, Sendable {
     public private(set) var batches: [RecordedBatch] = []
-    private var receipts: [ActionReceipt] = []
+    package private(set) var receipts: [ActionReceipt] = []
 
     public init() {}
 
@@ -85,27 +85,26 @@ public struct Journal: Codable, Equatable, Sendable {
 
     /// Decoding is not validation: enforce invariants at a persistence boundary, too.
     public func validated() throws -> Journal {
-        guard Set(batches.map(\.id)).count == batches.count,
-              Set(receipts.map(\.batchID)).count == receipts.count,
-              Set(receipts.map(\.request.actionID)).count == receipts.count else {
-            throw JournalError.corruptJournal
+        let batchIDs = Set(batches.map(\.id))
+        var receiptsByBatch: [UUID: ActionReceipt] = [:]
+        var actionIDs = Set<UUID>()
+        for receipt in receipts {
+            guard receiptsByBatch.updateValue(receipt, forKey: receipt.batchID) == nil,
+                  actionIDs.insert(receipt.request.actionID).inserted,
+                  receipt.undone != batchIDs.contains(receipt.batchID) else { throw JournalError.corruptJournal }
+            try Self.validate(receipt.request)
         }
+        guard batchIDs.count == batches.count else { throw JournalError.corruptJournal }
         var setIDs = Set<UUID>()
         for batch in batches {
             try SetValidation.validate(batch.values)
             guard batch.revision > 0, batch.recordedAt.timeIntervalSince1970.isFinite,
                   batch.sets.map(\.position) == Array(1...batch.sets.count),
-                  let receipt = receipts.first(where: { $0.batchID == batch.id }),
+                  let receipt = receiptsByBatch[batch.id],
                   !receipt.undone, receipt.request.actionID == batch.actionID,
                   receipt.request.exerciseID == batch.exerciseID else { throw JournalError.corruptJournal }
             for set in batch.sets {
                 guard setIDs.insert(set.id).inserted else { throw JournalError.corruptJournal }
-            }
-        }
-        for receipt in receipts {
-            try Self.validate(receipt.request)
-            guard receipt.undone == !batches.contains(where: { $0.id == receipt.batchID }) else {
-                throw JournalError.corruptJournal
             }
         }
         return self

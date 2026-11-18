@@ -181,6 +181,8 @@ public struct JournalSnapshot: Codable, Equatable, Sendable {
         self.journal = journal; self.workspace = workspace
         self.customExercises = customExercises?.isEmpty == false ? customExercises : nil
     }
+    public var exerciseLibrary: [Exercise] { ExerciseLibrary.resolved(custom: customExercises ?? []) }
+
     public func validated() throws -> JournalSnapshot {
         _ = try journal.validated()
         let exercises = try ExerciseLibrary.validated(custom: customExercises ?? [])

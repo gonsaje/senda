@@ -6,6 +6,8 @@ public struct TrainingSettingsView: View {
     public enum Destination { case weightUnits, backup }
 
     @Bindable var model: TrainingNotebookModel
+    @Environment(NotebookAutomaticBackup.self) private var automaticBackup: NotebookAutomaticBackup?
+    @Environment(\.dynamicTypeSize) private var textSize
     let destination: Destination
     let close: () -> Void
 
@@ -15,30 +17,23 @@ public struct TrainingSettingsView: View {
 
     public var body: some View {
         VStack(spacing: 0) {
-            ViewThatFits(in: .horizontal) {
-                HStack(alignment: .firstTextBaseline, spacing: 16) {
-                    title.fixedSize(horizontal: true, vertical: true)
-                    Spacer(minLength: 0)
-                    done.fixedSize(horizontal: true, vertical: true)
-                }
-                VStack(alignment: .leading, spacing: 4) {
-                    title
-                    done.frame(maxWidth: .infinity, alignment: .trailing)
-                }
-            }
-            .padding(.horizontal, 24).padding(.top, 16).padding(.bottom, 12)
-            .frame(maxWidth: 560).frame(maxWidth: .infinity)
+            header
             Rectangle().fill(NotebookStyle.rule).frame(height: 0.5).accessibilityHidden(true)
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     switch destination {
                     case .weightUnits: weightUnits
                     case .backup:
+                        if let automaticBackup {
+                            TrainingAutomaticBackupSettings(backup: automaticBackup, model: model)
+                            Rectangle().fill(NotebookStyle.rule).frame(height: 0.5).accessibilityHidden(true)
+                        }
                         NotebookBackupTools(
                             showsHeading: false,
                             exportBackup: { try model.backupData() },
                             exportCSV: { try model.csvData() },
                             previousBackup: { try model.previousBackupData() },
+                            previousArchive: { try await model.previousBackupArchive() },
                             previousOriginalFiles: { try model.previousOriginalFilesData() },
                             restore: { archive in
                                 model.restoreBackup(archive) ? nil : (model.backupErrorMessage ?? "Your notebook could not be restored. Try again.")
@@ -55,8 +50,20 @@ public struct TrainingSettingsView: View {
         .buttonStyle(.plain).scrollIndicators(.never)
     }
 
+    private var header: some View {
+        let layout = textSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4))
+            : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: 16))
+        return layout {
+            title.frame(maxWidth: .infinity, alignment: .leading)
+            done.frame(maxWidth: textSize.isAccessibilitySize ? .infinity : nil, alignment: .trailing)
+        }
+        .padding(.horizontal, 24).padding(.top, 16).padding(.bottom, 12)
+        .frame(maxWidth: 560).frame(maxWidth: .infinity)
+    }
+
     private var title: some View {
-        Text(destination == .backup ? "Backup & restore" : "Weight units")
+        Text(destination == .backup ? "Workout recovery" : "Weight units")
             .font(NotebookTypography.heading(31))
             .accessibilityAddTraits(.isHeader)
             .fixedSize(horizontal: false, vertical: true)
@@ -64,7 +71,7 @@ public struct TrainingSettingsView: View {
 
     private var done: some View {
         Button(action: close) {
-            Text("Done").frame(minWidth: 44, minHeight: 44)
+            Text("Done").font(.body).fixedSize().frame(minWidth: 44, minHeight: 44)
         }.accessibilityIdentifier("close-settings")
     }
 

@@ -100,6 +100,31 @@ import SendaPersistence
         #expect(!model.hasHistoryReturnContext && model.revealRowID == nil)
     }
 
+    @Test func myExercisesFindsMissingDetailsAcrossAllGymsAndKeepsTheLibrarySearch() throws {
+        let old = try ExerciseLibrary.custom(named: "Porch drill")
+        let partial = try ExerciseLibrary.custom(named: "Travel drill", customSetup: .init(requiredEquipment: []))
+        let complete = try ExerciseLibrary.custom(named: "Hotel drill", customSetup: .init(gyms: [.commercial], requiredEquipment: []))
+        let store = try MemoryJournalRepository(snapshot: JournalSnapshot(customExercises: [old, partial, complete]))
+        let model = try TrainingNotebookModel(repository: store)
+        let home = ExerciseGymFilter(gym: .home, availableEquipment: [.dumbbells])
+        func results() -> [String] { model.learningResults(in: model.exercises, gymFilter: home).map(\.id) }
+        model.learningQuery = "porch"
+        #expect(results().isEmpty)
+        model.learningScope = .personal
+        #expect(model.learningQuery.isEmpty)
+        #expect(Set(results()) == [old.id, partial.id, complete.id])
+        model.learningScope = .needsDetails
+        #expect(Set(results()) == [old.id, partial.id])
+        model.learningQuery = "travel"
+        #expect(results() == [partial.id])
+        #expect(model.updateCustomExerciseSetup(.init(gyms: [.home], requiredEquipment: []), for: partial.id))
+        #expect(results().isEmpty)
+        model.learningScope = .library
+        #expect(model.learningQuery == "porch" && results().isEmpty)
+        model.learningQuery = "travel"
+        #expect(results() == [partial.id])
+    }
+
     @Test func learnReselectionResetsGuideAndQueryOnlyWhenLearnIsAlreadySelected() throws {
         let model = try TrainingNotebookModel(repository: MemoryJournalRepository())
         model.learningExerciseID = "bench"

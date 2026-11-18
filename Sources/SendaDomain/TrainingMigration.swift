@@ -9,7 +9,7 @@ public extension TrainingWorkspace {
     }
     static func migrate(_ snapshot: JournalSnapshot, today: TrainingDay, calendar: Calendar) throws -> TrainingWorkspace {
         guard !requiresLegacyReview(snapshot) else { throw TrainingError.legacyReview }
-        let known = Set(Exercise.catalog.map(\.id) + (snapshot.customExercises ?? []).map(\.id))
+        let known = Set(snapshot.exerciseLibrary.map(\.id))
         let unknown = Set(snapshot.journal.batches.map(\.exerciseID)).subtracting(known)
         if var existing = snapshot.training {
             let retained = Set(existing.legacyExerciseIDs ?? []).union(unknown)

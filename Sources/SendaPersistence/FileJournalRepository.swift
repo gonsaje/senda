@@ -1,7 +1,14 @@
 import Foundation
 import SendaDomain
 
+extension JournalSnapshot {
+    var hasCustomExerciseSetups: Bool {
+        customExercises?.contains { !$0.customSetup.isEmpty } == true
+    }
+}
+
 @MainActor public final class FileJournalRepository: JournalRepository {
+    private var encoder = JournalFileEncoder()
     private let url: URL
     private let writer: (Data, URL) throws -> Void
     public convenience init(url: URL) {
@@ -11,7 +18,7 @@ import SendaDomain
         self.url = url; self.writer = writer
     }
     private struct Header: Decodable { let version: Int }
-    private struct Envelope: Codable {
+    private struct Envelope: Decodable {
         let version: Int
         let journal: Journal
         let workspace: EntryWorkspace?
@@ -19,6 +26,16 @@ import SendaDomain
         let trainingEnabled: Bool?
         let training: TrainingWorkspace?
         let legacyBase: EntryWorkspace?
+        let workoutTemplateCount: Int?
+    }
+
+    private struct WriteHeader: Encodable {
+        let version: Int
+        let workspace: EntryWorkspace?
+        let customExercises: [Exercise]
+        let trainingEnabled: Bool
+        let legacyBase: EntryWorkspace?
+        let workoutTemplateCount: Int?
     }
 
     public func loadSnapshot() throws -> JournalSnapshot {
@@ -27,23 +44,38 @@ import SendaDomain
         catch let error as CocoaError where error.code == .fileReadNoSuchFile { return JournalSnapshot() }
         let decoder = JSONDecoder()
         let version = try decoder.decode(Header.self, from: data).version
-        guard (1...7).contains(version) else { throw StorageError.unsupportedVersion(version) }
+        guard (1...9).contains(version) else { throw StorageError.unsupportedVersion(version) }
         let envelope = try decoder.decode(Envelope.self, from: data)
         if version >= 3, envelope.customExercises == nil { throw StorageError.missingExerciseLibrary }
         if version >= 4 {
             guard let enabled = envelope.trainingEnabled, enabled == (envelope.training != nil) else { throw StorageError.missingTrainingWorkspace }
         }
-        return try JournalSnapshot(journal: envelope.journal, workspace: version == 1 ? nil : envelope.workspace,
-            customExercises: version >= 3 ? envelope.customExercises : nil, training: version >= 4 ? envelope.training : nil, legacyBase: version >= 4 ? envelope.legacyBase : nil).validated()
+        if version == 8, envelope.training?.workoutTemplates?.isEmpty != false {
+            throw StorageError.missingWorkoutTemplates
+        }
+        let snapshot = JournalSnapshot(journal: envelope.journal, workspace: version == 1 ? nil : envelope.workspace,
+            customExercises: version >= 3 ? envelope.customExercises : nil, training: version >= 4 ? envelope.training : nil, legacyBase: version >= 4 ? envelope.legacyBase : nil)
+        if version == 9 {
+            guard snapshot.hasCustomExerciseSetups else { throw StorageError.missingExerciseSetups }
+            guard envelope.workoutTemplateCount == (snapshot.training?.workoutTemplates?.count ?? 0)
+            else { throw StorageError.missingWorkoutTemplates }
+        }
+        return try snapshot.validated()
     }
 
     public func saveSnapshot(_ snapshot: JournalSnapshot) throws {
-        let snapshot = try snapshot.validated()
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let data = try encoder.encode(Envelope(version: 7, journal: snapshot.journal, workspace: snapshot.workspace,
-                                               customExercises: snapshot.customExercises ?? [],
-                                               trainingEnabled: snapshot.training != nil, training: snapshot.training, legacyBase: snapshot.legacyBase))
+        try saveValidatedSnapshot(ValidatedJournalSnapshot(snapshot))
+    }
+
+    public func saveValidatedSnapshot(_ checked: ValidatedJournalSnapshot) throws {
+        let snapshot = checked.snapshot
+        let version = if snapshot.hasCustomExerciseSetups { 9 }
+            else if snapshot.training?.workoutTemplates?.isEmpty == false { 8 }
+            else { 7 }
+        let header = WriteHeader(version: version, workspace: snapshot.workspace,
+            customExercises: snapshot.customExercises ?? [], trainingEnabled: snapshot.training != nil, legacyBase: snapshot.legacyBase,
+            workoutTemplateCount: version == 9 ? snapshot.training?.workoutTemplates?.count ?? 0 : nil)
+        let data = try encoder.encode(header, journal: snapshot.journal, training: snapshot.training)
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try writer(data, url)
     }
@@ -53,6 +85,8 @@ public enum StorageError: LocalizedError, Equatable {
     case unsupportedVersion(Int)
     case missingExerciseLibrary
     case missingTrainingWorkspace
+    case missingWorkoutTemplates
+    case missingExerciseSetups
     public var errorDescription: String? {
         switch self {
         case .unsupportedVersion(let version):
@@ -61,6 +95,10 @@ public enum StorageError: LocalizedError, Equatable {
             "The saved notebook is missing or inconsistent. The journal file has been left untouched."
         case .missingExerciseLibrary:
             "The saved exercise library is missing. The journal file has been left untouched."
+        case .missingWorkoutTemplates:
+            "This journal is missing its saved workouts."
+        case .missingExerciseSetups:
+            "This journal is missing its custom exercise gym and equipment details."
         }
     }
 }

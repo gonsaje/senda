@@ -201,7 +201,7 @@ public struct TrainingTrendsView: View {
                 Menu {
                     ForEach(trends.exerciseSummaries) { option in
                         let selected = option.exerciseID == summary.exerciseID
-                        let name = model.exercise(option.exerciseID).name
+                        let name = model.exercise(option.exerciseID).displayName
                         Button { strengthExerciseID = option.exerciseID } label: {
                             if selected { Label(name, systemImage: "checkmark") }
                             else { Text(name) }
@@ -211,7 +211,7 @@ public struct TrainingTrendsView: View {
                     }
                 } label: {
                     HStack(spacing: 12) {
-                        Text(exercise.name).font(.body.weight(.semibold))
+                        Text(exercise.displayName).font(.body.weight(.semibold))
                             .fixedSize(horizontal: false, vertical: true)
                         Spacer(minLength: 0)
                         Image(systemName: "chevron.down").font(.system(size: 12)).accessibilityHidden(true)
@@ -221,7 +221,7 @@ public struct TrainingTrendsView: View {
                     .contentShape(Rectangle())
                 }
                 .accessibilityLabel("Exercise")
-                .accessibilityValue(exercise.name)
+                .accessibilityValue(exercise.displayName)
                 .accessibilityIdentifier("trends-strength-picker")
                 TrendsStrengthTimeline(summary: summary, exercise: exercise,
                     unit: model.workspace.preferredUnit, calendar: model.calendar,
@@ -257,7 +257,7 @@ public struct TrainingTrendsView: View {
         return Button { model.openProgress(for: exercise.id) } label: {
             VStack(alignment: .leading, spacing: textSize.isAccessibilitySize ? 10 : 6) {
                 HStack(alignment: .firstTextBaseline, spacing: 12) {
-                    Text(exercise.name)
+                    Text(exercise.displayName)
                         .font(.body.weight(.semibold))
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -368,7 +368,7 @@ public struct TrainingTrendsView: View {
         return Button { model.openProgress(for: exercise.id) } label: {
             HStack(alignment: .firstTextBaseline, spacing: 12) {
                 VStack(alignment: .leading, spacing: 5) {
-                    Text(exercise.name).font(.body.weight(.semibold))
+                    Text(exercise.displayName).font(.body.weight(.semibold))
                     Text(ProgressFormatting.set(best.values, exercise: exercise, unit: model.workspace.preferredUnit))
                         .font(.body.monospacedDigit())
                     Text("Recorded best · \(date(best.day, format: "MMM d, yyyy"))")
@@ -518,7 +518,7 @@ private struct TrendsStrengthTimeline: View {
                     .contentShape(Rectangle())
             }
             .foregroundStyle(NotebookStyle.clay)
-            .accessibilityLabel("View \(exercise.name) history")
+            .accessibilityLabel("View \(exercise.displayName) history")
             .accessibilityIdentifier("trends-strength-history")
             if sessions.count > 1 {
                 if !textSize.isAccessibilitySize { Spacer(minLength: 0) }

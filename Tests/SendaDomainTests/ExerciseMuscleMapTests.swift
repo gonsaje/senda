@@ -2,18 +2,18 @@ import Testing
 @testable import SendaDomain
 
 struct ExerciseMuscleMapTests {
-    @Test func everyPresetHasAnOfflineMapForItsGuidedVariation() throws {
-        for exercise in Exercise.catalog {
+    @Test func establishedPresetsKeepTheirOfflineMaps() throws {
+        for exercise in Exercise.originalCatalog + ExpandedExerciseCatalog.exercises {
             let map = try #require(ExerciseMuscleMap.map(for: exercise.id))
             #expect(!map.primary.isEmpty)
             #expect(!map.variation.isEmpty)
-            #expect(ExerciseFormGuide.guide(for: exercise.id) != nil)
         }
     }
 
     @Test func rolesAreDistinctAndContainNoDuplicateRegions() throws {
         for exercise in Exercise.catalog {
-            let map = try #require(ExerciseMuscleMap.map(for: exercise.id))
+            guard let map = ExerciseMuscleMap.map(for: exercise.id) else { continue }
+            #expect(!map.primary.isEmpty && !map.variation.isEmpty)
             #expect(Set(map.primary).count == map.primary.count)
             #expect(Set(map.supporting).count == map.supporting.count)
             #expect(Set(map.stabilizing).count == map.stabilizing.count)

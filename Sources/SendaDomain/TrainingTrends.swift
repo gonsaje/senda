@@ -78,11 +78,11 @@ public struct TrainingTrends: Equatable, Sendable {
 
 public extension JournalSnapshot {
     func trends(range: ExerciseProgressRange = .threeMonths, through today: TrainingDay,
-                calendar: Calendar = .current, exercises: [Exercise] = Exercise.catalog) -> TrainingTrends {
+                calendar: Calendar = .current, exercises: [Exercise]? = nil) -> TrainingTrends {
         let window = ExerciseProgressWindow(range: range, through: today)
         let history = progressHistory(through: today, calendar: calendar)
         var library: [String: Exercise] = [:]
-        for exercise in exercises { library[exercise.id] = exercise }
+        for exercise in exercises ?? exerciseLibrary { library[exercise.id] = exercise }
         for exercise in customExercises ?? [] where library[exercise.id] == nil {
             library[exercise.id] = exercise
         }

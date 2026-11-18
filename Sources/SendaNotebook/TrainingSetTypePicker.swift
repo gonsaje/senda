@@ -30,7 +30,7 @@ public struct TrainingSetTypePicker: View {
             VStack(alignment: .leading, spacing: 22) {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Set \(index) type").font(NotebookTypography.heading(32)).accessibilityAddTraits(.isHeader)
-                    Text(model.exercise(context.exerciseID).name).font(.subheadline).foregroundStyle(NotebookStyle.quiet)
+                    Text(model.exercise(context.exerciseID).displayName).font(.subheadline).foregroundStyle(NotebookStyle.quiet)
                 }.fixedSize(horizontal: false, vertical: true)
                 if (model.setPosition(for: rowID)?.stageCount ?? 1) > 1 {
                     Text("Choosing another type splits these stages into individual sets.")

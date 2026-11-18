@@ -14,10 +14,8 @@ struct TrainingTrendFeedback: Equatable {
         case let .repsAtSameWeight(recordedDelta, recordedWeight):
             let delta = previous.map { latest.reps - $0.reps } ?? recordedDelta
             let weight = previous == nil ? recordedWeight : latest.weight
-            let load = exercise.requiresWeight
-                ? "\(unit.text(for: weight)) \(unit.symbol)"
-                : weight == 0 ? "BW" : "BW + \(unit.text(for: weight)) \(unit.symbol)"
-            return Self(text: "\(repChange(delta)) at \(load)",
+            let load = ProgressFormatting.load(weight, exercise: exercise, unit: unit)
+            return Self(text: repChange(delta) + (load.map { " at \($0)" } ?? ""),
                         symbol: delta > 0 ? "arrow.up" : "arrow.down", positive: delta > 0)
         case let .weightAtSameReps(recordedDelta, recordedReps):
             let delta = previous.map { latest.weight - $0.weight } ?? recordedDelta
@@ -45,6 +43,6 @@ struct TrainingTrendFeedback: Equatable {
         let change = amount == "0" && delta != 0
             ? "Less than 0.01 \(unit.symbol) \(delta > 0 ? "more" : "less")"
             : "\(amount) \(unit.symbol) \(delta > 0 ? "more" : "less")"
-        return "\(change)\(exercise.requiresWeight ? "" : " added weight")"
+        return exercise.equipmentType == .bodyweight ? "\(change) added weight" : change
     }
 }

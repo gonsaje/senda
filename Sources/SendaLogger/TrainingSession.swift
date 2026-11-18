@@ -32,6 +32,7 @@ import SendaPersistence
         } catch { notebook = nil; recovery = nil; openingError = error.localizedDescription }
     }
     public func previousBackupData() throws -> Data? { try restoreStore.previousBackupData() }
+    public func previousBackupArchive() async throws -> NotebookArchive? { try await restoreStore.previousBackupArchive() }
     public func previousOriginalFilesData() throws -> Data? { try restoreStore.previousOriginalFilesData() }
     public func originalJournalData() throws -> Data? { try restoreStore.originalJournalData() }
     @discardableResult public func restoreBackup(_ archive: NotebookArchive) -> Bool {
