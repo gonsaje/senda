@@ -166,3 +166,65 @@ struct TrainingPlateControls: View {
         .contentShape(Rectangle())
     }
 }
+
+struct TrainingBarbellMenu: View {
+    let unit: WeightUnit
+    let weight: Int?
+    let canSet: (Int?) -> Bool
+    let set: (Int?) -> Void
+    @State private var enteringCustomWeight = false
+    @State private var customText = ""
+
+    private var sizes: [Int] { unit == .pounds ? [45, 35, 15] : [20, 15, 10] }
+
+    var body: some View {
+        Menu {
+            Section("Barbell weight (\(unit.symbol))") {
+                ForEach(sizes, id: \.self) { size in
+                    if let value = unit.canonicalValue(for: Decimal(size)) {
+                        Button { set(value) } label: {
+                            if weight == value { Label("\(size) \(unit.symbol)", systemImage: "checkmark") }
+                            else { Text("\(size) \(unit.symbol)") }
+                        }
+                        .disabled(!canSet(value))
+                        .accessibilityAddTraits(weight == value ? .isSelected : [])
+                        .accessibilityIdentifier("input-barbell-\(size)")
+                    }
+                }
+                Button("Custom weight…") {
+                    customText = weight.map(unit.text(for:)) ?? ""
+                    enteringCustomWeight = true
+                }
+            }
+            if weight != nil {
+                Button("Remove barbell") { set(nil) }
+                    .disabled(!canSet(nil))
+                    .accessibilityIdentifier("input-remove-barbell")
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Text(weight.map { "\(unit.text(for: $0)) \(unit.symbol) bar" } ?? "Add barbell")
+                    .font(.subheadline.weight(.medium))
+                Image(systemName: "chevron.down").font(.caption2).accessibilityHidden(true)
+            }
+            .foregroundStyle(NotebookStyle.clay)
+            .frame(minWidth: 44, minHeight: 44, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .menuStyle(.borderlessButton).menuIndicator(.hidden)
+        .accessibilityLabel(weight == nil ? "Add barbell" : "Change barbell")
+        .accessibilityValue(weight.map { "\(unit.text(for: $0)) \(unit.symbol)" } ?? "No barbell")
+        .accessibilityHint("Include one bar in this set’s total weight")
+        .accessibilityIdentifier("input-barbell")
+        .alert("Custom barbell weight", isPresented: $enteringCustomWeight) {
+            TextField("Weight (\(unit.symbol))", text: $customText).numericKeyboard(decimal: true)
+            Button("Cancel", role: .cancel) {}
+            Button("Apply") {
+                if let value = unit.parse(customText) { set(value) }
+            }
+            .disabled(unit.parse(customText).map { !canSet($0) } ?? true)
+        } message: {
+            Text("Enter the weight of one bar in \(unit.symbol).")
+        }
+    }
+}

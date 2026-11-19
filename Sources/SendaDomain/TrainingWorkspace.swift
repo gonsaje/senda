@@ -7,6 +7,8 @@ public struct TrainingRow: Codable, Identifiable, Equatable, Sendable {
     public var reps: String
     public var unit: WeightUnit
     public var canonicalWeight: Int?
+    /// The portion of this set's total supplied by the bar, in hundredths of a pound.
+    public var barbellWeight: Int?
     public var weightIsDirty: Bool
     public var performedSetID: UUID?
     /// A durable draft correction. The linked performed set remains the source of recorded values.
@@ -50,6 +52,7 @@ public struct TrainingRow: Codable, Identifiable, Equatable, Sendable {
     }
     public mutating func accept(_ values: SetValues, setID: UUID) {
         if !weight.isEmpty { weight = unit.text(for: values.weight) }
+        if let barbellWeight, barbellWeight > values.weight { self.barbellWeight = nil }
         reps = String(values.reps); canonicalWeight = values.weight; weightIsDirty = false; performedSetID = setID; pendingCorrection = nil
     }
 }
@@ -89,6 +92,33 @@ public struct DayWorkout: Codable, Equatable, Sendable {
         self.exercisePlans = exercisePlans
     }
 }
+/// A removal affects the selected date's workout, including any hidden exercise rows.
+public enum TrainingWorkoutRemoval: Codable, Equatable, Sendable {
+    case exercise(String)
+    case workout
+
+    public func remainingWorkout(from original: DayWorkout) throws -> DayWorkout {
+        switch self {
+        case .workout:
+            guard !original.rows.isEmpty else { throw TrainingError.missingRow }
+            return DayWorkout(unit: original.unit)
+        case .exercise(let id):
+            guard original.rows[id] != nil else { throw TrainingError.missingRow }
+            var remaining = original
+            remaining.rows[id] = nil
+            remaining.exercisePlans?[id] = nil
+            if remaining.exercisePlans?.isEmpty == true { remaining.exercisePlans = nil }
+            if let index = remaining.exerciseIDs.firstIndex(of: id) {
+                remaining.exerciseIDs.remove(at: index)
+                if remaining.selectedExerciseID == id {
+                    remaining.selectedExerciseID = remaining.exerciseIDs.dropFirst(index).first ?? remaining.exerciseIDs.last
+                }
+            }
+            return remaining
+        }
+    }
+}
+
 public struct TrainingFocus: Codable, Equatable, Identifiable, Sendable {
     public let id: UUID
     public let day: TrainingDay
@@ -101,6 +131,7 @@ public struct TrainingFocus: Codable, Equatable, Identifiable, Sendable {
     }
 }
 public enum TrainingUndo: Codable, Equatable, Sendable {
+    case removedFromWorkout(day: TrainingDay, target: TrainingWorkoutRemoval, original: DayWorkout, removal: RemovedTrainingSets)
     case repeated(day: TrainingDay, exerciseID: String, rowID: UUID)
     case deleted(day: TrainingDay, exerciseID: String, index: Int, row: TrainingRow, removal: RemovedTrainingSet?)
     case repeatedGroup(day: TrainingDay, exerciseID: String, rowIDs: [UUID])
@@ -203,6 +234,7 @@ public struct TrainingWorkspace: Codable, Equatable, Sendable {
                     guard rowIDs.insert(row.id).inserted, actions.insert(row.actionID).inserted,
                           row.weight.count <= 64, row.reps.count <= 64, row.unit == day.unit,
                           row.canonicalWeight.map(NumericField.weight.range.contains) ?? true,
+                          row.barbellWeight.map({ $0 > 0 && $0 <= (row.parsedWeight ?? 0) }) ?? true,
                           row.repsInReserve.map({ (0...5).contains($0) }) ?? true else { throw TrainingError.invalidWorkspace }
                     if !row.weightIsDirty && !row.weight.isEmpty {
                         guard let canonical = row.canonicalWeight else { throw TrainingError.invalidWorkspace }
@@ -230,6 +262,15 @@ public struct TrainingWorkspace: Codable, Equatable, Sendable {
         }
         if let undo {
             switch undo {
+            case .removedFromWorkout(let day, let target, let original, let removal):
+                let remaining = try target.remainingWorkout(from: original)
+                guard days[day.rawValue] == remaining else { throw TrainingError.invalidWorkspace }
+                var restoredJournal = journal
+                _ = try restoredJournal.restoreSets(removal)
+                var restored = self
+                restored.undo = nil
+                restored.days[day.rawValue] = original
+                _ = try restored.validated(against: restoredJournal, exercises: exercises)
             case .repeated(let day, let exercise, let rowID):
                 guard let row = days[day.rawValue]?.rows[exercise]?.first(where: { $0.id == rowID }), row.performedSetID != nil else { throw TrainingError.invalidWorkspace }
             case .deleted(let day, let exercise, let index, let row, let removal):

@@ -100,6 +100,26 @@ struct ExerciseProgressTests {
         #expect(oneMonth.weeks.dropFirst().dropLast().allSatisfy { $0.setCount == 0 && $0.trainingDayCount == 0 })
     }
 
+    @Test func explicitDateComparisonUsesOnlyRecordedSessionsAndTheirTopSets() throws {
+        var journal = Journal()
+        let early = try record(&journal, on: "2026-11-02", exercise: "push-up",
+                               [SetValues(weight: 0, reps: 10), SetValues(weight: 0, reps: 20)])
+        let late = try record(&journal, on: "2026-11-07", exercise: "push-up", [SetValues(weight: 0, reps: 15)])
+        let weighted = try record(&journal, on: "2026-11-08", exercise: "push-up", [SetValues(weight: 3_500, reps: 5)])
+        let snapshot = JournalSnapshot(journal: journal)
+        let days = day("2026-11-02")...day("2026-11-07")
+        let comparison = snapshot.progress(for: pushup, in: days, calendar: utc)
+        #expect(comparison.range == nil && comparison.startDay == days.lowerBound && comparison.endDay == days.upperBound)
+        #expect(comparison.metric == .reps && comparison.setCount == 3)
+        #expect(comparison.sessions.map(\.day) == [days.lowerBound, days.upperBound])
+        #expect(comparison.sessions.map(\.bestSet.id) == [early.sets[1].id, late.sets[0].id])
+        #expect(comparison.weeks.map(\.setCount) == [3])
+        let singleDay = day("2026-11-08")
+        let single = snapshot.progress(for: pushup, in: singleDay...singleDay, calendar: utc)
+        #expect(single.metric == .weight && single.bestSet?.id == weighted.sets[0].id)
+        #expect(single.sessions.map(\.day) == [singleDay])
+    }
+
     @Test func calendarRangesClampToTheLastDayOfShorterMonths() {
         let cases: [(ExerciseProgressRange, String, String)] = [
             (.oneMonth, "2024-03-31", "2024-02-29"),

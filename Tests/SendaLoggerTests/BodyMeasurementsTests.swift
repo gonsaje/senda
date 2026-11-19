@@ -42,6 +42,53 @@ struct BodyMeasurementsTests {
         #expect(TrainingDay(imported.displayDate(in: destination), calendar: destination).rawValue == "2026-11-17")
     }
 
+    @Test func intervalUsesManualCivilDaysAndLocalHealthTimestampsAcrossDST() async throws {
+        var origin = Calendar(identifier: .gregorian)
+        origin.timeZone = try #require(TimeZone(identifier: "America/New_York"))
+        var destination = Calendar(identifier: .gregorian)
+        destination.timeZone = try #require(TimeZone(identifier: "America/Los_Angeles"))
+        let instant = try #require(origin.date(from: DateComponents(year: 2026, month: 3, day: 8, hour: 1)))
+        let day = try TrainingDay("2026-03-08")
+        let late = try #require(destination.date(from: DateComponents(year: 2026, month: 3, day: 8, hour: 23, minute: 59)))
+        let tomorrow = try #require(destination.date(from: DateComponents(year: 2026, month: 3, day: 9)))
+        let manual = try BodyMeasurement(metric: .weight, value: 72, date: instant, calendar: origin)
+        let previousInLA = try BodyMeasurement(metric: .weight, value: 74, date: instant, source: .appleHealth("Health"))
+        let endOfDay = try BodyMeasurement(metric: .weight, value: 73, date: late, source: .appleHealth("Health"))
+        let nextDay = try BodyMeasurement(metric: .weight, value: 75, date: tomorrow, source: .appleHealth("Health"))
+        let repository = InMemoryBodyRepository(), health = FixtureHealth()
+        repository.readings = [manual]
+        health.readings = [previousInLA, nextDay, endOfDay]
+        let model = BodyMeasurementsModel(repository: repository, health: health)
+        await model.refreshHealth()
+
+        #expect(model.readings(for: .weight, in: day...day, calendar: destination) == [endOfDay, manual])
+        #expect(model.readings(for: .weight, calendar: destination).count == 4)
+        #expect(model.hasHealthReadings(for: .weight) && !model.hasHealthReadings(for: .waist))
+    }
+
+    @Test func intervalIncludesEveryReadingInStableOrderEvenWhenThereAreMoreThanThirty() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try #require(TimeZone(secondsFromGMT: 0))
+        let end = try TrainingDay("2024-03-31")
+        let interval = ExerciseProgressRange.oneMonth.days(through: end)
+        let start = try TrainingDay("2024-02-29")
+        let repository = InMemoryBodyRepository()
+        let observations = try (0..<35).map { index in
+            try BodyMeasurement(metric: .waist, value: Double(70 + index), date: start.date(in: calendar), calendar: calendar)
+        }
+        let last = try BodyMeasurement(metric: .waist, value: 91, date: end.date(in: calendar), calendar: calendar)
+        let excluded = try [start.adding(days: -1), end.adding(days: 1)].map { day in
+            try BodyMeasurement(metric: .waist, value: 90, date: day.date(in: calendar), calendar: calendar)
+        }
+        repository.readings = excluded + [last] + observations.reversed()
+        let model = BodyMeasurementsModel(repository: repository)
+
+        #expect(interval == start...end)
+        #expect(model.readings(for: .waist, in: interval, calendar: calendar) ==
+                    [last] + observations.sorted { $0.id.uuidString < $1.id.uuidString })
+        #expect(model.readings(for: .weight, in: interval, calendar: calendar).isEmpty)
+    }
+
     @Test func manualReadingsPersistAndCanBeEditedOrDeleted() throws {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: folder) }

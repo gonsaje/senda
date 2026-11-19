@@ -38,6 +38,55 @@ final class LoggerUITests: XCTestCase {
     }
 
     @MainActor
+    func testBodyMeasurementsDateRangeAndOptionalStrengthComparison() {
+        let app = launch(extra: ["--sample-data"])
+        tap("dock-trends", in: app)
+        tap("trends-body-measurements", in: app)
+        tap("body-measurements-add", in: app)
+        let weight = app.textFields["body-measurement-input-weight"]
+        XCTAssertTrue(weight.waitForExistence(timeout: 5))
+        weight.tap()
+        weight.typeText("180")
+        let waist = app.textFields["body-measurement-input-waist"]
+        waist.tap()
+        waist.typeText("32.5")
+        tap("body-measurements-save", in: app)
+
+        let chart = element("body-measurements-chart", in: app)
+        tap("body-measurements-range-1m", in: app)
+        XCTAssertTrue(app.buttons["body-measurements-range-1m"].isSelected)
+        XCTAssertFalse(chart.label.localizedCaseInsensitiveContains("bench"))
+        tap("body-compare-strength", in: app)
+        tap("body-compare-bench", in: app)
+        XCTAssertTrue(chart.label.localizedCaseInsensitiveContains("bench"), chart.label)
+        tap("body-measurements-range-6m", in: app)
+        XCTAssertTrue(app.buttons["body-measurements-range-6m"].isSelected)
+        XCTAssertFalse(app.buttons["body-measurements-range-1m"].isSelected)
+        XCTAssertTrue(chart.label.localizedCaseInsensitiveContains("bench"), chart.label)
+        attach("Body weight and Bench strength · six months", app)
+
+        tap("body-measurements-custom-range", in: app)
+        XCTAssertTrue(element("body-date-start", in: app).exists)
+        XCTAssertTrue(element("body-date-end", in: app).exists)
+        tap("body-dates-apply", in: app)
+        XCTAssertTrue(app.buttons["body-measurements-custom-range"].isSelected)
+        XCTAssertFalse(app.buttons["body-measurements-range-6m"].isSelected)
+
+        tap("body-measurements-metric", in: app)
+        tap("body-measurements-metric-waist", in: app)
+        XCTAssertTrue(chart.label.localizedCaseInsensitiveContains("waist"), chart.label)
+        XCTAssertTrue(chart.label.localizedCaseInsensitiveContains("bench"), chart.label)
+        attach("Waist and Bench strength · custom dates", app)
+
+        tap("body-measurements-range-6m", in: app)
+        XCTAssertFalse(app.buttons["body-measurements-custom-range"].isSelected)
+        tap("body-compare-strength", in: app)
+        tap("body-compare-none", in: app)
+        XCTAssertFalse(chart.label.localizedCaseInsensitiveContains("bench"), chart.label)
+        XCTAssertTrue(app.buttons["body-measurements-range-6m"].isSelected)
+    }
+
+    @MainActor
     func testMyExercisesFindsMissingDetailsAndEquipmentFreeRepsSurviveRelaunch() {
         let app = launch()
         let day = openDay(0, in: app)
@@ -1288,7 +1337,7 @@ final class LoggerUITests: XCTestCase {
     }
 
     @MainActor
-    func testWeekAndActiveWorkoutFollowPhoneAppearance() async throws {
+    func testAllSectionsAndSheetsFollowPhoneAppearance() async throws {
         let device = XCUIDevice.shared
         let originalAppearance = device.appearance
         defer { device.appearance = originalAppearance }
@@ -1300,15 +1349,16 @@ final class LoggerUITests: XCTestCase {
         let context = CIContext()
         let sRGB = try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB))
 
-        func expectPaper(_ expected: [Int], capture title: String? = nil,
+        func expectPaper(_ expected: [Int], capture title: String? = nil, sheet: Bool = false,
                          file: StaticString = #filePath, line: UInt = #line) async throws {
             let deadline = ContinuousClock.now + .seconds(5)
             var actual = [Int]()
             repeat {
                 let shot = app.screenshot()
                 let image = CIImage(cgImage: try XCTUnwrap(shot.image.cgImage))
-                // The outer margin at mid-height contains only the page background on these screens.
-                let sample = CGRect(x: 3, y: floor(image.extent.midY), width: 1, height: 1)
+                // The sheet's paper starts inside the screen edge on some iPhones.
+                let x = sheet ? floor(image.extent.width * 0.055) : 3
+                let sample = CGRect(x: x, y: floor(image.extent.midY), width: 1, height: 1)
                 var pixel = [UInt8](repeating: 0, count: 4)
                 context.render(image, toBitmap: &pixel, rowBytes: 4, bounds: sample, format: .RGBA8, colorSpace: sRGB)
                 actual = pixel.prefix(3).map(Int.init)
@@ -1331,9 +1381,23 @@ final class LoggerUITests: XCTestCase {
         try await expectPaper(espresso, capture: "Week · Brown")
         tap("dock-library", in: app)
         XCTAssertTrue(element("library-workouts", in: app).isHittable)
+        try await expectPaper(espresso, capture: "Library · Brown")
+        tap("dock-profile", in: app)
+        XCTAssertTrue(element("profile-settings", in: app).isHittable)
+        try await expectPaper(espresso, capture: "Profile · Brown")
+        tap("dock-trends", in: app)
+        XCTAssertTrue(element("trends-strength-manage", in: app).isHittable)
+        try await expectPaper(espresso, capture: "Trends · Brown")
+        tap("trends-strength-manage", in: app)
+        XCTAssertTrue(element("trends-track-cancel", in: app).isHittable)
+        try await expectPaper(espresso, capture: "Track strength · Brown", sheet: true)
+        device.appearance = .light
+        try await expectPaper(ivory, capture: "Track strength · Light", sheet: true)
+        tap("trends-track-cancel", in: app)
         try await expectPaper(ivory)
         tap("dock-log", in: app)
         XCTAssertTrue(element("week-summary", in: app).exists)
+        device.appearance = .dark
         try await expectPaper(espresso)
 
         tap(todayRowID(), in: app)
@@ -1374,6 +1438,12 @@ final class LoggerUITests: XCTestCase {
             }
             XCTAssertTrue(element("week-muscles", in: app).isHittable)
             XCTAssertTrue(app.buttons[todayRowID()].isHittable)
+            let firstDay = days.firstMatch
+            let firstDayFrame = firstDay.frame
+            week.swipeUp()
+            XCTAssertEqual(firstDay.frame.minY, firstDayFrame.minY, accuracy: 1)
+            week.swipeDown()
+            XCTAssertEqual(firstDay.frame.minY, firstDayFrame.minY, accuracy: 1)
             attach("\(state) week overview above the dock", app)
             app.terminate()
         }
@@ -2132,6 +2202,32 @@ final class LoggerUITests: XCTestCase {
     }
 
     @MainActor
+    func testDeleteExerciseAndResetWorkoutOnActiveDay() {
+        let app = launch()
+        _ = openDay(0, in: app)
+        add("Bench", id: "bench", in: app)
+        add("Deadlift", id: "deadlift", in: app)
+        tap("workout-options", in: app)
+        tap("delete-selected-exercise", in: app)
+        let alert = app.alerts.firstMatch
+        XCTAssertTrue(alert.waitForExistence(timeout: 3))
+        alert.buttons["Cancel"].tap()
+        XCTAssertTrue(app.buttons["exercise-deadlift"].isSelected)
+        tap("workout-options", in: app)
+        tap("delete-selected-exercise", in: app)
+        alert.buttons.matching(identifier: "confirm-workout-removal").firstMatch.tap()
+        XCTAssertTrue(app.buttons["exercise-deadlift"].waitForNonExistence(timeout: 3))
+        XCTAssertTrue(app.buttons["exercise-bench"].isSelected)
+        tap("workout-options", in: app)
+        tap("reset-current-workout", in: app)
+        alert.buttons.matching(identifier: "confirm-workout-removal").firstMatch.tap()
+        XCTAssertTrue(app.buttons["exercise-bench"].waitForNonExistence(timeout: 3))
+        XCTAssertTrue(element("add-exercise", in: app).isHittable)
+        tap("undo-set-change", in: app)
+        XCTAssertTrue(app.buttons["exercise-bench"].isSelected)
+    }
+
+    @MainActor
     func testHiddenRecordedExercisesRemainInTheFullDayList() throws {
         let app = launch()
         let day = openDay(0, in: app)
@@ -2152,6 +2248,31 @@ final class LoggerUITests: XCTestCase {
         tap("back-to-week", in: app)
         XCTAssertTrue(element(day, in: app).label.contains("2 sets"))
         attach("Hidden movements retain discoverable recorded sets", app)
+    }
+
+    @MainActor
+    func testBarbellCountsOnceWhenLoadingPlatesAndCanBeRemoved() {
+        let app = launch()
+        _ = openDay(0, in: app)
+        add("Bench", id: "bench", in: app)
+        tap("row-1-weight", in: app)
+        tap("input-mode-plates", in: app)
+        let weight = app.textFields["set-input"]
+        tap("input-barbell", in: app)
+        tap("input-barbell-45", in: app)
+        XCTAssertEqual(weight.value as? String, "45")
+        tap("input-plate-size-45", in: app)
+        tap("input-increase", in: app)
+        XCTAssertEqual(weight.value as? String, "135")
+        tap("input-barbell", in: app)
+        tap("input-barbell-35", in: app)
+        XCTAssertEqual(weight.value as? String, "125")
+        tap("input-barbell", in: app)
+        tap("input-remove-barbell", in: app)
+        XCTAssertEqual(weight.value as? String, "90")
+        tap("input-plate-undo", in: app)
+        XCTAssertEqual(weight.value as? String, "125")
+        attach("35 lb bar and one 45 lb plate per side", app)
     }
 
     @MainActor

@@ -6,7 +6,15 @@ public enum ExerciseProgressRange: String, CaseIterable, Sendable {
     case sixMonths = "6m"
     case oneYear = "1y"
 
-    fileprivate var monthCount: Int {
+    /// Both endpoints are included. All charts use the same Gregorian civil days.
+    public func days(through today: TrainingDay) -> ClosedRange<TrainingDay> {
+        let calendar = TrainingDay.utc
+        let earliest = TrainingDay(rawValue: "0001-01-01")!.date(in: calendar)
+        let start = calendar.date(byAdding: .month, value: -monthCount, to: today.date(in: calendar)) ?? earliest
+        return TrainingDay(max(start, earliest), calendar: calendar)...today
+    }
+
+    private var monthCount: Int {
         switch self {
         case .oneMonth: 1
         case .threeMonths: 3
@@ -59,21 +67,30 @@ public struct ExerciseProgressWeek: Identifiable, Equatable, Sendable {
 
 public struct ExerciseProgress: Equatable, Sendable {
     public let exerciseID: String
-    public let range: ExerciseProgressRange
+    /// Nil for explicitly selected dates.
+    public let range: ExerciseProgressRange?
     public let startDay: TrainingDay
     public let endDay: TrainingDay
     public let metric: ExerciseProgressMetric
     public let sessions: [ExerciseProgressSession]
-    public let weeks: [ExerciseProgressWeek]
+    private let presetWeeks: [ExerciseProgressWeek]?
+    public var weeks: [ExerciseProgressWeek] {
+        if let presetWeeks { return presetWeeks }
+        // A comparison chart only needs the session points. Expand a custom range
+        // into (possibly years of) empty weeks only if a caller requests that detail.
+        let starts = ExerciseProgressWindow.weekStarts(from: startDay, through: endDay)
+        return progressWeeks(starts: starts, through: endDay,
+                             setCountsByDay: Dictionary(sessions.map { ($0.day, $0.setCount) }, uniquingKeysWith: +))
+    }
     public let setCount: Int
     public let trainingDayCount: Int
     public let latestSession: ExerciseProgressSession?
     public let bestSet: ExerciseProgressSet?
-    public init(exerciseID: String, range: ExerciseProgressRange, startDay: TrainingDay, endDay: TrainingDay,
-                metric: ExerciseProgressMetric, sessions: [ExerciseProgressSession], weeks: [ExerciseProgressWeek],
+    public init(exerciseID: String, range: ExerciseProgressRange?, startDay: TrainingDay, endDay: TrainingDay,
+                metric: ExerciseProgressMetric, sessions: [ExerciseProgressSession], weeks: [ExerciseProgressWeek]?,
                 setCount: Int, trainingDayCount: Int, latestSession: ExerciseProgressSession?, bestSet: ExerciseProgressSet?) {
         self.exerciseID = exerciseID; self.range = range; self.startDay = startDay; self.endDay = endDay
-        self.metric = metric; self.sessions = sessions; self.weeks = weeks; self.setCount = setCount
+        self.metric = metric; self.sessions = sessions; self.presetWeeks = weeks; self.setCount = setCount
         self.trainingDayCount = trainingDayCount; self.latestSession = latestSession; self.bestSet = bestSet
     }
 }
@@ -89,8 +106,16 @@ public extension JournalSnapshot {
 
     func progress(for exercise: Exercise, range: ExerciseProgressRange = .threeMonths,
                   through today: TrainingDay, calendar: Calendar = .current) -> ExerciseProgress {
-        let window = ExerciseProgressWindow(range: range, through: today)
-        let history = progressHistory(through: today, calendar: calendar, exerciseID: exercise.id)
+        progress(for: exercise, window: ExerciseProgressWindow(range: range, through: today), calendar: calendar)
+    }
+
+    func progress(for exercise: Exercise, in days: ClosedRange<TrainingDay>,
+                  calendar: Calendar = .current) -> ExerciseProgress {
+        progress(for: exercise, window: ExerciseProgressWindow(days: days), calendar: calendar)
+    }
+
+    private func progress(for exercise: Exercise, window: ExerciseProgressWindow, calendar: Calendar) -> ExerciseProgress {
+        let history = progressHistory(through: window.today, calendar: calendar, exerciseID: exercise.id)
         return makeExerciseProgress(for: exercise, window: window,
                                     setsByDay: history.sets(for: exercise.id, from: window.startDay))
     }
@@ -98,23 +123,29 @@ public extension JournalSnapshot {
 
 /// Shared civil-date bounds for the per-exercise and overall views.
 struct ExerciseProgressWindow {
-    let range: ExerciseProgressRange
+    let range: ExerciseProgressRange?
     let today: TrainingDay
     let starts: [TrainingDay]
-    var startDay: TrainingDay { starts.first ?? today }
+    let startDay: TrainingDay
 
     init(range: ExerciseProgressRange, through today: TrainingDay) {
+        self.init(days: range.days(through: today), range: range)
+    }
+
+    init(days: ClosedRange<TrainingDay>, range: ExerciseProgressRange? = nil) {
         self.range = range
-        self.today = today
-        var dayCalendar = Calendar(identifier: .gregorian)
-        dayCalendar.timeZone = TimeZone(secondsFromGMT: 0)!
-        let endDate = today.date(in: dayCalendar)
-        let earliestDate = TrainingDay(rawValue: "0001-01-01")!.date(in: dayCalendar)
-        let requestedStart = dayCalendar.date(byAdding: .month, value: -range.monthCount, to: endDate)
-        let startDate = max(earliestDate, requestedStart ?? earliestDate)
+        today = days.upperBound
+        startDay = days.lowerBound
+        starts = range == nil ? [] : Self.weekStarts(from: startDay, through: today)
+    }
+
+    static func weekStarts(from startDay: TrainingDay, through endDay: TrainingDay) -> [TrainingDay] {
+        let dayCalendar = TrainingDay.utc
+        let endDate = endDay.date(in: dayCalendar)
+        let startDate = startDay.date(in: dayCalendar)
 
         // The first bucket starts at the exact range boundary. Later buckets start on Monday.
-        var starts = [TrainingDay(startDate, calendar: dayCalendar)]
+        var starts = [startDay]
         let weekday = dayCalendar.component(.weekday, from: startDate)
         let daysUntilMonday = weekday == 1 ? 1 : 9 - weekday
         var nextMonday = dayCalendar.date(byAdding: .day, value: daysUntilMonday, to: startDate)
@@ -122,7 +153,7 @@ struct ExerciseProgressWindow {
             starts.append(TrainingDay(monday, calendar: dayCalendar))
             nextMonday = dayCalendar.date(byAdding: .day, value: 7, to: monday)
         }
-        self.starts = starts
+        return starts
     }
 }
 
@@ -211,11 +242,13 @@ func makeExerciseProgress(for exercise: Exercise, window: ExerciseProgressWindow
     let metric: ExerciseProgressMetric = !exercise.requiresWeight
         && setsByDay.values.allSatisfy({ $0.allSatisfy { $0.values.weight == 0 } }) ? .reps : .weight
     let sessions = progressSessions(for: exercise.id, setsByDay: setsByDay, metric: metric)
-    let weeks = progressWeeks(starts: window.starts, through: window.today,
-                              setCountsByDay: setsByDay.mapValues { Set($0.map { $0.dropGroupID ?? $0.id }).count })
+    let counts = Dictionary(sessions.map { ($0.day, $0.setCount) }, uniquingKeysWith: +)
+    let weeks = window.range.map { _ in
+        progressWeeks(starts: window.starts, through: window.today, setCountsByDay: counts)
+    }
     return ExerciseProgress(exerciseID: exercise.id, range: window.range, startDay: window.startDay,
                             endDay: window.today, metric: metric, sessions: sessions, weeks: weeks,
-                            setCount: weeks.reduce(0) { $0 + $1.setCount }, trainingDayCount: sessions.count,
+                            setCount: counts.values.reduce(0, +), trainingDayCount: sessions.count,
                             latestSession: sessions.last,
                             bestSet: progressBestSet(in: sessions.map(\.bestSet), metric: metric))
 }

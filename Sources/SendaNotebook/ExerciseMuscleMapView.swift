@@ -134,16 +134,23 @@ enum MuscleHeatLevel: CaseIterable {
     }
 
     func fill(onCharcoal: Bool) -> Color {
-        switch (self, onCharcoal) {
-        case (.untrained, true): Color(red: 0.44, green: 0.35, blue: 0.30)
-        case (.low, true): Color(red: 121 / 255, green: 169 / 255, blue: 166 / 255)
-        case (.medium, true): Color(red: 212 / 255, green: 165 / 255, blue: 83 / 255)
-        case (.high, true): Color(red: 240 / 255, green: 161 / 255, blue: 132 / 255)
-        case (.untrained, false): Color(red: 0.85, green: 0.80, blue: 0.74)
-        case (.low, false): Color(red: 130 / 255, green: 166 / 255, blue: 163 / 255)
-        case (.medium, false): Color(red: 178 / 255, green: 131 / 255, blue: 61 / 255)
-        case (.high, false): NotebookStyle.clay
+        let light: Color
+        let dark: Color
+        switch self {
+        case .untrained:
+            light = Color(red: 0.85, green: 0.80, blue: 0.74)
+            dark = Color(red: 0.44, green: 0.35, blue: 0.30)
+        case .low:
+            light = Color(red: 130 / 255, green: 166 / 255, blue: 163 / 255)
+            dark = Color(red: 121 / 255, green: 169 / 255, blue: 166 / 255)
+        case .medium:
+            light = Color(red: 178 / 255, green: 131 / 255, blue: 61 / 255)
+            dark = Color(red: 212 / 255, green: 165 / 255, blue: 83 / 255)
+        case .high:
+            light = NotebookStyle.clay
+            dark = Color(red: 240 / 255, green: 161 / 255, blue: 132 / 255)
         }
+        return onCharcoal ? dark : NotebookStyle.pair(light, dark)
     }
 }
 
@@ -157,8 +164,10 @@ struct MuscleFigure: View {
     private let highlight: Highlight
     private let onRegionTap: ((MuscleRegion) -> Void)?
 
-    private let neutral = Color(red: 225 / 255, green: 218 / 255, blue: 205 / 255)
-    private let muscleNeutral = Color(red: 214 / 255, green: 205 / 255, blue: 188 / 255)
+    private let neutral = NotebookStyle.pair(Color(red: 225 / 255, green: 218 / 255, blue: 205 / 255),
+                                             Color(red: 82 / 255, green: 69 / 255, blue: 59 / 255))
+    private let muscleNeutral = NotebookStyle.pair(Color(red: 214 / 255, green: 205 / 255, blue: 188 / 255),
+                                                   Color(red: 107 / 255, green: 89 / 255, blue: 75 / 255))
 
     init(aspect: MuscleFigureAspect, primary: [MuscleRegion], supporting: [MuscleRegion]) {
         self.aspect = aspect

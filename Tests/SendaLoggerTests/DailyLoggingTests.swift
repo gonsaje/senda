@@ -97,6 +97,51 @@ import SendaPersistence
         #expect(try model(store).snapshot == saved)
     }
 
+    @Test func deletingOneWorkoutExerciseKeepsOtherDaysAndRestoresSetsOnUndo() throws {
+        let store = MemoryJournalRepository(), m = try model(store), prior = try day.adding(days: -1)
+        #expect(m.openDay(prior))
+        try record(m)
+        let previousDay = m.workout
+        #expect(m.openDay(day))
+        try record(m, exercise: "row")
+        try record(m)
+        #expect(m.newSet())
+        try enter(m, weight: "18.", reps: "")
+        #expect(m.finishEditing())
+        let original = try #require(m.workout)
+        #expect(m.deleteFromWorkout(.exercise("bench"), on: day))
+        #expect(m.exercise?.id == "row" && m.workout?.rows["bench"] == nil)
+        #expect(m.summary(for: day).setCount == 1 && m.summary(for: prior).setCount == 1)
+        #expect(m.workspace.days[prior.rawValue] == previousDay)
+        #expect(m.activeExercises.contains { $0.id == "bench" })
+        let reopened = try model(store)
+        #expect(reopened.undoChange())
+        #expect(reopened.workout == original && reopened.summary(for: day).setCount == 2)
+        #expect(reopened.workspace.days[prior.rawValue] == previousDay)
+    }
+
+    @Test func resettingWorkoutIncludesHiddenWorkAndRetriesAtomically() throws {
+        let store = DailyFailureStore(), m = try model(store)
+        #expect(m.openDay(day))
+        try record(m)
+        #expect(m.removeExercise("bench"))
+        try record(m, exercise: "row")
+        let previous = m.snapshot
+        store.reject = true
+        #expect(!m.deleteFromWorkout(.workout, on: day))
+        #expect(m.snapshot == previous && m.canRetrySave)
+        store.reject = false
+        #expect(m.retrySave())
+        #expect(m.workout == DayWorkout(unit: previous.training!.preferredUnit))
+        #expect(m.selectedDay == day && m.focus == nil && m.journal.batches.isEmpty)
+        #expect(m.workspace.workoutTemplates == previous.training?.workoutTemplates)
+        let reopened = try model(store)
+        #expect(reopened.undoChange() && reopened.workout == previous.training?.days[day.rawValue])
+        #expect(reopened.summary(for: day).setCount == 2)
+        #expect(!reopened.deleteFromWorkout(.workout, on: try day.adding(days: 1)))
+        #expect(reopened.summary(for: day).setCount == 2)
+    }
+
     private func enter(_ m: TrainingNotebookModel, weight: String, reps: String) throws {
         let row = try #require(m.rows.last)
         #expect(m.selectInput(row.id, field: .weight)); m.typeInput(weight, focus: try #require(m.focus))

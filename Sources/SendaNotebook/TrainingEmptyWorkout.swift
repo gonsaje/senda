@@ -7,7 +7,6 @@ struct TrainingEmptyWorkout: View {
     let addExercise: (() -> Void)?
     let chooseTemplate: () -> Void
     @Environment(\.dynamicTypeSize) private var textSize
-    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -68,19 +67,12 @@ struct TrainingEmptyWorkout: View {
                 .accessibilityLabel("Example set, Bench, \(values)")
                 .accessibilityIdentifier("first-workout-example")
                 if let frame = visual?.frames.last {
-                    let drawing = ExerciseArtworkImage(name: frame.resourceName, maximumPixelSize: 540)
+                    ExerciseArtworkImage(name: frame.resourceName, maximumPixelSize: 540)
                         .aspectRatio(contentMode: .fit)
-                    Group {
-                        if colorScheme == .dark {
-                            drawing.colorInvert().colorMultiply(NotebookStyle.ink).blendMode(.screen)
-                        } else {
-                            drawing.blendMode(.multiply)
-                        }
-                    }
-                    .frame(maxWidth: 150, maxHeight: 154)
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel(frame.accessibleDescription)
-                    .accessibilityAddTraits(.isImage)
+                        .frame(maxWidth: 150, maxHeight: 154)
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel(frame.accessibleDescription)
+                        .accessibilityAddTraits(.isImage)
                 }
             }
             .padding(.top, 16)

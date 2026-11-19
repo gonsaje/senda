@@ -4,6 +4,7 @@ import SendaDomain
 struct ProgressRangeControl: View {
     @Binding var selection: ExerciseProgressRange
     let identifierPrefix: String
+    var showsSelection = true
     @Environment(\.dynamicTypeSize) private var textSize
 
     private var columns: [GridItem] {
@@ -14,7 +15,7 @@ struct ProgressRangeControl: View {
     var body: some View {
         LazyVGrid(columns: columns, spacing: 8) {
             ForEach(ExerciseProgressRange.allCases, id: \.self) { range in
-                let selected = selection == range
+                let selected = showsSelection && selection == range
                 Button { selection = range } label: {
                     Text(textSize.isAccessibilitySize ? range.label : range.rawValue.uppercased())
                         .font(.subheadline.weight(selected ? .bold : .regular))

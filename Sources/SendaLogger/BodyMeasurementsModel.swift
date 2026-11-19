@@ -34,16 +34,33 @@ import SendaPersistence
         } catch { manualLoadFailed = true }
     }
 
-    public func readings(for metric: BodyMetric, calendar: Calendar = .current) -> [BodyMeasurement] {
-        (manualReadings + healthReadings)
+    /// Newest first. Manual entries retain their chosen civil date when the reader travels.
+    public func readings(for metric: BodyMetric, in days: ClosedRange<TrainingDay>? = nil,
+                         calendar: Calendar = .current) -> [BodyMeasurement] {
+        let firstDay = days.map { calendar.startOfDay(for: $0.lowerBound.date(in: calendar)) }
+        let endDay = days.map { $0.upperBound.date(in: calendar) }
+        return (manualReadings + healthReadings)
             .filter { $0.metric == metric }
             .map { (reading: $0, displayDate: $0.displayDate(in: calendar)) }
+            .filter { entry in
+                guard let firstDay, let endDay else { return true }
+                return entry.displayDate >= firstDay &&
+                    calendar.compare(entry.displayDate, to: endDay, toGranularity: .day) != .orderedDescending
+            }
             .sorted {
                 if $0.displayDate != $1.displayDate { return $0.displayDate > $1.displayDate }
                 if $0.reading.date != $1.reading.date { return $0.reading.date > $1.reading.date }
                 return $0.reading.id.uuidString < $1.reading.id.uuidString
             }
             .map(\.reading)
+    }
+
+    public func hasReadings(for metric: BodyMetric) -> Bool {
+        manualReadings.contains { $0.metric == metric } || hasHealthReadings(for: metric)
+    }
+
+    public func hasHealthReadings(for metric: BodyMetric) -> Bool {
+        healthReadings.contains { $0.metric == metric }
     }
 
     public func add(_ values: [BodyMetric: Double], on date: Date) throws {

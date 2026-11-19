@@ -367,7 +367,7 @@ struct TrainingExerciseLibrary: View {
                     Group {
                         if let visual = exercise.presetID.flatMap(ExerciseFormVisual.guide(for:)), let frame = visual.frames.first {
                             ExerciseArtworkImage(name: frame.resourceName, maximumPixelSize: 192)
-                                .scaledToFit().blendMode(.multiply)
+                                .scaledToFit()
                         } else if let muscles = exercise.muscleMap {
                             ExerciseMuscleThumbnail(map: muscles)
                         } else {
@@ -528,7 +528,7 @@ struct TrainingGuideLibrary: View {
                 if !textSize.isAccessibilitySize {
                     if topic == .form, let frame = ExerciseFormVisual.guide(for: "bench")?.frames.last {
                         ExerciseArtworkImage(name: frame.resourceName, maximumPixelSize: 220)
-                            .scaledToFit().blendMode(.multiply)
+                            .scaledToFit()
                             .frame(width: 64, height: 64).accessibilityHidden(true)
                     } else if let map = ExerciseMuscleMap.map(for: "bench") {
                         ExerciseMuscleThumbnail(map: map).frame(width: 64, height: 64)

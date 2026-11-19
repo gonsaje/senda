@@ -139,15 +139,17 @@ struct TrainingInputDock: View {
                 .id(model.unit)
             }
             if focus.field == .weight && !typing {
-                if let last = model.lastPlateAdjustment(focus: focus) {
-                    undoPlate(size: last.size, count: last.count)
-                } else if usesPlates {
-                    let equation = "\(plateSize.formatted(.number)) × \(weightEntry.count) = \(plateDelta) \(model.unit.symbol)"
-                    Text(equation)
-                        .font(.caption.monospacedDigit()).foregroundStyle(NotebookStyle.quiet)
-                        .frame(minHeight: 44)
-                        .accessibilityLabel("\(weightEntry.count) \(plateSize.formatted(.number)) \(model.unit.symbol) \(weightEntry.count == 1 ? "plate" : "plates"), \(plateDelta) \(model.unit.symbol) total change")
-                        .accessibilityIdentifier("input-plate-calculation")
+                if usesPlates {
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 8) {
+                            barbellMenu.fixedSize(horizontal: true, vertical: false)
+                            Spacer(minLength: 0)
+                            plateFeedback.fixedSize(horizontal: true, vertical: false)
+                        }
+                        VStack(spacing: 0) { barbellMenu; plateFeedback }
+                    }
+                } else if let change = model.lastLoadAdjustment(focus: focus) {
+                    undo(change)
                 }
             }
         }
@@ -196,23 +198,53 @@ struct TrainingInputDock: View {
         .accessibilityIdentifier(plates ? "input-mode-plates" : "input-mode-dial")
     }
 
-    private func undoPlate(size: Decimal, count: Int) -> some View {
-        let magnitude = (size * Decimal(abs(count))).formatted(.number)
-        let signed = (count > 0 ? "+" : "−") + magnitude
+    private var barbellMenu: some View {
+        TrainingBarbellMenu(unit: model.unit, weight: model.focusedRow?.barbellWeight,
+                            canSet: { model.canSetBarbellWeight($0, focus: focus) }) { bar in
+            beginInteraction()
+            if model.setBarbellWeight(bar, focus: focus) { TrainingAccessibility.announce(inputAccessibilityValue) }
+        }
+    }
+
+    @ViewBuilder private var plateFeedback: some View {
+        if let last = model.lastLoadAdjustment(focus: focus) {
+            undo(last)
+        } else {
+            let equation = "\(plateSize.formatted(.number)) × \(weightEntry.count) = \(plateDelta) \(model.unit.symbol)"
+            Text(equation)
+                .font(.caption.monospacedDigit()).foregroundStyle(NotebookStyle.quiet)
+                .frame(minHeight: 44)
+                .accessibilityLabel("\(weightEntry.count) \(plateSize.formatted(.number)) \(model.unit.symbol) \(weightEntry.count == 1 ? "plate" : "plates"), \(plateDelta) \(model.unit.symbol) total change")
+                .accessibilityIdentifier("input-plate-calculation")
+        }
+    }
+
+    private func undo(_ change: TrainingLoadAdjustment) -> some View {
+        let title: String
+        let accessibilityLabel: String
+        switch change {
+        case let .plates(size, count):
+            let magnitude = (size * Decimal(abs(count))).formatted(.number)
+            title = "Undo " + (count > 0 ? "+" : "−") + magnitude + " " + model.unit.symbol
+            accessibilityLabel = "Undo \(count > 0 ? "adding" : "removing") \(abs(count)) \(size.formatted(.number)) \(model.unit.symbol) \(abs(count) == 1 ? "plate" : "plates")"
+        case .barbell:
+            title = "Undo bar"
+            accessibilityLabel = "Undo barbell change"
+        }
         return Button {
             beginInteraction()
             if model.undoPlateAdjustment(focus: focus) {
-                TrainingAccessibility.announce("Plate change undone. \(inputAccessibilityValue).")
+                TrainingAccessibility.announce("Weight change undone. \(inputAccessibilityValue).")
             }
         } label: {
-            Label("Undo \(signed) \(model.unit.symbol)", systemImage: "arrow.uturn.backward")
+            Label(title, systemImage: "arrow.uturn.backward")
                 .font(.subheadline.weight(.medium).monospacedDigit())
                 .foregroundStyle(NotebookStyle.clay)
                 .frame(minWidth: 44, minHeight: 44)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Undo \(count > 0 ? "adding" : "removing") \(abs(count)) \(size.formatted(.number)) \(model.unit.symbol) \(abs(count) == 1 ? "plate" : "plates")")
+        .accessibilityLabel(accessibilityLabel)
         .accessibilityIdentifier("input-plate-undo")
     }
 

@@ -148,6 +148,7 @@ struct TrainingWorkoutOptions: View {
     let chooseWorkout: () -> Void
     let saveTemplate: () -> Void
     let beginNavigation: () -> Void
+    let requestRemoval: (TrainingWorkoutRemoval) -> Void
 
     var body: some View {
         Menu {
@@ -173,15 +174,66 @@ struct TrainingWorkoutOptions: View {
                 }
                 .accessibilityIdentifier("hide-exercise-menu")
             }
+            Divider()
+            if let selected = model.exercise {
+                Button(role: .destructive) { requestRemoval(.exercise(selected.id)) } label: {
+                    Label("Delete \(selected.displayName)", systemImage: "trash")
+                }
+                .accessibilityIdentifier("delete-selected-exercise")
+            }
+            Button(role: .destructive) { requestRemoval(.workout) } label: {
+                Label("Reset workout", systemImage: "arrow.counterclockwise")
+            }
+            .accessibilityIdentifier("reset-current-workout")
         } label: {
-            Image(systemName: "ellipsis")
-                .font(.body.weight(.medium))
-                .frame(width: 46, height: 46)
+            Text("Edit")
+                .font(.subheadline.weight(.medium))
+                .frame(minWidth: 44, minHeight: 46)
                 .contentShape(Rectangle())
         }
         .menuStyle(.borderlessButton).menuIndicator(.hidden)
         .foregroundStyle(NotebookStyle.quiet)
-        .accessibilityLabel("Workout options")
+        .accessibilityLabel("Edit workout")
         .accessibilityIdentifier("workout-options")
+    }
+}
+
+struct TrainingWorkoutRemovalRequest {
+    let target: TrainingWorkoutRemoval
+    let day: TrainingDay
+}
+
+struct TrainingWorkoutRemovalConfirmation: ViewModifier {
+    let model: TrainingNotebookModel
+    @Binding var request: TrainingWorkoutRemovalRequest?
+
+    private var title: String {
+        switch request?.target {
+        case .exercise(let id): "Delete \(model.exercise(id).displayName)?"
+        case .workout: "Reset this workout?"
+        case nil: ""
+        }
+    }
+
+    func body(content: Content) -> some View {
+        content.alert(title, isPresented: Binding(get: { request != nil }, set: { if !$0 { request = nil } }),
+                      presenting: request) { action in
+            let isReset = action.target == .workout
+            Button(isReset ? "Reset workout" : "Delete exercise", role: .destructive) {
+                if model.deleteFromWorkout(action.target, on: action.day) {
+                    TrainingAccessibility.announce(isReset ? "Workout reset." : "Exercise deleted.")
+                }
+            }
+            .accessibilityIdentifier("confirm-workout-removal")
+            Button("Cancel", role: .cancel) {}
+        } message: { action in
+            let date = TrainingText.date(action.day, format: "EEEE, MMMM d, yyyy")
+            switch action.target {
+            case .exercise:
+                Text("This removes the exercise and its sets from the workout on \(date).")
+            case .workout:
+                Text("This removes every exercise and set from the workout on \(date).")
+            }
+        }
     }
 }

@@ -8,6 +8,7 @@ public struct TrainingDayExerciseList: View {
     private let close: () -> Void
     private let add: () -> Void
     @State private var pendingExerciseID: String?
+    @State private var removalRequest: TrainingWorkoutRemovalRequest?
 
     public init(model: TrainingNotebookModel, day: TrainingDay, close: @escaping () -> Void, add: @escaping () -> Void) {
         self.model = model; self.day = day; self.close = close; self.add = add
@@ -37,36 +38,48 @@ public struct TrainingDayExerciseList: View {
                         let count = model.loggedSetCount(for: exercise.id, on: day)
                         let selected = model.exercise?.id == exercise.id
                         let hidden = !visibleIDs.contains(exercise.id)
-                        Button {
-                            cancelPendingSelection()
-                            guard model.selectedDay == day else { return }
-                            pendingExerciseID = exercise.id
-                            let saved = hidden ? model.addExercise(exercise.id) : model.selectExercise(exercise.id)
-                            if saved { completePendingSelection() }
-                            else if !model.canRetrySave { pendingExerciseID = nil }
-                        } label: {
-                            HStack(spacing: 12) {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(exercise.displayName).font(.body.weight(selected ? .bold : .regular))
-                                        .foregroundStyle(NotebookStyle.ink).fixedSize(horizontal: false, vertical: true)
-                                    Text(countLabel(count)).font(.caption.monospacedDigit()).foregroundStyle(NotebookStyle.quiet)
-                                    if hidden {
-                                        Text(count == 0 ? "Hidden tab · Input retained" : "Hidden tab · Sets retained")
-                                            .font(.caption).foregroundStyle(NotebookStyle.clay).fixedSize(horizontal: false, vertical: true)
-                                    }
-                                }.frame(maxWidth: .infinity, alignment: .leading)
-                                Image(systemName: hidden ? "eye" : "chevron.right")
-                                    .font(.body).foregroundStyle(NotebookStyle.quiet)
-                                    .accessibilityHidden(true)
+                        HStack(spacing: 2) {
+                            Button {
+                                cancelPendingSelection()
+                                guard model.selectedDay == day else { return }
+                                pendingExerciseID = exercise.id
+                                let saved = hidden ? model.addExercise(exercise.id) : model.selectExercise(exercise.id)
+                                if saved { completePendingSelection() }
+                                else if !model.canRetrySave { pendingExerciseID = nil }
+                            } label: {
+                                HStack(spacing: 12) {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(exercise.displayName).font(.body.weight(selected ? .bold : .regular))
+                                            .foregroundStyle(NotebookStyle.ink).fixedSize(horizontal: false, vertical: true)
+                                        Text(countLabel(count)).font(.caption.monospacedDigit()).foregroundStyle(NotebookStyle.quiet)
+                                        if hidden {
+                                            Text(count == 0 ? "Hidden tab · Input retained" : "Hidden tab · Sets retained")
+                                                .font(.caption).foregroundStyle(NotebookStyle.clay).fixedSize(horizontal: false, vertical: true)
+                                        }
+                                    }.frame(maxWidth: .infinity, alignment: .leading)
+                                    Image(systemName: hidden ? "eye" : "chevron.right")
+                                        .font(.body).foregroundStyle(NotebookStyle.quiet)
+                                        .accessibilityHidden(true)
+                                }
+                                .padding(.horizontal, 10).padding(.vertical, 14).frame(minHeight: 70)
+                                .background(selected ? NotebookStyle.clay.opacity(0.14) : .clear, in: RoundedRectangle(cornerRadius: 8))
+                                .contentShape(Rectangle())
                             }
-                            .padding(.horizontal, 10).padding(.vertical, 14).frame(minHeight: 70)
-                            .background(selected ? NotebookStyle.clay.opacity(0.14) : .clear, in: RoundedRectangle(cornerRadius: 8))
-                            .contentShape(Rectangle())
+                            .accessibilityLabel("\(exercise.displayName), \(countLabel(count))\(hidden ? ", Hidden tab, retained work" : "")")
+                            .accessibilityHint(hidden ? "Restore its tab and open retained sets and input" : "Open exercise")
+                            .accessibilityAddTraits(selected ? .isSelected : [])
+                            .accessibilityIdentifier("day-exercise-\(exercise.id)")
+                            Button(role: .destructive) {
+                                cancelPendingSelection()
+                                removalRequest = TrainingWorkoutRemovalRequest(target: .exercise(exercise.id), day: day)
+                            } label: {
+                                Image(systemName: "trash")
+                                    .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+                            }
+                            .foregroundStyle(NotebookStyle.quiet)
+                            .accessibilityLabel("Delete \(exercise.displayName) from this workout")
+                            .accessibilityIdentifier("day-delete-\(exercise.id)")
                         }
-                        .accessibilityLabel("\(exercise.displayName), \(countLabel(count))\(hidden ? ", Hidden tab, retained work" : "")")
-                        .accessibilityHint(hidden ? "Restore its tab and open retained sets and input" : "Open exercise")
-                        .accessibilityAddTraits(selected ? .isSelected : [])
-                        .accessibilityIdentifier("day-exercise-\(exercise.id)")
                         Rectangle().fill(NotebookStyle.rule).frame(height: 0.5)
                     }
                     if exercises.isEmpty {
@@ -87,6 +100,10 @@ public struct TrainingDayExerciseList: View {
                     .padding(.horizontal, 24).padding(.vertical, 12).frame(maxWidth: 560).frame(maxWidth: .infinity)
                     .background(NotebookStyle.ivory)
             }
+        }
+        .modifier(TrainingWorkoutRemovalConfirmation(model: model, request: $removalRequest))
+        .onChange(of: exercises.isEmpty) { _, empty in
+            if empty && model.selectedDay == day { close() }
         }
         .scrollIndicators(.never)
         .accessibilityIdentifier("day-exercises-scroll")

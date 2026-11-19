@@ -7,7 +7,7 @@ struct BodyMeasurementEditor: View {
     let unit: WeightUnit
     let reading: BodyMeasurement?
     let close: () -> Void
-    let saved: ([BodyMetric]) -> Void
+    let saved: ([BodyMetric], Date) -> Void
 
     @Environment(\.dynamicTypeSize) private var textSize
     @State private var date: Date
@@ -18,7 +18,7 @@ struct BodyMeasurementEditor: View {
     private let originalValueText: String?
 
     init(model: BodyMeasurementsModel, unit: WeightUnit, reading: BodyMeasurement?, close: @escaping () -> Void,
-         saved: @escaping ([BodyMetric]) -> Void) {
+         saved: @escaping ([BodyMetric], Date) -> Void) {
         self.model = model
         self.unit = unit
         self.reading = reading
@@ -131,7 +131,7 @@ struct BodyMeasurementEditor: View {
                 let value = text == originalValueText ? reading.value : try parse(text, for: reading.metric)
                 let savedDate = TrainingDay(date) == TrainingDay(reading.date) ? reading.date : date
                 try model.update(reading, value: value, on: savedDate)
-                saved([reading.metric])
+                saved([reading.metric], savedDate)
             } else {
                 var values: [BodyMetric: Double] = [:]
                 for metric in BodyMetric.allCases {
@@ -139,7 +139,7 @@ struct BodyMeasurementEditor: View {
                     if !text.isEmpty { values[metric] = try parse(text, for: metric) }
                 }
                 try model.add(values, on: date)
-                saved(BodyMetric.allCases.filter { values[$0] != nil })
+                saved(BodyMetric.allCases.filter { values[$0] != nil }, date)
             }
         } catch { showError(error) }
     }
@@ -153,7 +153,7 @@ struct BodyMeasurementEditor: View {
         guard let reading else { return }
         do {
             try model.remove(reading)
-            saved([reading.metric])
+            close()
         } catch { showError(error) }
     }
 

@@ -38,6 +38,7 @@ struct TrainingDayView: View {
     let day: TrainingDay
     @State private var presentedSheet: TrainingDaySheet?
     @State private var weightEntry = TrainingWeightEntrySettings()
+    @State private var removalRequest: TrainingWorkoutRemovalRequest?
     @State private var showingSearch = false
     @State private var searchAfterDismissal: TrainingDay?
     @State private var pendingNavigation: TrainingPendingNavigation?
@@ -190,6 +191,7 @@ struct TrainingDayView: View {
             .sheet(item: $planContext) { context in
                 TrainingPlanEditor(model: model, context: context, close: { planContext = nil })
             }
+            .modifier(TrainingWorkoutRemovalConfirmation(model: model, request: $removalRequest))
             .onPreferenceChange(TrainingFocusedRowPreference.self) { layout in
                 measuredFocusLayout = layout
             }
@@ -223,12 +225,19 @@ struct TrainingDayView: View {
             .onChange(of: day) { _, _ in
                 weightEntry = TrainingWeightEntrySettings()
                 showsFirstSetConfirmation = false
+                removalRequest = nil
                 showingSearch = false
                 searchAfterDismissal = nil
                 pendingNavigation = nil
                 presentedSheet = nil
                 planContext = nil
                 if model.revealRowID == nil { scroll.scrollTo("day-top", anchor: .top) }
+            }
+            .onChange(of: hasExercises) { _, hasExercises in
+                if !hasExercises {
+                    showingSearch = false
+                    searchAfterDismissal = nil
+                }
             }
             .onChange(of: showingSearch) { _, isOpen in
                 if !isOpen && presentedSheet == nil && model.section == .log && model.selectedDay == day {
@@ -388,7 +397,12 @@ struct TrainingDayView: View {
                 showingSearch = false
                 if stripScrolledPast { scroll.scrollTo("active-exercise", anchor: .top) }
                 return true
-            }, add: { addExerciseButton })
+            }, add: {
+                HStack(spacing: 0) {
+                    workoutOptions
+                    addExerciseButton
+                }
+            })
         }
     }
     private var addExerciseButton: some View {
@@ -415,7 +429,6 @@ struct TrainingDayView: View {
             HStack(spacing: 4) {
                 progressButton(exercise)
                 unitToggle
-                workoutOptions
             }
         }
     }
@@ -423,7 +436,10 @@ struct TrainingDayView: View {
     private var workoutOptions: some View {
         TrainingWorkoutOptions(model: model, day: day, showAll: { open(.sheet(.exercises)) },
             chooseWorkout: { open(.sheet(.library)) }, saveTemplate: { open(.sheet(.saveTemplate)) },
-            beginNavigation: { pendingNavigation = nil })
+            beginNavigation: { pendingNavigation = nil }, requestRemoval: { target in
+                pendingNavigation = nil
+                removalRequest = TrainingWorkoutRemovalRequest(target: target, day: day)
+            })
     }
     private func progressButton(_ exercise: Exercise) -> some View {
         Button { pendingNavigation = nil; model.openProgress(for: exercise.id) } label: {

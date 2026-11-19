@@ -93,7 +93,7 @@ private struct ExerciseFormVisualView: View {
                     Button { enlargedFrame = frame } label: {
                         VStack(alignment: .leading, spacing: 10) {
                             ExerciseArtworkImage(name: frame.resourceName)
-                                .scaledToFit().blendMode(.multiply)
+                                .scaledToFit()
                                 .frame(maxWidth: .infinity)
                                 .aspectRatio(1, contentMode: .fit)
                                 .accessibilityHidden(true)
@@ -144,7 +144,7 @@ public struct ExerciseFormPositionView: View {
                     }
                 }
                 ExerciseArtworkImage(name: frame.resourceName)
-                    .scaledToFit().blendMode(.multiply).accessibilityHidden(true)
+                    .scaledToFit().accessibilityHidden(true)
                 Text(frame.accessibleDescription).font(.body).lineSpacing(3)
                     .fixedSize(horizontal: false, vertical: true)
             }.padding(24).frame(maxWidth: 560).frame(maxWidth: .infinity)

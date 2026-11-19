@@ -83,7 +83,7 @@ public struct TrainingTrendsView: View {
         .accessibilityIdentifier("trends-scroll")
         .sheet(isPresented: $showsBodyMeasurements, onDismiss: { bodyMeasurements?.disconnectHealth() }) {
             if let bodyMeasurements {
-                BodyMeasurementsView(model: bodyMeasurements, unit: model.workspace.preferredUnit,
+                BodyMeasurementsView(model: bodyMeasurements, notebook: model,
                     close: { showsBodyMeasurements = false })
             }
         }

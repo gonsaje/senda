@@ -23,10 +23,12 @@ public struct NotebookArchive: Codable, Equatable, Sendable {
                 throw NotebookBackupError.invalidBackup
             }
         }
-        if case .deletedGroup(_, _, _, _, let removal)? = snapshot.training?.undo {
+        switch snapshot.training?.undo {
+        case .deletedGroup(_, _, _, _, let removal), .removedFromWorkout(_, _, _, let removal):
             guard removal.batches.allSatisfy({ notebookDateRange.contains($0.batch.recordedAt.timeIntervalSince1970) }) else {
                 throw NotebookBackupError.invalidBackup
             }
+        default: break
         }
         do {
             return try NotebookArchive(snapshot: snapshot.validated(), profile: profile.validated(), createdAt: createdAt)

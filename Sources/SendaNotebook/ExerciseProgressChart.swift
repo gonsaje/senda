@@ -49,6 +49,8 @@ struct ExerciseProgressChart: View {
             return .stride(by: .month, count: largerText ? 3 : 2, calendar: calendar)
         case .oneYear:
             return .stride(by: .month, count: largerText ? 6 : 3, calendar: calendar)
+        case nil:
+            return .automatic(desiredCount: largerText ? 3 : 5)
         }
     }
     var body: some View {

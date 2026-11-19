@@ -155,6 +155,7 @@ struct TrainingWeekView: View {
                 .frame(maxWidth: 560).frame(maxWidth: .infinity)
                 .disabled(swipe.isHorizontal)
             }
+            .scrollBounceBehavior(.basedOnSize, axes: .vertical)
             .accessibilityIdentifier("week-view")
         }
         .contentShape(Rectangle())
@@ -189,7 +190,6 @@ struct TrainingWeekView: View {
 
     private func dayRow(_ day: TrainingDay, weekdayLabels: [String]) -> some View {
         let summary = model.summary(for: day)
-        let bodyParts = summary.muscleGroups.map(\.rawValue)
         let unfinished = model.unfinishedSetCount(for: day)
         let isToday = day == model.today
         let exerciseCount = model.workspace.days[day.rawValue]?.exerciseIDs.count ?? 0
@@ -209,8 +209,11 @@ struct TrainingWeekView: View {
         let dateLabel = isToday ? "Today, \(date)" : date
         let setLabel = "\(summary.setCount) \(summary.setCount == 1 ? "set" : "sets")"
         let needsValues = "\(unfinished) \(unfinished == 1 ? "set needs" : "sets need") values"
-        let detail = (bodyParts.isEmpty ? [action] : bodyParts) +
-            (unfinished > 0 ? (bodyParts.isEmpty ? [needsValues] : [needsValues, action]) : [])
+        var detail = [summary.weekFocus ?? action]
+        if unfinished > 0 {
+            detail.append(needsValues)
+            if summary.weekFocus != nil { detail.append(action) }
+        }
         let rowLayout = textSize.isAccessibilitySize
             ? AnyLayout(VStackLayout(alignment: .leading, spacing: 5))
             : AnyLayout(HStackLayout(alignment: .center, spacing: 8))
@@ -222,25 +225,9 @@ struct TrainingWeekView: View {
                     if isToday && (summary.setCount > 0 || exerciseCount > 0 || unfinished > 0) {
                         Text("Today").font(.caption.weight(.semibold)).foregroundStyle(NotebookStyle.clay)
                     }
-                    if let primary = bodyParts.first {
-                        Text(primary).font(.callout.weight(.semibold))
-                            .lineLimit(textSize.isAccessibilitySize ? nil : 1)
-                        let remaining = bodyParts.dropFirst()
-                        if let secondary = remaining.first {
-                            let names = remaining.joined(separator: " · ")
-                            Group {
-                                if textSize.isAccessibilitySize {
-                                    Text(names)
-                                } else {
-                                    ViewThatFits(in: .horizontal) {
-                                        Text(names).fixedSize(horizontal: true, vertical: false)
-                                        Text(remaining.count > 1 ? "\(secondary) +\(remaining.count - 1)" : secondary)
-                                            .lineLimit(1)
-                                    }
-                                }
-                            }
-                            .font(.caption).foregroundStyle(NotebookStyle.quiet)
-                        }
+                    if let focus = summary.weekFocus {
+                        Text(focus).font(.callout.weight(.semibold))
+                            .fixedSize(horizontal: false, vertical: true)
                     } else {
                         Label(action, systemImage: symbol)
                             .font(.callout.weight(isToday ? .semibold : .regular))

@@ -3,18 +3,12 @@ import SendaNotebook
 
 struct SendaLaunchIntro: View {
     let finish: () -> Void
-    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var startedAt: Date?
 
     private static let words = ["trace", "your", "path", "to", "greatness"]
     private static let taglineFont = NotebookTypography.heading(18, relativeTo: .headline)
     private let trailSize = CGSize(width: 92, height: 80)
-    private var ink: Color {
-        colorScheme == .dark
-            ? Color(red: 247 / 255, green: 243 / 255, blue: 235 / 255)
-            : Color(red: 48 / 255, green: 39 / 255, blue: 32 / 255)
-    }
 
     var body: some View {
         GeometryReader { bounds in
@@ -52,7 +46,7 @@ struct SendaLaunchIntro: View {
                             .accessibilityIdentifier("senda-launch-wordmark")
                     }
                 }
-                .foregroundStyle(ink)
+                .foregroundStyle(NotebookStyle.ink)
                 .padding(.horizontal, 24)
                 .frame(maxWidth: .infinity)
                 .padding(.top, max(0, (bounds.size.height - trailSize.height) / 2))
@@ -76,7 +70,7 @@ struct SendaLaunchIntro: View {
         for (index, word) in Self.words.enumerated() {
             let opacity = fraction(at: elapsed, from: 0.45 + Double(index) * 0.072, duration: 0.32)
             var run = AttributedString(index == 0 ? word : " " + word)
-            run.foregroundColor = ink.opacity(opacity)
+            run.foregroundColor = NotebookStyle.ink.opacity(opacity)
             text.append(run)
         }
         return Text(text)

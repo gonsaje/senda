@@ -26,6 +26,55 @@ import SendaPersistence
         model.typeInput(reps, focus: try #require(model.focus))
     }
 
+    @Test func barbellIsCountedOnceAndCanBeChangedOrRemovedAfterRelaunch() throws {
+        let store = MemoryJournalRepository()
+        var editor = try model(store)
+        let row = try begin(editor)
+        #expect(editor.selectInput(row, field: .weight))
+        var focus = try #require(editor.focus)
+        #expect(editor.setBarbellWeight(4_500, focus: focus))
+        #expect(editor.inputText(for: focus) == "45")
+        #expect(!editor.setBarbellWeight(4_500, focus: focus))
+        #expect(!editor.canAdjustPlate(5, count: -1, focus: focus))
+        #expect(editor.adjustPlate(45, count: 2, focus: focus))
+        #expect(editor.inputText(for: focus) == "135")
+        editor = try model(store)
+        focus = try #require(editor.focus)
+        #expect(editor.focusedRow?.barbellWeight == 4_500)
+        #expect(editor.setBarbellWeight(3_500, focus: focus))
+        #expect(editor.inputText(for: focus) == "125")
+        #expect(editor.setBarbellWeight(nil, focus: focus))
+        #expect(editor.inputText(for: focus) == "90")
+        #expect(editor.undoPlateAdjustment(focus: focus))
+        #expect(editor.inputText(for: focus) == "125")
+        #expect(editor.focusedRow?.barbellWeight == 3_500)
+    }
+
+    @Test func barbellUndoRestoresBlankAndHandlesUnitChangesAndSaveRetry() throws {
+        let store = AutomaticSavingFailureRepository(), editor = try model(store)
+        let row = try begin(editor)
+        #expect(editor.selectInput(row, field: .weight))
+        var focus = try #require(editor.focus)
+        store.reject = true
+        #expect(!editor.setBarbellWeight(4_500, focus: focus))
+        #expect(editor.focusedRow?.barbellWeight == nil)
+        store.reject = false
+        #expect(editor.retrySave())
+        #expect(editor.undoPlateAdjustment(focus: focus))
+        #expect(editor.inputText(for: focus).isEmpty && editor.focusedRow?.barbellWeight == nil)
+        editor.typeInput("20", focus: focus)
+        #expect(editor.setBarbellWeight(4_500, focus: focus))
+        #expect(editor.changeUnit(.kilograms))
+        focus = try #require(editor.focus)
+        let metric = try #require(WeightUnit.kilograms.canonicalValue(for: 20))
+        #expect(editor.setBarbellWeight(metric, focus: focus))
+        #expect(editor.focusedRow?.canonicalWeight == metric + 2_000)
+        #expect(editor.setBarbellWeight(nil, focus: focus))
+        #expect(editor.focusedRow?.canonicalWeight == 2_000)
+        editor.typeInput("1.", focus: focus)
+        #expect(!editor.setBarbellWeight(metric, focus: focus))
+    }
+
     @Test func platesRespectUnitsBoundsAndPartialInput() throws {
         let model = try model(MemoryJournalRepository()), row = try begin(model)
         #expect(model.selectInput(row, field: .weight))

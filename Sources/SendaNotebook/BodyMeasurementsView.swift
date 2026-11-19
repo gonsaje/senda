@@ -1,20 +1,36 @@
-import Charts
 import SwiftUI
 import SendaDomain
 import SendaLogger
 
 struct BodyMeasurementsView: View {
     let model: BodyMeasurementsModel
-    let unit: WeightUnit
+    let notebook: TrainingNotebookModel
     let close: () -> Void
 
     @AppStorage("senda.bodyMeasurements.readAppleHealth") private var readsAppleHealth = false
     @Environment(\.scenePhase) private var scenePhase
     @State private var metric: BodyMetric = .weight
-    @State private var editor: MeasurementEditorDestination?
+    @State private var destination: BodyMeasurementsDestination?
+    @State private var range: ExerciseProgressRange
+    @State private var customDays: ClosedRange<TrainingDay>?
+    @State private var comparisonID: String?
+    @State private var saveNotice: String?
+
+    init(model: BodyMeasurementsModel, notebook: TrainingNotebookModel, close: @escaping () -> Void) {
+        self.model = model
+        self.notebook = notebook
+        self.close = close
+        _range = State(initialValue: notebook.progressRange)
+    }
+
+    private var unit: WeightUnit { notebook.workspace.preferredUnit }
+    private var days: ClosedRange<TrainingDay> { customDays ?? range.days(through: notebook.today) }
+    private var calendar: Calendar { notebook.calendar }
 
     var body: some View {
-        let readings = model.readings(for: metric)
+        let readings = model.readings(for: metric, in: days, calendar: calendar)
+        let exercise = comparisonID.map { notebook.exercise($0) }
+        let progress = exercise.map { notebook.snapshot.progress(for: $0, in: days, calendar: calendar) }
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 12) {
                 actions
@@ -25,15 +41,29 @@ struct BodyMeasurementsView: View {
                         .frame(minHeight: 44)
                 }
                 metricPicker
-                healthStatus(hasImportedReadings: readings.contains { $0.source != .manual })
+                intervalPicker
+                if let saveNotice {
+                    Text(saveNotice).font(.callout).foregroundStyle(NotebookStyle.quiet)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                comparisonButton(exercise)
+                healthStatus(hasImportedReadings: model.hasHealthReadings(for: metric))
                 if readings.isEmpty {
-                    Text("No \(metric.title.lowercased()) readings")
+                    Text(model.hasReadings(for: metric)
+                         ? "No \(metric.title.lowercased()) readings in this period."
+                         : "No \(metric.title.lowercased()) readings")
                         .font(.body.weight(.medium))
                         .fixedSize(horizontal: false, vertical: true)
-                } else {
-                    if readings.count > 1 {
-                        chart(readings)
-                    }
+                }
+                if !readings.isEmpty || progress?.sessions.isEmpty == false {
+                    BodyMeasurementTrendChart(metric: metric, readings: readings, days: days,
+                        comparison: progress, exercise: exercise, unit: unit, calendar: calendar)
+                }
+                if let exercise, progress?.sessions.isEmpty == true {
+                    Text("No recorded sets for \(exercise.displayName) in this period.")
+                        .font(.callout).foregroundStyle(NotebookStyle.quiet)
+                }
+                if !readings.isEmpty {
                     Text("History")
                         .font(NotebookTypography.heading(22, relativeTo: .title2))
                         .accessibilityAddTraits(.isHeader)
@@ -72,17 +102,37 @@ struct BodyMeasurementsView: View {
         .foregroundStyle(NotebookStyle.ink)
         .tint(NotebookStyle.clay)
         .buttonStyle(.plain)
+        .onChange(of: days) { _, _ in saveNotice = nil }
         .task { model.reloadManual() }
         .task(id: readsAppleHealth && scenePhase == .active) {
             if readsAppleHealth && scenePhase == .active {
                 await model.refreshHealth()
             }
         }
-        .sheet(item: $editor) { destination in
-            BodyMeasurementEditor(model: model, unit: unit,
-                reading: destination.reading, close: { editor = nil }) { savedMetrics in
-                if !savedMetrics.contains(metric), let saved = savedMetrics.first { metric = saved }
-                editor = nil
+        .sheet(item: $destination) { sheet in
+            switch sheet {
+            case .add, .edit:
+                BodyMeasurementEditor(model: model, unit: unit,
+                    reading: sheet.reading, close: { destination = nil }) { savedMetrics, date in
+                    if !savedMetrics.contains(metric), let saved = savedMetrics.first { metric = saved }
+                    let day = TrainingDay(date, calendar: calendar)
+                    if days.contains(day) {
+                        saveNotice = nil
+                    } else {
+                        let label = ProgressFormatting.date(day, format: "MMM d, yyyy", calendar: calendar)
+                        let message = "Saved for \(label), outside this date range."
+                        saveNotice = message
+                        TrainingAccessibility.announce(message)
+                    }
+                    destination = nil
+                }
+            case .dates:
+                MeasurementDatePicker(days: days, today: notebook.today, calendar: calendar,
+                    cancel: { destination = nil },
+                    apply: { customDays = $0; destination = nil })
+            case .strength:
+                MeasurementStrengthPicker(exercises: comparisonChoices, selectedID: comparisonID,
+                    select: { comparisonID = $0; destination = nil }, cancel: { destination = nil })
             }
         }
         #if os(macOS)
@@ -106,7 +156,7 @@ struct BodyMeasurementsView: View {
     }
 
     private var logButton: some View {
-        Button { editor = .add } label: {
+        Button { saveNotice = nil; destination = .add } label: {
             Label("Log a reading", systemImage: "plus")
                 .font(.body.weight(.semibold))
                 .fixedSize(horizontal: false, vertical: true)
@@ -176,7 +226,7 @@ struct BodyMeasurementsView: View {
     private var metricPicker: some View {
         Menu {
             ForEach(BodyMetric.allCases) { choice in
-                Button { metric = choice } label: {
+                Button { metric = choice; saveNotice = nil } label: {
                     if metric == choice {
                         Label(choice.title, systemImage: "checkmark")
                     } else {
@@ -201,28 +251,71 @@ struct BodyMeasurementsView: View {
         .accessibilityIdentifier("body-measurements-metric")
     }
 
-    private func chart(_ readings: [BodyMeasurement]) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if readings.count > 30 {
-                Text("Latest 30 readings")
-                    .font(.caption).foregroundStyle(NotebookStyle.quiet)
+    private var intervalPicker: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ProgressRangeControl(selection: Binding(get: { range }, set: { range = $0; customDays = nil }),
+                identifierPrefix: "body-measurements-range", showsSelection: customDays == nil)
+            Button { destination = .dates } label: {
+                ViewThatFits(in: .horizontal) {
+                    HStack { dateSpan; Spacer(minLength: 8); customLabel }
+                    VStack(alignment: .leading, spacing: 4) { dateSpan; customLabel }
+                }
+                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                .contentShape(Rectangle())
             }
-            Chart(Array(readings.prefix(30).reversed())) { reading in
-                let amount = metric.displayValue(reading.value, unit: unit)
-                LineMark(x: .value("Date", reading.displayDate()), y: .value(metric.title, amount))
-                PointMark(x: .value("Date", reading.displayDate()), y: .value(metric.title, amount))
+            .accessibilityLabel("Custom dates")
+            .accessibilityValue(formattedDateSpan)
+            .accessibilityAddTraits(customDays == nil ? [] : .isSelected)
+            .accessibilityIdentifier("body-measurements-custom-range")
+        }
+    }
+
+    private var formattedDateSpan: String {
+        let formatter = DateIntervalFormatter()
+        formatter.calendar = calendar
+        formatter.timeZone = calendar.timeZone
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .none
+        return formatter.string(from: days.lowerBound.date(in: calendar), to: days.upperBound.date(in: calendar))
+    }
+
+    private var dateSpan: some View {
+        Text(formattedDateSpan).font(.caption).foregroundStyle(NotebookStyle.quiet)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var customLabel: some View {
+        Label("Custom dates", systemImage: "calendar").font(.subheadline.weight(.medium))
+            .foregroundStyle(NotebookStyle.clay).fixedSize(horizontal: true, vertical: false)
+    }
+
+    private var comparisonChoices: [Exercise] {
+        let recorded = Set(notebook.journal.batches.map(\.exerciseID))
+        return notebook.exercises.filter { recorded.contains($0.id) }
+            .sorted { $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending }
+    }
+
+    private func comparisonButton(_ exercise: Exercise?) -> some View {
+        Button { destination = .strength } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "chart.xyaxis.line")
+                Text(exercise.map { "Compare with \($0.displayName)" } ?? "Compare strength")
+                    .font(.body.weight(.medium)).multilineTextAlignment(.leading)
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.down").font(.caption)
             }
             .foregroundStyle(NotebookStyle.clay)
-            .chartYScale(domain: .automatic(includesZero: false))
-            .chartYAxisLabel(metric.symbol(unit: unit))
-            .frame(height: 145)
-            .accessibilityLabel("Recent \(metric.title.lowercased())")
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            .contentShape(Rectangle())
         }
+        .accessibilityLabel("Compare strength")
+        .accessibilityValue(exercise?.displayName ?? "Off")
+        .accessibilityIdentifier("body-compare-strength")
     }
 
     @ViewBuilder private func readingRow(_ reading: BodyMeasurement) -> some View {
         if reading.source == .manual {
-            Button { editor = .edit(reading) } label: {
+            Button { saveNotice = nil; destination = .edit(reading) } label: {
                 readingLabel(reading)
                     .contentShape(Rectangle())
             }
@@ -253,7 +346,7 @@ struct BodyMeasurementsView: View {
 
     private func readingDetails(_ reading: BodyMeasurement) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(reading.displayDate(), format: .dateTime.month(.abbreviated).day().year())
+            Text(reading.displayDate(in: calendar), format: .dateTime.month(.abbreviated).day().year())
             Text(reading.source.label)
                 .font(.subheadline).foregroundStyle(NotebookStyle.quiet)
         }
@@ -269,12 +362,20 @@ struct BodyMeasurementsView: View {
     private var rule: some View { Rectangle().fill(NotebookStyle.rule).frame(height: 0.5) }
 }
 
-private enum MeasurementEditorDestination: Identifiable {
-    case add, edit(BodyMeasurement)
+private enum BodyMeasurementsDestination: Identifiable {
+    case add, edit(BodyMeasurement), dates, strength
     var reading: BodyMeasurement? {
-        if case let .edit(reading) = self { reading } else { nil }
+        if case .edit(let reading) = self { return reading }
+        return nil
     }
-    var id: String { reading?.id.uuidString ?? "add" }
+    var id: String {
+        switch self {
+        case .add: "add"
+        case .edit(let reading): reading.id.uuidString
+        case .dates: "dates"
+        case .strength: "strength"
+        }
+    }
 }
 
 extension BodyMetric {

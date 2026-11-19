@@ -45,19 +45,15 @@ private struct JournalRootView: View {
                     .zIndex(1)
             }
         }
-        .preferredColorScheme(showsLaunchIntro ? nil : appearancePreference)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(NotebookStyle.ivory)
+        .foregroundStyle(NotebookStyle.ink)
+        .tint(NotebookStyle.clay)
         .task { if session == nil && openingError == nil { openJournal() } }
         .onChange(of: scenePhase) { _, phase in
             if phase == .background { showsLaunchIntro = false }
             if phase != .active { session?.suspend() }
         }
-    }
-
-    // The log follows the phone. Other sections still use their original light appearance.
-    private var appearancePreference: ColorScheme? {
-        guard let session else { return openingError == nil ? nil : .light }
-        guard session.recovery == nil, let model = session.notebook, !model.backupRecoveryRequired else { return .light }
-        return model.section == .log ? nil : .light
     }
 
     @ViewBuilder private var content: some View {
@@ -70,11 +66,12 @@ private struct JournalRootView: View {
                     .font(NotebookTypography.heading(34, relativeTo: .largeTitle))
                 Text(openingError).font(.body)
                 Text("Your saved file has been left untouched.").font(.callout)
-                Button("Try again", action: openJournal).buttonStyle(.borderedProminent)
+                Button("Try again", action: openJournal)
+                    .buttonStyle(.borderedProminent)
+                    .tint(NotebookStyle.primaryFill)
+                    .foregroundStyle(NotebookStyle.onPrimary)
             }
             .padding(30).frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color(red: 247 / 255, green: 243 / 255, blue: 235 / 255))
-            .tint(Color(red: 169 / 255, green: 78 / 255, blue: 50 / 255))
         } else {
             ProgressView("Opening journal…")
         }

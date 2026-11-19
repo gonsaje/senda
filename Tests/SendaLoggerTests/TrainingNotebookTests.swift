@@ -248,11 +248,38 @@ import SendaPersistence
         try enter(m, weight: "185", reps: ""); #expect(m.finishEditing())
         let summary = m.summary(for: day)
         #expect(summary.muscleGroups == [.chest, .shoulders])
+        #expect(summary.weekFocus == "Chest · Shoulders")
         #expect(summary.setCount == 3)
         #expect(summary.exercises == ["Overhead press", "Bench", "Dumbbell bench"])
         #expect(m.summary(for: try day.adding(days: -1)).muscleGroups.isEmpty)
         #expect(m.showWeek()); #expect(m.openDay(day)); #expect(m.selectExercise("bench"))
         #expect(m.rows.count == 1 && m.rows[0].weight == "135" && m.rows[0].reps == "10")
+    }
+
+    @Test func weekFocusDescribesTheMainMusclesAndRollsUpLongSessions() throws {
+        func focus(_ ids: String...) throws -> String? {
+            let lifts = try ids.map { id in try #require(Exercise.catalog.first { $0.id == id }) }
+            return TrainingDaySummary(performed: lifts, setCount: lifts.count).weekFocus
+        }
+        #expect(try focus() == nil)
+        #expect(try focus("leg-curl") == "Hamstrings")
+        #expect(try focus("glute-bridge", "hip-thrust") == "Glutes")
+        #expect(try focus("hip-thrust", "crunch") == "Glutes · Core")
+        #expect(try focus("squat") == "Quads · Glutes")
+        #expect(try focus("crunch", "squat") == "Legs · Core")
+        #expect(try focus("leg-extension", "leg-curl", "calf-raise") == "Lower Body")
+        #expect(try focus("squat", "deadlift") == "Lower Body")
+        #expect(try focus("bench", "row", "overhead-press") == "Upper Body")
+        #expect(try focus("bench", "row", "squat") == "Full Body")
+        #expect(try focus("bench", "row", "crunch") == "Upper Body · Core")
+        #expect(try focus("leg-extension", "leg-curl", "calf-raise", "crunch") == "Lower Body · Core")
+        #expect(try focus("bench", "row", "squat", "crunch") == "Full Body · Core")
+        #expect(try focus("squat", "bench", "crunch") == "Full Body · Core")
+        #expect(try focus("crunch") == "Core")
+        let custom = Exercise(id: "my-leg-exercise", name: "Band squat", shortName: "Squat",
+                              startingWeight: 0, muscleGroup: .legs)
+        let bridge = try #require(Exercise.catalog.first { $0.id == "glute-bridge" })
+        #expect(TrainingDaySummary(performed: [custom, bridge], setCount: 2).weekFocus == "Legs")
     }
 
     @Test func weekCategoriesUseCustomClassificationAndFollowDeleteUndo() throws {

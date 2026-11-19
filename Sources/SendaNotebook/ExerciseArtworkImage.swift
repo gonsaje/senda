@@ -30,11 +30,17 @@ enum ExerciseArtwork {
 struct ExerciseArtworkImage: View {
     let name: String
     var maximumPixelSize = 960
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         if let image = ExerciseArtwork.image(named: name, maximumPixelSize: maximumPixelSize) {
-            Image(image, scale: 1, label: Text(""))
+            let drawing = Image(image, scale: 1, label: Text(""))
                 .renderingMode(.original).resizable().interpolation(.high)
+            if colorScheme == .dark {
+                drawing.colorInvert().colorMultiply(NotebookStyle.ink).blendMode(.screen)
+            } else {
+                drawing.blendMode(.multiply)
+            }
         } else {
             Text("Illustration unavailable").font(.caption).foregroundStyle(NotebookStyle.quiet)
         }

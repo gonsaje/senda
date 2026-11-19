@@ -3,7 +3,7 @@ import SwiftUI
 import SendaDomain
 import SendaLogger
 
-enum NotebookStyle {
+public enum NotebookStyle {
     private struct AdaptiveColor: ShapeStyle, Hashable {
         let light: Color
         let dark: Color
@@ -13,7 +13,7 @@ enum NotebookStyle {
         }
     }
 
-    private static func pair(_ light: Color, _ dark: Color) -> Color {
+    static func pair(_ light: Color, _ dark: Color) -> Color {
         Color(AdaptiveColor(light: light, dark: dark))
     }
 
@@ -29,9 +29,9 @@ enum NotebookStyle {
     private static let selectedBrown = rgb(0x443026)
     private static let brownRule = rgb(0x494138)
 
-    static let ivory = pair(paper, rgb(0x251F1A))
-    static let ink = pair(charcoal, paper)
-    static let clay = pair(terracotta, peach)
+    public static let ivory = pair(paper, rgb(0x251F1A))
+    public static let ink = pair(charcoal, paper)
+    public static let clay = pair(terracotta, peach)
     static let olive = pair(rgb(0x626854), rgb(0xB4B99E))
     static let quiet = pair(charcoal.opacity(0.65), rgb(0xC6B9AA))
     static let rule = pair(charcoal.opacity(0.10), brownRule)
@@ -40,8 +40,8 @@ enum NotebookStyle {
     static let onCover = pair(paper, rgb(0xFAF4EA))
     static let coverRule = pair(paper.opacity(0.2), rgb(0x63594F))
     static let todayFill = pair(terracotta.opacity(0.07), selectedBrown)
-    static let primaryFill = pair(terracotta, rgb(0x89442D))
-    static let onPrimary = pair(paper, rgb(0xFFF8EE))
+    public static let primaryFill = pair(terracotta, rgb(0x89442D))
+    public static let onPrimary = pair(paper, rgb(0xFFF8EE))
     static let inputSurface = pair(rgb(0xEDE6DA), rgb(0x392F28))
     static let typeFill = pair(terracotta.opacity(0.06), rgb(0x3A3029))
 
