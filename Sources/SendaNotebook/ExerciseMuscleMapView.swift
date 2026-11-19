@@ -229,7 +229,7 @@ struct MuscleFigure: View {
         case .exercise:
             (neutral.opacity(0.55), NotebookStyle.ink.opacity(0.33), NotebookStyle.ink.opacity(0.25))
         case .heat(_, _, true):
-            (NotebookStyle.ivory.opacity(0.15), NotebookStyle.ivory.opacity(0.58), NotebookStyle.ivory.opacity(0.3))
+            (NotebookStyle.onCover.opacity(0.15), NotebookStyle.onCover.opacity(0.58), NotebookStyle.onCover.opacity(0.3))
         case .heat(_, _, false):
             (neutral, NotebookStyle.ink.opacity(0.26), NotebookStyle.ink.opacity(0.16))
         }
@@ -245,7 +245,7 @@ struct MuscleFigure: View {
             return (fill, outline, isSupporting ? 1.8 : 0.65)
         case .heat(let counts, let selected, let onCharcoal):
             let level = MuscleHeatLevel(sets: counts[region, default: 0])
-            let outline = selected == region ? NotebookStyle.ink : (onCharcoal ? NotebookStyle.ink.opacity(0.6) : neutral)
+            let outline = selected == region ? NotebookStyle.ink : (onCharcoal ? NotebookStyle.cover.opacity(0.6) : neutral)
             return (level.fill(onCharcoal: onCharcoal), outline, selected == region ? 1.6 : 0.65)
         }
     }

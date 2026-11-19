@@ -35,7 +35,10 @@ public struct NotebookArchive: Codable, Equatable, Sendable {
         }
     }
 
-    private enum CodingKeys: String, CodingKey { case format, version, createdAt, snapshot, profile, workoutTemplateCount }
+    private enum CodingKeys: String, CodingKey {
+        case format, version, createdAt, snapshot, profile, workoutTemplateCount
+        case archivedCustomExerciseCount, customExerciseSetupCount
+    }
 
     /// Backups require the library even when it is empty: a missing library must not silently erase names.
     private struct SnapshotPayload: Codable {
@@ -64,16 +67,23 @@ public struct NotebookArchive: Codable, Equatable, Sendable {
                 throw NotebookBackupError.incompatibleFormat
             }
             let version = try box.decode(Int.self, forKey: .version)
-            guard (1...8).contains(version) else { throw NotebookBackupError.unsupportedVersion(version) }
+            guard (1...9).contains(version) else { throw NotebookBackupError.unsupportedVersion(version) }
             let payload = try box.decode(SnapshotPayload.self, forKey: .snapshot)
             if version == 7, payload.training.workoutTemplates?.isEmpty != false {
                 throw NotebookBackupError.invalidBackup
             }
             let snapshot = payload.snapshot
-            if version == 8 {
-                guard snapshot.hasCustomExerciseSetups,
-                      try box.decode(Int.self, forKey: .workoutTemplateCount) == (payload.training.workoutTemplates?.count ?? 0)
+            if version == 9 {
+                guard snapshot.archivedCustomExerciseCount > 0,
+                      try box.decode(Int.self, forKey: .archivedCustomExerciseCount) == snapshot.archivedCustomExerciseCount,
+                      try box.decode(Int.self, forKey: .customExerciseSetupCount) == snapshot.customExerciseSetupCount
                 else { throw NotebookBackupError.invalidBackup }
+            } else if snapshot.archivedCustomExerciseCount > 0 {
+                throw NotebookBackupError.invalidBackup
+            }
+            if version == 8, !snapshot.hasCustomExerciseSetups { throw NotebookBackupError.invalidBackup }
+            if version >= 8, try box.decode(Int.self, forKey: .workoutTemplateCount) != (payload.training.workoutTemplates?.count ?? 0) {
+                throw NotebookBackupError.invalidBackup
             }
             self = try NotebookArchive(snapshot: snapshot,
                 profile: box.decode(ProfileDetails.self, forKey: .profile), createdAt: box.decode(Date.self, forKey: .createdAt)).validated()
@@ -88,14 +98,20 @@ public struct NotebookArchive: Codable, Equatable, Sendable {
         let archive = try validated()
         var box = encoder.container(keyedBy: CodingKeys.self)
         try box.encode("senda-backup", forKey: .format)
-        let version = if archive.snapshot.hasCustomExerciseSetups { 8 }
+        let archived = archive.snapshot.archivedCustomExerciseCount
+        let version = if archived > 0 { 9 }
+            else if archive.snapshot.hasCustomExerciseSetups { 8 }
             else if archive.snapshot.training?.workoutTemplates?.isEmpty == false { 7 }
             else if !archive.profile.weeklyMuscleTargets.isEmpty { 6 }
             else if !archive.profile.goals.isEmpty { 5 }
             else { 4 }
         try box.encode(version, forKey: .version)
-        if version == 8 {
+        if version >= 8 {
             try box.encode(archive.snapshot.training?.workoutTemplates?.count ?? 0, forKey: .workoutTemplateCount)
+        }
+        if version == 9 {
+            try box.encode(archived, forKey: .archivedCustomExerciseCount)
+            try box.encode(archive.snapshot.customExerciseSetupCount, forKey: .customExerciseSetupCount)
         }
         try box.encode(archive.createdAt, forKey: .createdAt)
         try box.encode(SnapshotPayload(archive.snapshot), forKey: .snapshot)

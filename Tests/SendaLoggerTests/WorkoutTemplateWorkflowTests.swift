@@ -8,6 +8,54 @@ import SendaPersistence
     private let today = TrainingDay(rawValue: "2026-11-16")!
     private let plan = ExercisePlan(workingSets: 3, minimumReps: 8, maximumReps: 12)
 
+    @Test func browsingEarlierWorkoutsFromWeekMakesNoDayAndReuseRetriesAsOneWrite() throws {
+        let store = FailingWorkoutStore()
+        let model = try open(store)
+        let prior = try today.adding(days: -2)
+        try #require(model.openDay(prior) && model.addExercise("push-up"))
+        try #require(model.setPlan(plan, for: "push-up"))
+        try #require(model.selectInput(try #require(model.rows.first).id, field: .reps))
+        model.typeInput("8", focus: try #require(model.focus))
+        try #require(model.showWeek())
+        let before = model.snapshot
+
+        #expect(model.reusableWorkouts(before: today).map(\.day) == [prior])
+        #expect(model.reusableWorkouts(before: prior).isEmpty)
+        #expect(model.snapshot == before && model.selectedDay == nil)
+        #expect(model.workspace.days[today.rawValue] == nil)
+        store.rejectsWrites = true
+        #expect(!model.reuseWorkout(from: prior, on: today))
+        #expect(model.canRetrySave && model.snapshot == before)
+        store.rejectsWrites = false
+        try #require(model.retrySave())
+
+        #expect(model.selectedDay == today && model.tabs.map(\.id) == ["push-up"])
+        #expect(model.plan(for: "push-up") == plan && model.summary(for: today).setCount == 0)
+        let row = try #require(model.rows.first)
+        #expect(row.performedSetID == nil && row.weight.isEmpty && row.reps.isEmpty)
+        #expect(model.workspace.days[prior.rawValue] == before.training?.days[prior.rawValue])
+        #expect(model.journal == before.journal)
+    }
+
+    @Test func applyingAStarterFromWeekMergesIntoTheExplicitDay() throws {
+        let model = try open(MemoryJournalRepository())
+        let tomorrow = try today.adding(days: 1)
+        try #require(model.openDay(tomorrow) && model.addExercise("bench"))
+        try #require(model.selectInput(try #require(model.rows.first).id, field: .weight))
+        model.typeInput("31.", focus: try #require(model.focus))
+        try #require(model.showWeek())
+        let rows = model.workspace.days[tomorrow.rawValue]?.rows["bench"]
+        let push = try #require(model.starterWorkouts.first { $0.id == "push" })
+
+        try #require(model.applyWorkout(push, on: tomorrow))
+
+        #expect(model.selectedDay == tomorrow)
+        #expect(model.tabs.map(\.id) == ["bench", "overhead-press", "lateral-raise", "triceps-extension"])
+        #expect(model.workout?.rows["bench"] == rows)
+        #expect(model.workspace.days[today.rawValue] == nil)
+        #expect(model.journal.batches.isEmpty)
+    }
+
     @Test func importedCustomIDKeepsItsHistoryAndGoalWhenAStarterAddsTheConflictingPreset() throws {
         let personal = Exercise(id: "goblet-squat", name: "Box practice", shortName: "Box", startingWeight: 0,
                                 muscleGroup: .core, equipment: .bodyweight)

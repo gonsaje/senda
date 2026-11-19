@@ -38,7 +38,7 @@ small{font-size:12px}#status{float:right;font-size:12px}</style></head><body>
 <figure><figcaption>Workout · compact phone</figcaption><img data-file="senda-ux-working-compact.png"></figure>
 <figure><figcaption>Drop set · one entry, multiple stages</figcaption><img data-file="senda-ux-drop.png"></figure>
 <figure><figcaption>Drop set · saved history</figcaption><img data-file="senda-ux-drop-history.png"></figure>
-<figure><figcaption>Learn · form cues first</figcaption><img data-file="senda-ux-learn.png"></figure>
+<figure><figcaption>Library · Exercises · form cues first</figcaption><img data-file="senda-ux-learn.png"></figure>
 <figure><figcaption>Set type</figcaption><img data-file="senda-set-type-default.png"></figure>
 <figure><figcaption>Set type choices</figcaption><img data-file="senda-set-type-picker.png"></figure>
 <figure><figcaption>Working, Warm-up &amp; Drop</figcaption><img data-file="senda-set-types.png"></figure>
@@ -46,10 +46,12 @@ small{font-size:12px}#status{float:right;font-size:12px}</style></head><body>
 <figure><figcaption>Sets · save while editing</figcaption><img data-file="senda-autosave-editing.png"></figure>
 <figure><figcaption>Sets · compact</figcaption><img data-file="senda-autosave-saved-compact.png"></figure>
 <figure><figcaption>Incomplete value · saved input</figcaption><img data-file="senda-autosave-needs-value.png"></figure>
-<figure><figcaption>Learn · visual library</figcaption><img data-file="senda-learn.png"></figure>
+<figure><figcaption>Library · Learn</figcaption><img data-file="senda-library-learn.png"></figure>
+<figure><figcaption>Library · Workouts</figcaption><img data-file="senda-workout-library.png"></figure>
+<figure><figcaption>Library · Exercises</figcaption><img data-file="senda-learn.png"></figure>
 <figure><figcaption>Exercise form &amp; muscles</figcaption><img data-file="senda-learn-bench-full.png"></figure>
 <figure><figcaption>Muscles · back &amp; legs</figcaption><img data-file="senda-learn-deadlift-full.png"></figure>
-<figure><figcaption>Learn · compact layout</figcaption><img data-file="senda-learn-bench-compact-full.png"></figure>
+<figure><figcaption>Library · Exercises · compact layout</figcaption><img data-file="senda-learn-bench-compact-full.png"></figure>
 <figure><figcaption>Week</figcaption><img data-file="senda-week.png"></figure>
 <figure><figcaption>Workout plan &amp; recorded sets</figcaption><img data-file="senda-plan-day-full.png"></figure>
 <figure><figcaption>Exercise plan</figcaption><img data-file="senda-plan-editor.png"></figure>
@@ -61,7 +63,7 @@ small{font-size:12px}#status{float:right;font-size:12px}</style></head><body>
 <figure><figcaption>Trends · no recorded sets</figcaption><img data-file="senda-trends-empty-compact.png"></figure>
 <figure><figcaption>Day</figcaption><img data-file="senda-day.png"></figure>
 <figure><figcaption>Profile</figcaption><img data-file="senda-profile.png"></figure>
-<figure><figcaption>Learn</figcaption><img data-file="senda-learn.png"></figure>
+<figure><figcaption>Library · Exercises</figcaption><img data-file="senda-learn.png"></figure>
 <figure><figcaption>Exercise form</figcaption><img data-file="senda-form-guide.png"></figure>
 <figure><figcaption>Day exercises</figcaption><img data-file="senda-day-exercises.png"></figure>
 <figure><figcaption>Add exercise</figcaption><img data-file="senda-picker.png"></figure>

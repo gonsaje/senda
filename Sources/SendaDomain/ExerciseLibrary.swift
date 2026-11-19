@@ -5,14 +5,30 @@ public enum ExerciseLibrary {
 
     public static func custom(named name: String, existing: [Exercise] = Exercise.catalog, muscleGroup: MuscleGroup? = nil,
                               equipment: ExerciseEquipment? = nil, customSetup: CustomExerciseSetup = .init()) throws -> Exercise {
-        let name = cleaned(name)
-        guard validName(name) else { throw ExerciseLibraryError.invalidName }
-        let key = matchingKey(name)
-        guard !existing.contains(where: { $0.searchNames.contains { matchingKey($0) == key } }) else {
-            throw ExerciseLibraryError.duplicateName(name)
-        }
+        let name = try availableName(name, in: existing)
         return Exercise(id: "custom-\(UUID().uuidString.lowercased())", name: name, shortName: name, startingWeight: 0,
                         muscleGroup: muscleGroup, equipment: equipment, customSetup: customSetup)
+    }
+
+    /// Callers must also confirm this record belongs to the notebook's saved custom library.
+    public static func canManageCustom(_ exercise: Exercise) -> Bool {
+        if case .alternatePreset = exercise.origin { return false }
+        let name = matchingKey(exercise.name)
+        guard !originalIDs.contains(exercise.id), GymExerciseCatalog.newIDByName[name] == nil else { return false }
+        // An older custom record can independently own an ID that a later catalog introduced.
+        guard let position = presetIndex[exercise.id] else { return true }
+        return matchingKey(Exercise.catalog[position].name) != name
+    }
+
+    public static func editCustom(_ exercise: Exercise, named name: String, existing: [Exercise],
+                                  muscleGroup: MuscleGroup? = nil, equipment: ExerciseEquipment? = nil,
+                                  customSetup: CustomExerciseSetup = .init()) throws -> Exercise {
+        guard canManageCustom(exercise) else { throw ExerciseLibraryError.protectedExercise }
+        let preservedName = cleaned(name) == exercise.name
+        let name = preservedName ? exercise.name : try availableName(name, in: existing, excluding: exercise.id)
+        return Exercise(id: exercise.id, name: name, shortName: preservedName ? exercise.shortName : name,
+                        startingWeight: exercise.startingWeight, muscleGroup: muscleGroup, equipment: equipment,
+                        customSetup: customSetup, isArchived: exercise.isArchived)
     }
 
     private static let originalIDs = Set(Exercise.originalCatalog.map(\.id))
@@ -23,7 +39,7 @@ public enum ExerciseLibrary {
 
     public static func validated(custom: [Exercise]) throws -> [Exercise] {
         var ids = originalIDs
-        var names = originalNames
+        var activeNames = Set<String>()
         for exercise in custom {
             let namesForExercise = keys(exercise)
             guard !exercise.id.isEmpty, exercise.id.count <= 80,
@@ -32,8 +48,11 @@ public enum ExerciseLibrary {
                   validName(exercise.name), exercise.name == cleaned(exercise.name),
                   validName(exercise.shortName), exercise.shortName == cleaned(exercise.shortName),
                   NumericField.weight.range.contains(exercise.startingWeight),
-                  names.isDisjoint(with: namesForExercise) else { throw ExerciseLibraryError.invalidLibrary }
-            names.formUnion(namesForExercise)
+                  originalNames.isDisjoint(with: namesForExercise) else { throw ExerciseLibraryError.invalidLibrary }
+            if !exercise.isArchived {
+                guard activeNames.isDisjoint(with: namesForExercise) else { throw ExerciseLibraryError.invalidLibrary }
+                activeNames.formUnion(namesForExercise)
+            }
         }
         return resolved(custom: custom)
     }
@@ -60,7 +79,7 @@ public enum ExerciseLibrary {
         }
         let personal = custom.map { exercise in
             if let id = GymExerciseCatalog.newIDByName[matchingKey(exercise.name)], let position = presetIndex[id] {
-                presets[position].isLibraryChoice = false
+                if !exercise.isArchived { presets[position].isLibraryChoice = false }
                 var result = exercise
                 result.origin = .custom(sharesName: false)
                 result.catalogAliasID = id
@@ -86,6 +105,18 @@ public enum ExerciseLibrary {
     public static func searchKey(_ name: String) -> String {
         cleaned(name).folding(options: [.caseInsensitive, .diacriticInsensitive], locale: Locale(identifier: "en_US_POSIX"))
     }
+    private static func availableName(_ input: String, in exercises: [Exercise], excluding id: String? = nil) throws -> String {
+        let name = cleaned(input)
+        guard validName(name) else { throw ExerciseLibraryError.invalidName }
+        let key = matchingKey(name)
+        guard !exercises.contains(where: { exercise in
+            !exercise.isArchived && exercise.id != id && exercise.searchNames.contains { matchingKey($0) == key }
+        }) else {
+            throw ExerciseLibraryError.duplicateName(name)
+        }
+        return name
+    }
+
     private static func cleaned(_ name: String) -> String { name.split(whereSeparator: \.isWhitespace).joined(separator: " ") }
     private static func validName(_ name: String) -> Bool {
         (1...80).contains(name.count) && name.unicodeScalars.allSatisfy { $0.properties.generalCategory != .control }
@@ -121,10 +152,11 @@ public extension Exercise {
 }
 
 public enum ExerciseLibraryError: LocalizedError, Equatable {
-    case invalidName, invalidLibrary, duplicateName(String)
+    case invalidName, invalidLibrary, duplicateName(String), protectedExercise
     public var errorDescription: String? {
         switch self {
         case .invalidName: "Use an exercise name with 1–80 characters."
+        case .protectedExercise: "This exercise belongs to the built-in library."
         case .invalidLibrary: "The exercise library could not be restored. The saved file has been left untouched."
         case .duplicateName(let name): "An exercise named “\(name)” already exists. Choose it from the list."
         }

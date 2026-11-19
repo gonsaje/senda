@@ -2,15 +2,29 @@ import SwiftUI
 import SendaDomain
 import SendaLogger
 
-struct TrainingLearnView: View {
+struct TrainingExerciseLibrary: View {
     @Bindable var model: TrainingNotebookModel
     @FocusState private var searchFocused: Bool
     @State private var presentedGuideID: String?
-    @State private var editingSetup: Exercise?
+    @State private var editor: Editor?
+    @State private var confirmsDelete = false
+    @State private var pendingDeleteID: String?
     @StoredExerciseGymFilter private var gymFilter
     @Environment(\.dynamicTypeSize) private var textSize
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.layoutDirection) private var layoutDirection
+
+    private enum Editor: Identifiable {
+        case create, edit(Exercise), setup(Exercise)
+
+        var id: String {
+            switch self {
+            case .create: "create"
+            case .edit(let exercise): "edit-" + exercise.id
+            case .setup(let exercise): "setup-" + exercise.id
+            }
+        }
+    }
 
     init(model: TrainingNotebookModel) {
         self.model = model
@@ -49,34 +63,50 @@ struct TrainingLearnView: View {
             withAnimation(motion.animation) { presentedGuideID = next }
         }
         .onChange(of: model.landingResetID) { _, _ in searchFocused = false }
-        .sheet(item: $editingSetup) { exercise in
-            CustomExerciseSetupEditor(setup: exercise.customSetup, saveError: { model.errorMessage },
-                onCancelPending: { if model.canRetrySave { _ = model.cancelPendingAction() } },
-                onSave: { model.updateCustomExerciseSetup($0, for: exercise.id) })
+        .sheet(item: $editor) { request in
+            switch request {
+            case .create:
+                LibraryCustomExerciseEditor(model: model, exercise: nil, saved: showSavedExercise)
+            case .edit(let exercise):
+                LibraryCustomExerciseEditor(model: model, exercise: exercise, saved: showSavedExercise)
+            case .setup(let exercise):
+                CustomExerciseSetupEditor(setup: exercise.customSetup, saveError: { model.errorMessage },
+                    onCancelPending: { if model.canRetrySave { _ = model.cancelPendingAction() } },
+                    onSave: { model.updateCustomExerciseSetup($0, for: exercise.id) })
+            }
         }
+        .confirmationDialog(deleteTitle, isPresented: $confirmsDelete, titleVisibility: .visible,
+                            presenting: model.learningExerciseID) { id in
+            Button("Delete exercise", role: .destructive) { deleteExercise(id) }
+                .accessibilityIdentifier("confirm-delete-library-exercise")
+        } message: { _ in
+            Text("This removes the exercise from your library. Your workouts and logged sets stay in your notebook.")
+        }
+        .onChange(of: model.canRetrySave) { _, _ in finishDelete() }
+        .onChange(of: model.errorMessage) { _, _ in finishDelete() }
+        .onDisappear { cancelDelete() }
     }
 
     private var exerciseList: some View {
-        let exercises = model.exercises
+        let exercises = model.activeExercises
         let results = model.learningResults(in: exercises, gymFilter: gymFilter)
         let byGroup = Dictionary(grouping: results, by: \.group)
         let groups = MuscleGroup.allCases.filter { byGroup[$0] != nil }
         return ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
+                    TrainingLibraryHeader(model: model)
                     let controls = textSize.isAccessibilitySize
                         ? AnyLayout(VStackLayout(alignment: .leading, spacing: 0))
                         : AnyLayout(HStackLayout(spacing: 12))
                     controls {
-                        Text("Learn").font(NotebookTypography.heading(31)).accessibilityAddTraits(.isHeader)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                        search
                         if model.learningScope == .library {
                             LibraryGymFilterButton(filter: $gymFilter, identifier: "learn-gym-filters", resultCount: {
                                 ExerciseFormGuide.search(model.learningQuery, in: exercises, gymFilter: $0).count
                             }, onOpen: { searchFocused = false })
                         }
                     }
-                    search
                     scopeControls
                     if model.learningScope == .library {
                         GymSetupSwitcher(onSwitch: { searchFocused = false })
@@ -87,8 +117,8 @@ struct TrainingLearnView: View {
                         if let recovery {
                             ExerciseSearchRecoveryView(recovery: recovery, row: exerciseRow)
                             if recovery.reason == .gymsUnspecified || recovery.reason == .equipmentUnspecified,
-                               let custom = model.snapshot.customExercises?.first(where: { $0.id == recovery.exercise.id }) {
-                                Button { searchFocused = false; editingSetup = custom } label: {
+                               model.canManageCustomExercise(recovery.exercise.id) {
+                                Button { searchFocused = false; editor = .setup(recovery.exercise) } label: {
                                     Text("Edit gym & equipment").frame(minHeight: 44).contentShape(Rectangle())
                                 }.accessibilityIdentifier("learn-edit-missing-setup")
                             }
@@ -127,7 +157,7 @@ struct TrainingLearnView: View {
             .scrollDismissesKeyboard(.interactively)
             .accessibilityIdentifier("learn-scroll")
             .task { [presentedGuideID] in
-                // When Learn remounts from another tab, return near the open guide's row.
+                // When Exercises reopens from another tab, return near the open guide's row.
                 guard let id = presentedGuideID, id == model.learningExerciseID else { return }
                 await Task.yield()
                 guard !Task.isCancelled, id == model.learningExerciseID else { return }
@@ -137,12 +167,40 @@ struct TrainingLearnView: View {
     }
 
     private var scopeControls: some View {
-        let layout = textSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 0))
-                                                  : AnyLayout(HStackLayout(spacing: 20))
-        return layout {
-            scopeButton("All exercises", personal: false, identifier: "learn-all-exercises")
-            scopeButton("My exercises", personal: true, identifier: "learn-my-exercises")
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 10) {
+                LibrarySegments(stacked: false) { exerciseScopes }
+                Spacer(minLength: 0)
+                addExercise
+            }.fixedSize(horizontal: true, vertical: false)
+            VStack(alignment: .leading, spacing: 0) {
+                addExercise
+                LibrarySegments(stacked: false) { exerciseScopes }
+            }.fixedSize(horizontal: true, vertical: false)
+            VStack(alignment: .leading, spacing: 0) {
+                addExercise
+                LibrarySegments(stacked: true) { exerciseScopes }
+            }
         }
+    }
+
+    @ViewBuilder private var exerciseScopes: some View {
+        scopeButton("All exercises", personal: false, identifier: "learn-all-exercises")
+        scopeButton("My exercises", personal: true, identifier: "learn-my-exercises")
+    }
+
+    private var addExercise: some View {
+        Button {
+            searchFocused = false
+            editor = .create
+        } label: {
+            Label("Add exercise", systemImage: "plus")
+                .font(.subheadline.weight(.semibold))
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(minHeight: 44).contentShape(Rectangle())
+        }
+        .foregroundStyle(NotebookStyle.clay)
+        .accessibilityIdentifier("library-add-exercise")
     }
 
     private func scopeButton(_ title: String, personal: Bool, identifier: String) -> some View {
@@ -152,14 +210,9 @@ struct TrainingLearnView: View {
             searchFocused = false
             model.learningScope = personal ? .personal : .library
         } label: {
-            HStack(spacing: 5) {
-                if selected { Image(systemName: "checkmark").font(.caption.bold()).accessibilityHidden(true) }
-                Text(title).font(.subheadline.weight(selected ? .semibold : .regular))
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .frame(minHeight: 44).contentShape(Rectangle())
+            LibrarySegmentLabel(title: title, selected: selected)
         }
-        .buttonStyle(.plain).foregroundStyle(selected ? NotebookStyle.clay : NotebookStyle.ink)
+        .buttonStyle(.plain)
         .accessibilityAddTraits(selected ? .isSelected : []).accessibilityIdentifier(identifier)
     }
 
@@ -183,9 +236,8 @@ struct TrainingLearnView: View {
                 Button { model.learningQuery = ""; searchFocused = false } label: {
                     Text("Clear search").frame(minHeight: 44).contentShape(Rectangle())
                 }
-            } else if model.snapshot.customExercises?.isEmpty != false {
+            } else if !(model.snapshot.customExercises ?? []).contains(where: { model.canManageCustomExercise($0.id) }) {
                 Text("No custom exercises yet").font(.headline).accessibilityAddTraits(.isHeader)
-                Text("To create one, open Add exercise in a workout.").foregroundStyle(NotebookStyle.quiet)
             } else {
                 Text("All your exercises have gym and equipment details.").font(.headline).accessibilityAddTraits(.isHeader)
                 Button { model.learningScope = .personal } label: {
@@ -197,21 +249,44 @@ struct TrainingLearnView: View {
     }
 
     private func guide(_ id: String) -> some View {
-        let custom = model.snapshot.customExercises?.first { $0.id == id }
+        let exercise = model.exercise(id)
         return ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                ExerciseLearningDetail(exercise: model.exercise(id))
-                if let custom {
-                    Divider().overlay(NotebookStyle.rule)
-                    Button { editingSetup = custom } label: {
+                if model.canManageCustomExercise(id) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(exercise.displayName).font(NotebookTypography.heading(31))
+                            .accessibilityAddTraits(.isHeader).accessibilityIdentifier("form-guide-\(id)")
+                        Text("\(exercise.group.rawValue) · \(exercise.equipmentLabel)")
+                            .font(.subheadline).foregroundStyle(NotebookStyle.quiet)
+                    }
+                    Button { editor = .edit(exercise) } label: {
+                        Label("Edit exercise", systemImage: "pencil")
+                            .frame(minHeight: 44).contentShape(Rectangle())
+                    }
+                    .foregroundStyle(NotebookStyle.clay).disabled(pendingDeleteID != nil)
+                    .accessibilityIdentifier("library-edit-exercise")
+                    WorkoutLibraryRule()
+                    Button { editor = .setup(exercise) } label: {
                         VStack(alignment: .leading, spacing: 4) {
                             Text("Edit gym & equipment").font(.body.weight(.semibold)).foregroundStyle(NotebookStyle.clay)
-                            Text(custom.customSetup.summary).font(.subheadline).foregroundStyle(NotebookStyle.quiet)
+                            Text(exercise.customSetup.summary).font(.subheadline).foregroundStyle(NotebookStyle.quiet)
                         }
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading).contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain).accessibilityIdentifier("edit-custom-setup")
+                    .buttonStyle(.plain).disabled(pendingDeleteID != nil).accessibilityIdentifier("edit-custom-setup")
+                    WorkoutLibraryRule()
+                    Button(role: .destructive) { confirmsDelete = true } label: {
+                        Text("Delete exercise").frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                            .contentShape(Rectangle())
+                    }
+                    .disabled(pendingDeleteID != nil)
+                    .accessibilityIdentifier("library-delete-exercise")
+                    if pendingDeleteID != nil, let error = model.errorMessage {
+                        TrainingSaveError(model: model, message: error, retrySucceeded: finishDelete)
+                    }
+                } else {
+                    ExerciseLearningDetail(exercise: exercise)
                 }
             }
             .padding(24).padding(.bottom, 8)
@@ -284,11 +359,11 @@ struct TrainingLearnView: View {
     private func exerciseRow(_ exercise: Exercise) -> some View {
         Button {
             searchFocused = false
-            if model.learningScope == .needsDetails { editingSetup = exercise }
+            if model.learningScope == .needsDetails && model.canManageCustomExercise(exercise.id) { editor = .setup(exercise) }
             else { model.learningExerciseID = exercise.id }
         } label: {
             HStack(spacing: 12) {
-                if model.learningScope == .library {
+                if model.learningScope == .library && !textSize.isAccessibilitySize {
                     Group {
                         if let visual = exercise.presetID.flatMap(ExerciseFormVisual.guide(for:)), let frame = visual.frames.first {
                             ExerciseArtworkImage(name: frame.resourceName, maximumPixelSize: 192)
@@ -319,10 +394,11 @@ struct TrainingLearnView: View {
     private var navigation: some View {
         HStack {
             Button {
+                cancelDelete()
                 searchFocused = false
                 model.learningExerciseID = nil
             } label: {
-                Label("Learn", systemImage: "chevron.left").frame(minHeight: 44)
+                Label("Exercises", systemImage: "chevron.left").frame(minHeight: 44)
             }.accessibilityIdentifier("back-to-learn")
             Spacer(minLength: 0)
         }
@@ -346,5 +422,201 @@ struct TrainingLearnView: View {
             return exercise.presetID == nil ? "Guide not added yet" : exercise.equipmentLabel
         }
         return muscles.primary.map(\.name).joined(separator: ", ") + " · " + exercise.equipmentLabel
+    }
+
+    private func showSavedExercise(_ exercise: Exercise) {
+        if case .create = editor {
+            model.learningScope = .personal
+            model.learningQuery = ""
+        }
+        editor = nil
+        model.learningExerciseID = exercise.id
+    }
+
+    private var deleteTitle: String {
+        guard let id = model.learningExerciseID else { return "Delete this exercise?" }
+        return "Delete \(model.exercise(id).displayName)?"
+    }
+
+    private func deleteExercise(_ id: String) {
+        guard model.canManageCustomExercise(id) else { return }
+        pendingDeleteID = id
+        if model.archiveCustomExercise(id) { finishDelete() }
+    }
+
+    private func finishDelete() {
+        guard let id = pendingDeleteID, !model.canRetrySave, model.errorMessage == nil,
+              !model.canManageCustomExercise(id) else { return }
+        pendingDeleteID = nil
+        model.learningExerciseID = nil
+    }
+
+    private func cancelDelete() {
+        guard pendingDeleteID != nil else { return }
+        pendingDeleteID = nil
+        if model.canRetrySave { _ = model.cancelPendingAction() }
+        else { model.dismissError() }
+    }
+}
+
+struct TrainingGuideLibrary: View {
+    @Bindable var model: TrainingNotebookModel
+    @FocusState private var searching: Bool
+    @Environment(\.dynamicTypeSize) private var textSize
+
+    // Guides describe the published movement, even when an imported custom exercise shares its ID.
+    private static let formExercises = Exercise.catalog.filter { ExerciseFormGuide.guide(for: $0.id) != nil }
+    private static let mappedExercises = Exercise.catalog.filter { $0.muscleMap != nil }
+
+    var body: some View {
+        if let topic = model.guideTopic {
+            let exercises = topic == .form ? Self.formExercises : Self.mappedExercises
+            let selected = exercises.first { $0.id == model.guideExerciseID }
+            ZStack {
+                guideList(topic, exercises: exercises)
+                    .opacity(selected == nil ? 1 : 0)
+                    .allowsHitTesting(selected == nil)
+                    .accessibilityHidden(selected != nil)
+                if let selected {
+                    guideDetail(topic, exercise: selected)
+                }
+            }
+            .safeAreaInset(edge: .top, spacing: 0) {
+                Button {
+                    searching = false
+                    if selected != nil {
+                        model.guideExerciseID = nil
+                    } else {
+                        model.guideQuery = ""
+                        model.guideTopic = nil
+                    }
+                } label: {
+                    Label(selected == nil ? "Learn" : topic.rawValue, systemImage: "chevron.left")
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(minHeight: 44).contentShape(Rectangle())
+                }
+                .accessibilityIdentifier(selected == nil ? "back-to-learn-topics" : "back-to-guides")
+                .padding(.horizontal, 24).padding(.vertical, 4)
+                .frame(maxWidth: 560, alignment: .leading).frame(maxWidth: .infinity)
+                .background(NotebookStyle.ivory)
+                .overlay(alignment: .bottom) { WorkoutLibraryRule() }
+            }
+        } else {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    TrainingLibraryHeader(model: model)
+                    VStack(spacing: 0) {
+                        ForEach(TrainingGuideTopic.allCases, id: \.self) { topic in
+                            topicRow(topic)
+                            WorkoutLibraryRule()
+                        }
+                    }
+                }
+                .padding(24).frame(maxWidth: 560).frame(maxWidth: .infinity)
+            }
+            .accessibilityIdentifier("learn-topics")
+        }
+    }
+
+    private func topicRow(_ topic: TrainingGuideTopic) -> some View {
+        Button {
+            model.guideExerciseID = nil
+            model.guideQuery = ""
+            model.guideTopic = topic
+        } label: {
+            HStack(spacing: 16) {
+                if !textSize.isAccessibilitySize {
+                    if topic == .form, let frame = ExerciseFormVisual.guide(for: "bench")?.frames.last {
+                        ExerciseArtworkImage(name: frame.resourceName, maximumPixelSize: 220)
+                            .scaledToFit().blendMode(.multiply)
+                            .frame(width: 64, height: 64).accessibilityHidden(true)
+                    } else if let map = ExerciseMuscleMap.map(for: "bench") {
+                        ExerciseMuscleThumbnail(map: map).frame(width: 64, height: 64)
+                    }
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(topic.rawValue).font(NotebookTypography.heading(22, relativeTo: .title2))
+                    Text(topic == .form ? "Setup, movement, and form cues" : "Primary and supporting muscles")
+                        .font(.subheadline).foregroundStyle(NotebookStyle.quiet)
+                }
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Image(systemName: "chevron.right").foregroundStyle(NotebookStyle.quiet).accessibilityHidden(true)
+            }
+            .padding(.vertical, 12).contentShape(Rectangle())
+        }
+        .accessibilityIdentifier(topic == .form ? "learn-topic-form" : "learn-topic-muscles")
+    }
+
+    private func guideList(_ topic: TrainingGuideTopic, exercises: [Exercise]) -> some View {
+        let results = ExerciseFormGuide.search(model.guideQuery, in: exercises)
+        return ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                Text(topic.rawValue).font(NotebookTypography.heading(31)).accessibilityAddTraits(.isHeader)
+                HStack {
+                    Image(systemName: "magnifyingglass").foregroundStyle(NotebookStyle.quiet).accessibilityHidden(true)
+                    TextField(topic == .form ? "Find a form guide" : "Find an exercise or muscle", text: $model.guideQuery)
+                        .textFieldStyle(.plain).autocorrectionDisabled().submitLabel(.search)
+                        .focused($searching).onSubmit { searching = false }
+                        .frame(minHeight: 44).accessibilityIdentifier("guide-search")
+                    if !model.guideQuery.isEmpty {
+                        Button { model.guideQuery = "" } label: {
+                            Label("Clear search", systemImage: "xmark.circle.fill").labelStyle(.iconOnly)
+                                .frame(width: 44, height: 44)
+                        }
+                        .accessibilityIdentifier("guide-clear-search")
+                    }
+                }
+                .padding(.horizontal, 10)
+                .overlay { RoundedRectangle(cornerRadius: 7).strokeBorder(NotebookStyle.rule) }
+                if results.isEmpty {
+                    Text("No matching guides").font(.callout).foregroundStyle(NotebookStyle.quiet)
+                }
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(results) { exercise in
+                        Button {
+                            searching = false
+                            model.guideExerciseID = exercise.id
+                        } label: {
+                            HStack(spacing: 12) {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(exercise.name).font(.body.weight(.medium))
+                                    let muscles = exercise.muscleMap?.primary.map(\.name).joined(separator: ", ")
+                                    Text(topic == .muscles ? (muscles ?? exercise.group.rawValue) : exercise.equipmentLabel)
+                                        .font(.subheadline).foregroundStyle(NotebookStyle.quiet)
+                                }
+                                .fixedSize(horizontal: false, vertical: true)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                Image(systemName: "chevron.right").font(.caption)
+                                    .foregroundStyle(NotebookStyle.quiet).accessibilityHidden(true)
+                            }
+                            .frame(minHeight: 44).padding(.vertical, 8).contentShape(Rectangle())
+                        }
+                        .accessibilityIdentifier("guide-exercise-\(exercise.id)")
+                        WorkoutLibraryRule()
+                    }
+                }
+            }
+            .padding(24).frame(maxWidth: 560).frame(maxWidth: .infinity)
+        }
+        .scrollDismissesKeyboard(.interactively)
+        .accessibilityIdentifier("guide-list")
+    }
+
+    private func guideDetail(_ topic: TrainingGuideTopic, exercise: Exercise) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                if topic == .form {
+                    ExerciseLearningDetail(exercise: exercise)
+                } else if let map = exercise.muscleMap {
+                    Text(exercise.name).font(NotebookTypography.heading(31)).accessibilityAddTraits(.isHeader)
+                    Text(map.variation).font(.subheadline).foregroundStyle(NotebookStyle.quiet)
+                    ExerciseMuscleMapView(map: map).accessibilityIdentifier("exercise-muscles-\(exercise.id)")
+                }
+            }
+            .padding(24).frame(maxWidth: 560).frame(maxWidth: .infinity)
+        }
+        .background(NotebookStyle.ivory)
+        .accessibilityIdentifier("guide-detail")
     }
 }

@@ -98,7 +98,7 @@ struct TrainingNotebookPages: View {
             if let day = page.day { TrainingDayView(model: model, day: day) }
             else { TrainingWeekView(model: model).id(model.landingResetID) }
         case .trends: TrainingTrendsView(model: model).id(model.landingResetID)
-        case .learn: TrainingLearnView(model: model)
+        case .learn: TrainingLibraryView(model: model).id(model.landingResetID)
         case .profile: TrainingProfileView(model: model).id(model.landingResetID)
         }
     }

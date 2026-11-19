@@ -21,10 +21,10 @@ struct TrainingDock: View {
         .frame(maxWidth: 380)
         .background {
             outline.fill(NotebookStyle.ivory)
-                .shadow(color: NotebookStyle.ink.opacity(0.12), radius: 10, x: 0, y: 4)
+                .shadow(color: NotebookStyle.dockShadow, radius: 10, x: 0, y: 4)
         }
         .overlay {
-            outline.strokeBorder(NotebookStyle.ink.opacity(0.14), lineWidth: 0.5)
+            outline.strokeBorder(NotebookStyle.dockOutline, lineWidth: 0.5)
                 .allowsHitTesting(false)
         }
         .accessibilityElement(children: .contain).accessibilityIdentifier("app-dock")
@@ -37,40 +37,35 @@ struct TrainingDock: View {
         ForEach(TrainingSection.allCases, id: \.self) { section in
             let selected = model.section == section
             Button { model.selectDockSection(section) } label: {
-                let title = Text(section.rawValue)
+                let title = Text(section.title)
                     .font(.caption.weight(selected ? .bold : .medium))
-                    .foregroundStyle(selected ? NotebookStyle.ink : NotebookStyle.quiet)
+                    .foregroundStyle(selected ? NotebookStyle.dockSelectionText : NotebookStyle.quiet)
                     .fixedSize(horizontal: false, vertical: true)
-                if textSize.isAccessibilitySize {
-                    HStack(spacing: 5) {
-                        if selected {
-                            Image(systemName: "checkmark").font(.footnote.weight(.bold))
+                Group {
+                    if textSize.isAccessibilitySize {
+                        title
+                    } else {
+                        VStack(spacing: 3) {
+                            Image(systemName: section.symbol)
+                                .symbolVariant(selected ? .fill : .none)
+                                .font(.system(size: 19, weight: .medium))
+                                .frame(width: 54, height: 28)
                                 .accessibilityHidden(true)
+                            title
                         }
-                        title
                     }
-                    .frame(maxWidth: .infinity, minHeight: 44)
-                    .contentShape(Rectangle())
-                } else {
-                    VStack(spacing: 3) {
-                        Image(systemName: section.symbol)
-                            .symbolVariant(selected ? .fill : .none)
-                            .font(.system(size: 19, weight: .medium))
-                            .frame(width: 54, height: 28)
-                            .accessibilityHidden(true)
-                        title
-                    }
-                    .frame(maxWidth: .infinity, minHeight: 54)
-                    .contentShape(Rectangle())
                 }
+                .frame(maxWidth: .infinity, minHeight: textSize.isAccessibilitySize ? 44 : 54)
+                .foregroundStyle(selected ? NotebookStyle.clay : NotebookStyle.quiet)
+                .background(selected ? NotebookStyle.dockSelectionFill : .clear, in: RoundedRectangle(cornerRadius: 17))
+                .contentShape(Rectangle())
             }
-            .foregroundStyle(selected ? NotebookStyle.clay : NotebookStyle.quiet)
-            .accessibilityLabel(section.rawValue)
+            .accessibilityLabel(section.title)
             .accessibilityAddTraits(selected ? .isSelected : [])
-            .accessibilityIdentifier("dock-\(section.rawValue.lowercased())")
+            .accessibilityIdentifier("dock-\(section.title.lowercased())")
             #if os(iOS)
             .accessibilityShowsLargeContentViewer {
-                Label(section.rawValue, systemImage: section.symbol)
+                Label(section.title, systemImage: section.symbol)
                     .symbolVariant(selected ? .fill : .none)
             }
             #endif

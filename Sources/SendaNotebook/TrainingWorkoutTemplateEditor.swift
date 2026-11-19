@@ -31,7 +31,9 @@ struct TrainingWorkoutTemplateEditor: View {
         self.close = close
         self.saved = saved
         self.isEditing = isEditing
-        let ids = template?.exerciseIDs ?? (copiesCurrentDay ? model.tabs.map(\.id) : [])
+        let sourceIDs = template?.exerciseIDs ?? (copiesCurrentDay ? model.tabs.map(\.id) : [])
+        // Keep existing template references available to remove in the editor.
+        let ids = isEditing ? sourceIDs : sourceIDs.filter { !model.exercise($0).isArchived }
         let planSource = template?.exercisePlans ?? (copiesCurrentDay ? model.workout?.exercisePlans : nil) ?? [:]
         let initial = Draft(name: template?.name ?? "", exerciseIDs: ids, plans: planSource.filter { ids.contains($0.key) })
         original = initial
@@ -163,7 +165,9 @@ struct TrainingWorkoutTemplateEditor: View {
         HStack(alignment: .center, spacing: 10) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(exercise.name).font(.body.weight(.semibold))
-                if model.snapshot.customExercises?.contains(where: { $0.id == exercise.id }) == true {
+                if exercise.isArchived {
+                    Text("Removed from library").font(.caption).foregroundStyle(NotebookStyle.quiet)
+                } else if model.snapshot.customExercises?.contains(where: { $0.id == exercise.id }) == true {
                     Text("Custom exercise").font(.caption).foregroundStyle(NotebookStyle.quiet)
                 }
                 if let plan = draft.plans[exercise.id] { WorkoutLibraryPlanLabel(plan: plan) }
@@ -207,7 +211,7 @@ struct TrainingWorkoutTemplateEditor: View {
     }
 
     private var exercisePicker: some View {
-        let library = model.exercises
+        let library = model.activeExercises
         let exercises = ExerciseSelectionFilter.results(in: library, query: search, group: nil, equipment: nil, gymFilter: gymFilter)
             .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
         let customIDs = Set(model.snapshot.customExercises?.map(\.id) ?? [])

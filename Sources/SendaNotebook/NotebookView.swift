@@ -88,7 +88,7 @@ public struct NotebookView: View {
     }
     private var entry: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text(model.exercise.displayName).font(.system(size: 43, weight: .regular, design: .serif).italic())
+            Text(model.exercise.displayName).font(NotebookTypography.heading(43, relativeTo: .largeTitle))
                 .lineLimit(2).minimumScaleFactor(0.7).accessibilityIdentifier("entry-exercise")
             if model.exerciseHistory.personalBest != nil { LiftReferencesView(model: model) }
             SetRowsView(model: model)

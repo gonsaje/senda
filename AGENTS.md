@@ -2,9 +2,9 @@
 
 ## UI design direction
 
-- Preserve Senda's ivory (#F7F3EB), terracotta (#A94E32), charcoal (#302720), and established Georgia notebook headings.
+- Preserve Senda's ivory (#F7F3EB), terracotta (#A94E32), charcoal (#302720), and DM Sans Semibold page and section headings. Use the shared heading style for Dynamic Type.
 - Do not add decorative vertical accent bars, left-border callouts, or left stripes on rows, cards, banners, or empty states. This is an explicit user preference. Preserve meaningful chart axes, ruler ticks and scroll-edge indicators.
-- Show selection with a checkmark and text emphasis; retain accessibility selected traits. Do not rely on color alone.
+- Mark the active tab with an underline or a filled background and a heavier label. Reserve checkmarks for selected options and completed actions. Keep the selected accessibility trait on navigation controls.
 - Use typography, alignment, spacing and ordinary separators to establish hierarchy. Use native app controls where they fit the task. Prefer flat lists to repeated card containers.
 - Give empty or incomplete states a clear label and next action. Do not show oversized placeholder values or empty charts that resemble measured progress.
 - Keep visual treatments purposeful. Avoid redundant eyebrow headings, decorative icons, stock motivational copy and excessive explanation in the main task flow. Put necessary details beside the action they explain.

@@ -87,6 +87,40 @@ enum TrainingText {
     static func set(_ values: SetValues, unit: WeightUnit) -> String { "\(unit.text(for: values.weight)) \(unit.symbol) × \(values.reps)" }
 }
 
+struct TrainingDateStamp: View {
+    let day: TrainingDay
+    let isToday: Bool
+    var isHeading = false
+    var weekdayLabels: [String] = []
+    @Environment(\.dynamicTypeSize) private var textSize
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 5) {
+            ZStack(alignment: .leading) {
+                if !textSize.isAccessibilitySize {
+                    // Reserve each weekday's width to align the week column across locales.
+                    ForEach(weekdayLabels.indices, id: \.self) { Text(weekdayLabels[$0]).hidden() }
+                }
+                Text(TrainingText.date(day, format: "EEE"))
+            }
+            .textCase(isToday || isHeading ? .uppercase : nil)
+            .font(NotebookTypography.heading(isHeading ? 13 : 12, relativeTo: .caption))
+            .tracking(isToday || isHeading ? 0.5 : 0)
+            ZStack(alignment: .leading) {
+                if !isHeading && !textSize.isAccessibilitySize {
+                    Text(TrainingText.date(day, format: "dd")).hidden()
+                }
+                Text(TrainingText.date(day, format: "d"))
+            }
+            .font(NotebookTypography.heading(isHeading ? 41 : (isToday ? 33 : 24),
+                                            relativeTo: isHeading ? .largeTitle : .title3))
+            .monospacedDigit()
+        }
+        .fixedSize(horizontal: true, vertical: false)
+        .foregroundStyle(isToday ? NotebookStyle.clay : NotebookStyle.ink)
+    }
+}
+
 struct TrainingWeekView: View {
     private enum Sheet: String, Identifiable {
         case calendar, muscles
@@ -97,7 +131,7 @@ struct TrainingWeekView: View {
     @State private var swipe = WeekSwipeState()
     @State private var sheet: Sheet?
     @GestureState private var dragging = false
-    @ScaledMetric(relativeTo: .title3) private var dateColumnWidth: CGFloat = 67
+    @ScaledMetric(relativeTo: .title3) private var dateColumnWidth: CGFloat = 74
     @Environment(\.dynamicTypeSize) private var textSize
 
     var body: some View {
@@ -181,31 +215,12 @@ struct TrainingWeekView: View {
             : AnyLayout(HStackLayout(alignment: .center, spacing: 8))
         return Button { model.openDay(day) } label: {
             rowLayout {
-                HStack(alignment: .firstTextBaseline, spacing: 5) {
-                    ZStack(alignment: .leading) {
-                        if !textSize.isAccessibilitySize {
-                            // Reserve the widest weekday so dates align in every row.
-                            ForEach(weekdayLabels.indices, id: \.self) { index in
-                                Text(weekdayLabels[index]).hidden()
-                            }
-                        }
-                        Text(TrainingText.date(day, format: "EEE"))
-                    }
-                    .font(.footnote.weight(.semibold))
-                    .lineLimit(1)
-                    ZStack(alignment: .leading) {
-                        if !textSize.isAccessibilitySize {
-                            Text(TrainingText.date(day, format: "dd")).hidden()
-                        }
-                        Text(TrainingText.date(day, format: "d"))
-                    }
-                    .font(NotebookTypography.heading(25, relativeTo: .title3))
-                    .monospacedDigit()
-                }
-                .fixedSize(horizontal: true, vertical: false)
-                .frame(minWidth: textSize.isAccessibilitySize ? nil : dateColumnWidth, alignment: .leading)
-                .foregroundStyle(isToday ? NotebookStyle.clay : NotebookStyle.ink)
+                TrainingDateStamp(day: day, isToday: isToday, weekdayLabels: weekdayLabels)
+                    .frame(minWidth: textSize.isAccessibilitySize ? nil : dateColumnWidth, alignment: .leading)
                 VStack(alignment: .leading, spacing: 2) {
+                    if isToday && (summary.setCount > 0 || exerciseCount > 0 || unfinished > 0) {
+                        Text("Today").font(.caption.weight(.semibold)).foregroundStyle(NotebookStyle.clay)
+                    }
                     if let primary = bodyParts.first {
                         Text(primary).font(.callout.weight(.semibold))
                             .lineLimit(textSize.isAccessibilitySize ? nil : 1)
@@ -227,8 +242,8 @@ struct TrainingWeekView: View {
                         }
                     } else {
                         Label(action, systemImage: symbol)
-                            .font(.callout)
-                            .foregroundStyle(unfinished > 0 ? NotebookStyle.clay : NotebookStyle.quiet)
+                            .font(.callout.weight(isToday ? .semibold : .regular))
+                            .foregroundStyle(unfinished > 0 ? NotebookStyle.clay : (isToday ? NotebookStyle.ink : NotebookStyle.quiet))
                     }
                     if unfinished > 0 {
                         Text(summary.setCount > 0 ? "\(needsValues) · Continue" : needsValues)
@@ -250,7 +265,7 @@ struct TrainingWeekView: View {
             .padding(.horizontal, 8)
             .padding(.vertical, textSize.isAccessibilitySize ? 10 : 3)
             .frame(minHeight: 54, maxHeight: .infinity)
-            .background(isToday ? NotebookStyle.clay.opacity(0.07) : .clear, in: RoundedRectangle(cornerRadius: 8))
+            .background(isToday ? NotebookStyle.todayFill : .clear, in: RoundedRectangle(cornerRadius: 8))
             .contentShape(Rectangle())
             .overlay(alignment: .bottom) {
                 Rectangle().fill(NotebookStyle.rule).frame(height: 0.5)

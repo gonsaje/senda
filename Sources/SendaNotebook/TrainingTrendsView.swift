@@ -6,6 +6,8 @@ import SendaLogger
 public struct TrainingTrendsView: View {
     @Bindable private var model: TrainingNotebookModel
     @Environment(\.dynamicTypeSize) private var textSize
+    @Environment(BodyMeasurementsModel.self) private var bodyMeasurements: BodyMeasurementsModel?
+    @State private var showsBodyMeasurements = false
     @State private var showAllBests = false
     @State private var showsAllTimeRecords = false
     @State private var strengthExerciseID: String?
@@ -27,6 +29,7 @@ public struct TrainingTrendsView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 heading(hasHistory: hasHistory)
+                if bodyMeasurements != nil { bodyMeasurementsButton }
                 if hasHistory && showsAllTimeRecords { allTimeRecords }
                 window(trends)
                 if trends.setCount == 0 {
@@ -56,6 +59,28 @@ public struct TrainingTrendsView: View {
         .tint(NotebookStyle.clay)
         .buttonStyle(.plain)
         .accessibilityIdentifier("trends-scroll")
+        .sheet(isPresented: $showsBodyMeasurements, onDismiss: { bodyMeasurements?.disconnectHealth() }) {
+            if let bodyMeasurements {
+                BodyMeasurementsView(model: bodyMeasurements, unit: model.workspace.preferredUnit,
+                    close: { showsBodyMeasurements = false })
+            }
+        }
+    }
+
+    private var bodyMeasurementsButton: some View {
+        Button { showsBodyMeasurements = true } label: {
+            HStack(spacing: 12) {
+                Text("Body measurements")
+                    .font(.body.weight(.medium))
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right").font(.caption).accessibilityHidden(true)
+            }
+            .foregroundStyle(NotebookStyle.clay)
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .accessibilityIdentifier("trends-body-measurements")
     }
 
     private func heading(hasHistory: Bool) -> some View {

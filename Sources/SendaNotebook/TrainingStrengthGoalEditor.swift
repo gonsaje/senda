@@ -36,7 +36,7 @@ struct TrainingStrengthGoalEditor: View {
     private var exercise: Exercise? { exerciseID.map { model.exercise($0) } }
 
     private var exercises: [Exercise] {
-        var exercises = model.exercises.filter(\.isLibraryChoice)
+        var exercises = model.activeExercises.filter(\.isLibraryChoice)
         if let exercise, !exercises.contains(where: { $0.id == exercise.id }) {
             exercises.append(exercise)
         }

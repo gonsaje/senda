@@ -6,9 +6,11 @@ import SendaNotebook
 
 @main
 struct SendaApp: App {
+    @State private var showsLaunchIntro = true
+
     var body: some Scene {
         WindowGroup {
-            JournalRootView().preferredColorScheme(.light)
+            JournalRootView(showsLaunchIntro: $showsLaunchIntro)
                 .defaultAppStorage(preferences)
         }
     }
@@ -25,26 +27,47 @@ struct SendaApp: App {
 }
 
 private struct JournalRootView: View {
+    @Binding var showsLaunchIntro: Bool
     @Environment(\.scenePhase) private var scenePhase
     @State private var session: TrainingSession?
     @State private var automaticBackup: NotebookAutomaticBackup?
+    @State private var bodyMeasurements: BodyMeasurementsModel?
     @State private var openingError: String?
 
     var body: some View {
-        content
-            .task { if session == nil && openingError == nil { openJournal() } }
-            .onChange(of: scenePhase) { _, phase in
-                if phase != .active { session?.suspend() }
+        ZStack {
+            content
+                .accessibilityHidden(showsLaunchIntro)
+                .allowsHitTesting(!showsLaunchIntro)
+            if showsLaunchIntro {
+                SendaLaunchIntro { showsLaunchIntro = false }
+                    .transition(.opacity)
+                    .zIndex(1)
             }
+        }
+        .preferredColorScheme(showsLaunchIntro ? nil : appearancePreference)
+        .task { if session == nil && openingError == nil { openJournal() } }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .background { showsLaunchIntro = false }
+            if phase != .active { session?.suspend() }
+        }
+    }
+
+    // The log follows the phone. Other sections still use their original light appearance.
+    private var appearancePreference: ColorScheme? {
+        guard let session else { return openingError == nil ? nil : .light }
+        guard session.recovery == nil, let model = session.notebook, !model.backupRecoveryRequired else { return .light }
+        return model.section == .log ? nil : .light
     }
 
     @ViewBuilder private var content: some View {
-        if let session {
+        if let session, let bodyMeasurements {
             TrainingSessionView(session: session, automaticBackup: automaticBackup)
+                .environment(bodyMeasurements)
         } else if let openingError {
             VStack(alignment: .leading, spacing: 20) {
                 Text("Your journal couldn’t be opened.")
-                    .font(.system(.largeTitle, design: .serif))
+                    .font(NotebookTypography.heading(34, relativeTo: .largeTitle))
                 Text(openingError).font(.body)
                 Text("Your saved file has been left untouched.").font(.callout)
                 Button("Try again", action: openJournal).buttonStyle(.borderedProminent)
@@ -61,6 +84,7 @@ private struct JournalRootView: View {
         do {
             if ProcessInfo.processInfo.arguments.contains("--sample-data") {
                 session = try makeSampleSession()
+                bodyMeasurements = BodyMeasurementsModel(repository: MemoryBodyMeasurementsRepository())
             } else {
                 let support = try FileManager.default.url(for: .applicationSupportDirectory,
                     in: .userDomainMask, appropriateFor: nil, create: true)
@@ -73,12 +97,17 @@ private struct JournalRootView: View {
                 }
                 #endif
                 let journalURL = support.appendingPathComponent(journalPath)
-                let profileURL = journalURL.deletingLastPathComponent().appendingPathComponent("profile.json")
+                let dataDirectory = journalURL.deletingLastPathComponent()
+                let profileURL = dataDirectory.appendingPathComponent("profile.json")
+                let measurementsURL = dataDirectory.appendingPathComponent("BodyMeasurements", isDirectory: true)
+                    .appendingPathComponent("measurements.json")
+                bodyMeasurements = BodyMeasurementsModel(repository: FileBodyMeasurementsRepository(url: measurementsURL),
+                                                         health: AppleHealthBodyMeasurements())
                 session = TrainingSession(repository: FileJournalRepository(url: journalURL),
                     profileRepository: FileProfileRepository(url: profileURL),
                     restoreStore: FileNotebookRestoreStore(journalURL: journalURL, profileURL: profileURL))
                 automaticBackup = NotebookAutomaticBackup(
-                    settingsURL: journalURL.deletingLastPathComponent().appendingPathComponent("backup-settings.json")
+                    settingsURL: dataDirectory.appendingPathComponent("backup-settings.json")
                 )
             }
             openingError = nil

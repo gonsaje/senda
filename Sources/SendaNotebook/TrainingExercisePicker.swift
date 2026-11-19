@@ -69,7 +69,7 @@ public struct TrainingExercisePicker: View {
 
     private func libraryMatches(excluding recent: [Exercise]) -> [Exercise] {
         let recentIDs = Set(recent.map(\.id))
-        let library = ExerciseSelectionFilter.results(in: model.exercises, query: search, group: group, equipment: equipment,
+        let library = ExerciseSelectionFilter.results(in: model.activeExercises, query: search, group: group, equipment: equipment,
                                                      gymFilter: gymFilter)
             .filter { !recentIDs.contains($0.id) }
         if inlineBrowse != nil { return library }
@@ -184,7 +184,7 @@ public struct TrainingExercisePicker: View {
 
     private func searchRecovery(alongside visible: [Exercise]) -> ExerciseSearchRecovery? {
         guard filterCount > 0, !search.isEmpty else { return nil }
-        return ExerciseSearchRecovery.find(query: search, in: model.exercises, gymFilter: gymFilter, group: group,
+        return ExerciseSearchRecovery.find(query: search, in: model.activeExercises, gymFilter: gymFilter, group: group,
                                            equipment: equipment, includePartialMatch: visible.isEmpty,
                                            excludingAlternatives: Set(visible.map(\.id)))
     }
@@ -429,7 +429,7 @@ public struct TrainingExercisePicker: View {
     }
 
     private func resultCount(_ gym: ExerciseGymFilter) -> Int {
-        ExerciseSelectionFilter.results(in: model.exercises, query: search, group: draft.group,
+        ExerciseSelectionFilter.results(in: model.activeExercises, query: search, group: draft.group,
                                         equipment: draft.equipment, gymFilter: gym).count
     }
 
@@ -512,8 +512,8 @@ public struct TrainingExercisePicker: View {
                 else if selectingSeveral {
                     if let position {
                         Text("\(position + 1)").font(.subheadline.monospacedDigit().weight(.semibold))
-                            .frame(width: selectionBadgeSize, height: selectionBadgeSize).foregroundStyle(NotebookStyle.ivory)
-                            .background(NotebookStyle.clay, in: Circle())
+                            .frame(width: selectionBadgeSize, height: selectionBadgeSize).foregroundStyle(NotebookStyle.onPrimary)
+                            .background(NotebookStyle.primaryFill, in: Circle())
                     } else { Image(systemName: "circle").foregroundStyle(NotebookStyle.quiet) }
                 } else { Image(systemName: pending ? "clock" : "plus").foregroundStyle(NotebookStyle.clay) }
             }.padding(.vertical, 10).frame(minHeight: 56).contentShape(Rectangle())

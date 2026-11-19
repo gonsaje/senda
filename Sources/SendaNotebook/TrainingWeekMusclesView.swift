@@ -191,7 +191,7 @@ struct TrainingWeekMusclesView: View {
             rule
             VStack(alignment: .leading, spacing: 4) {
                 Text(muscle.name)
-                    .font(.headline)
+                    .font(NotebookTypography.heading(17, relativeTo: .headline))
                     .accessibilityAddTraits(.isHeader)
                 Text(volume(region))
                     .font(.subheadline.weight(.medium).monospacedDigit())

@@ -29,6 +29,60 @@ struct ExerciseLibraryTests {
         #expect(restored.first { $0.id == old.id }?.muscleMap == nil)
     }
 
+    @Test func editingCustomExercisesRetainsIdentityAndPermitsReusingArchivedNames() throws {
+        var old = try ExerciseLibrary.custom(named: "Porch lift", muscleGroup: .legs, equipment: .bodyweight)
+        old.isArchived = true
+        let other = try ExerciseLibrary.custom(named: "Garden row")
+        let library = ExerciseLibrary.resolved(custom: [old, other])
+        let setup = CustomExerciseSetup(gyms: [.home], requiredEquipment: [.dumbbells])
+        let edited = try ExerciseLibrary.editCustom(old, named: "  Porch   row ", existing: library,
+            muscleGroup: .back, equipment: .dumbbell, customSetup: setup)
+
+        #expect(edited.id == old.id)
+        #expect(edited.name == "Porch row")
+        #expect(edited.isArchived)
+        #expect(edited.group == .back && edited.equipmentType == .dumbbell && edited.customSetup == setup)
+        #expect(try ExerciseLibrary.validated(custom: [edited, other]).last == other)
+        #expect(throws: ExerciseLibraryError.duplicateName("Garden row")) {
+            try ExerciseLibrary.editCustom(old, named: "Garden row", existing: library)
+        }
+        let fresh = try ExerciseLibrary.custom(named: "Porch lift", existing: library)
+        #expect(fresh.id != old.id && !fresh.isArchived)
+        let resolved = try ExerciseLibrary.validated(custom: [old, fresh, other])
+        #expect(resolved.first { $0.id == old.id }?.isArchived == true)
+        #expect(resolved.first { $0.id == fresh.id }?.isArchived == false)
+        #expect(throws: ExerciseLibraryError.duplicateName("Porch lift")) {
+            try ExerciseLibrary.custom(named: "Porch lift", existing: resolved)
+        }
+        let unrelated = try ExerciseLibrary.custom(named: "Porch lift")
+        #expect(throws: ExerciseLibraryError.invalidLibrary) {
+            try ExerciseLibrary.validated(custom: [fresh, unrelated])
+        }
+    }
+
+    @Test func builtInsAndLegacyPresetAliasesCannotBeEditedAsCustomExercises() throws {
+        let bench = try #require(Exercise.catalog.first { $0.id == "bench" })
+        let alias = Exercise(id: "custom-before-import", name: "Wall chair", shortName: "Wall chair",
+                             startingWeight: 0, muscleGroup: .legs, equipment: .bodyweight)
+        #expect(!ExerciseLibrary.canManageCustom(bench))
+        #expect(!ExerciseLibrary.canManageCustom(alias))
+        #expect(throws: ExerciseLibraryError.protectedExercise) {
+            try ExerciseLibrary.editCustom(alias, named: "Renamed", existing: ExerciseLibrary.resolved(custom: [alias]))
+        }
+        var previouslyArchived = alias
+        previouslyArchived.isArchived = true
+        let resolved = try ExerciseLibrary.validated(custom: [previouslyArchived])
+        #expect(resolved.first { $0.id == "wall-sit" }?.isLibraryChoice == true)
+        #expect(resolved.first { $0.id == alias.id }?.isArchived == true)
+
+        let differentExercise = Exercise(id: "goblet-squat", name: "Box practice", shortName: "Box",
+                                         startingWeight: 0, muscleGroup: .legs, equipment: .bodyweight)
+        let library = try ExerciseLibrary.validated(custom: [differentExercise])
+        let laterPreset = try #require(library.first { $0.presetID == differentExercise.id })
+        #expect(ExerciseLibrary.canManageCustom(differentExercise))
+        #expect(!ExerciseLibrary.canManageCustom(laterPreset))
+    }
+
     @Test func cardioAndResistanceExercisesUseTheirOwnEquipmentAndLoad() throws {
         let walk = try #require(Exercise.catalog.first { $0.name == "Treadmill walk" })
         #expect(walk.equipmentType == .machine && !walk.requiresWeight)

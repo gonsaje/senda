@@ -112,10 +112,13 @@ struct TrainingInputDock: View {
             // Typing and the large step controls retain the same adjustments at
             // accessibility sizes without taking another line of entry space.
             if focus.field == .weight && !typing && !textSize.isAccessibilitySize {
-                TrainingWeightRuler(value: model.focusedRow?.parsedWeight ?? model.focusedRow?.canonicalWeight ?? 0,
-                                    unit: model.unit, beginInteraction: { beginInteraction(); typing = false }) {
-                    model.setInputWeight($0, focus: focus)
-                }
+                WeightDialSurface(
+                    value: model.focusedRow?.parsedWeight ?? model.focusedRow?.canonicalWeight ?? 0,
+                    unit: model.unit,
+                    beginInteraction: beginInteraction,
+                    update: { model.setInputWeight($0, focus: focus) }
+                )
+                .id(model.unit)
             }
         }
         .padding(.horizontal, 24).padding(.bottom, 12).frame(maxWidth: 560).frame(maxWidth: .infinity)
@@ -195,87 +198,5 @@ struct TrainingInputDock: View {
         }.accessibilityLabel("\(increasing ? "Increase" : "Decrease") \(focus.field == .weight ? "weight in \(model.unit.symbol)" : "reps")")
             .accessibilityValue(inputAccessibilityValue)
             .accessibilityIdentifier(increasing ? "input-increase" : "input-decrease")
-    }
-}
-
-struct TrainingWeightRuler: View {
-    let value: Int
-    let unit: WeightUnit
-    let beginInteraction: () -> Void
-    var update: (Int) -> Bool
-    @State private var position: Int?
-    @State private var start: Int?
-    @State private var adjustmentCount = 0
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    init(value: Int, unit: WeightUnit, beginInteraction: @escaping () -> Void, update: @escaping (Int) -> Bool) {
-        self.value = value; self.unit = unit; self.beginInteraction = beginInteraction; self.update = update
-        _position = State(initialValue: Self.tick(value, unit))
-    }
-    private var step: Double { NSDecimalNumber(decimal: unit.step).doubleValue }
-    private var maximum: Double { NSDecimalNumber(decimal: unit.maximumAmount).doubleValue }
-    private var last: Int { Int(ceil(maximum / step)) }
-    private var nearest: Int { Self.tick(value, unit) }
-    var body: some View {
-        GeometryReader { geometry in
-            ZStack(alignment: .top) {
-                ScrollView(.horizontal) {
-                    LazyHStack(alignment: .top, spacing: 0) {
-                        ForEach(0...last, id: \.self) { tick in
-                            VStack(spacing: 4) {
-                                Rectangle().fill(NotebookStyle.quiet).frame(width: 1, height: tick.isMultiple(of: 4) ? 22 : 12)
-                                if tick.isMultiple(of: 4) {
-                                    Text(min(maximum, Double(tick) * step), format: .number.precision(.fractionLength(0...2)))
-                                        .font(.system(size: 10).monospacedDigit()).fixedSize()
-                                }
-                            }.frame(width: 12, height: 48, alignment: .top).id(tick)
-                        }
-                    }.scrollTargetLayout()
-                }.contentMargins(.horizontal, max(0, (geometry.size.width - 12) / 2), for: .scrollContent)
-                    .scrollIndicators(.never).scrollDisabled(true).scrollPosition(id: $position)
-                Rectangle().fill(NotebookStyle.clay).frame(width: 2, height: 26).allowsHitTesting(false)
-            }
-        }
-        .frame(height: 60).contentShape(Rectangle())
-        .sensoryFeedback(.selection, trigger: adjustmentCount)
-        .onChange(of: value) { _, _ in if position != nearest { position = nearest } }
-        .gesture(DragGesture(minimumDistance: 2).onChanged { gesture in
-            if start == nil { beginInteraction(); start = nearest }
-            move(start ?? nearest, gesture.translation.width)
-        }.onEnded { gesture in
-            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.25)) {
-                move(start ?? nearest, reduceMotion ? gesture.translation.width : gesture.predictedEndTranslation.width)
-            }
-            start = nil
-        })
-        .transaction { transaction in
-            if reduceMotion { transaction.animation = nil; transaction.disablesAnimations = true }
-        }
-        .accessibilityElement(children: .ignore).accessibilityLabel("Weight dial in \(unit.symbol)")
-        .accessibilityValue("\(unit.text(for: value)) \(unit.symbol)")
-        .accessibilityAdjustableAction { direction in
-            beginInteraction()
-            switch direction {
-            case .increment: adjustWeight(unit.stepped(value, increasing: true))
-            case .decrement: adjustWeight(unit.stepped(value, increasing: false))
-            @unknown default: break
-            }
-        }.accessibilityIdentifier("weight-dial")
-    }
-    private func move(_ start: Int, _ translation: CGFloat) {
-        let tick = Int(min(CGFloat(last), max(0, CGFloat(start) - translation / 12)).rounded())
-        position = tick
-        guard tick != nearest else { return }
-        let amount = min(maximum, Double(tick) * step)
-        if amount == maximum { adjustWeight(NumericField.weight.range.upperBound) }
-        else if let parsed = unit.parse(String(format: "%.2f", locale: Locale(identifier: "en_US_POSIX"), amount)) {
-            adjustWeight(parsed)
-        }
-    }
-    private func adjustWeight(_ weight: Int) {
-        guard weight != value, update(weight) else { return }
-        adjustmentCount += 1
-    }
-    private static func tick(_ value: Int, _ unit: WeightUnit) -> Int {
-        Int((NSDecimalNumber(decimal: unit.amount(for: value) / unit.step).doubleValue).rounded())
     }
 }

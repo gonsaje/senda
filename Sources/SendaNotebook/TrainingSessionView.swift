@@ -71,7 +71,7 @@ private struct LegacyTrainingRecoveryView: View {
                     SetEditorView(model: logger, onCancel: { recovery.discard() }, onConfirm: { recovery.accept() })
                 } else if recovery.reviewsSetCount {
                     VStack(alignment: .leading, spacing: 20) {
-                        Text("Recovered entry").font(.system(size: 32, design: .serif).italic())
+                        Text("Recovered entry").font(NotebookTypography.heading(32))
                         Text(logger.exercise.displayName).font(.title2)
                         TextField("Set count", text: Binding(get: { logger.numberInputText }, set: { logger.typeNumber($0) }))
                             .textFieldStyle(.plain).font(.largeTitle.monospacedDigit()).numericKeyboard(decimal: false)
@@ -86,14 +86,14 @@ private struct LegacyTrainingRecoveryView: View {
                 } else if logger.isEditingRecorded {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 20) {
-                            Text("Recovered entry").font(.system(size: 32, design: .serif).italic())
+                            Text("Recovered entry").font(NotebookTypography.heading(32))
                             Text(logger.exercise.displayName).font(.title2)
                             SetRowsView(model: logger)
                         }.padding(24)
                     }.safeAreaInset(edge: .bottom) { NumericDock(model: logger, onComplete: { recovery.accept() }) }
                 } else {
                     VStack(spacing: 18) {
-                        Text("Save recovered changes").font(.system(.title, design: .serif))
+                        Text("Save recovered changes").font(NotebookTypography.heading(28))
                         Button("Try again") { recovery.accept() }.frame(minHeight: 44)
                     }.padding(24)
                 }

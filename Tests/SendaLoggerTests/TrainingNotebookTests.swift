@@ -17,6 +17,25 @@ import SendaPersistence
         #expect(model.selectInput(row.id, field: .reps))
         model.typeInput(reps, focus: try #require(model.focus))
     }
+    @Test func firstWorkoutIgnoresBrowsedDaysButRecognizesPlansAndHiddenDrafts() throws {
+        let store = MemoryJournalRepository()
+        let notebook = try model(store)
+        #expect(notebook.isFirstWorkout)
+        #expect(notebook.openDay(day))
+        #expect(notebook.changeDay(-1))
+        #expect(notebook.isFirstWorkout)
+        #expect(notebook.addExercise("bench"))
+        #expect(!notebook.isFirstWorkout)
+        let row = try #require(notebook.rows.first)
+        #expect(notebook.selectInput(row.id, field: .weight))
+        notebook.typeInput("95", focus: try #require(notebook.focus))
+        #expect(notebook.removeExercise("bench"))
+        #expect(notebook.journal.batches.isEmpty)
+        #expect(notebook.workout?.exerciseIDs.isEmpty == true)
+        #expect(notebook.openDay(day))
+        #expect(try !model(store).isFirstWorkout)
+    }
+
     @Test func equipmentFreeCustomLogsRepsAndPreservesRecordedLoadsWhenRetagged() throws {
         let store = MemoryJournalRepository()
         let m = try model(store)

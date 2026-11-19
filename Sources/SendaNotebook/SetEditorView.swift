@@ -55,7 +55,7 @@ struct SetEditorView: View {
                 Button("Cancel") { if let onCancel { onCancel() } else { model.cancelSetEdits() } }.frame(minHeight: 44).accessibilityIdentifier("cancel-set-edits")
                 Spacer()
                 VStack(alignment: .trailing, spacing: 2) {
-                    Text(model.exercise.displayName).font(.system(size: 23, weight: .regular, design: .serif).italic())
+                    Text(model.exercise.displayName).font(NotebookTypography.heading(23, relativeTo: .title2))
                     if let date = targetDate { Text(EntryText.date(date)).font(.caption).foregroundStyle(NotebookStyle.quiet) }
                 }
             }.padding(.horizontal, 24).padding(.top, 8).background(NotebookStyle.ivory)

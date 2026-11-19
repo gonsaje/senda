@@ -6,7 +6,7 @@ import UIKit
 #endif
 
 private enum TrainingDaySheet: Hashable, Identifiable {
-    case catalog(String), exercises, reuse, library
+    case catalog(String), exercises, library, saveTemplate, history(String)
     var id: Self { self }
 }
 
@@ -63,26 +63,44 @@ struct TrainingDayView: View {
     }
 
     var body: some View {
-        ScrollViewReader { scroll in
+        let hasExercises = model.exercise != nil || !model.indexedExercises(on: day).isEmpty
+        let isFirstWorkout = !hasExercises && model.isFirstWorkout
+        return ScrollViewReader { scroll in
             ScrollView {
                 VStack(alignment: .leading, spacing: 8) {
-                    dayNavigation.id("day-header")
-                    workoutExercises.id("active-exercise")
+                    if hasExercises {
+                        dayNavigation.id("day-header")
+                        workoutExercises.id("active-exercise")
+                    } else {
+                        emptyDayNavigation(isFirstWorkout: isFirstWorkout).id("day-header")
+                    }
                     if showingSearch {
                         TrainingExercisePicker(inline: model, close: { showingSearch = false },
                             browse: { query in open(.sheet(.catalog(query))) })
                     } else if let exercise = model.exercise {
                         exerciseControls(exercise)
-                        TrainingReferenceBanners(model: model, beginNavigation: { pendingNavigation = nil })
-                        TrainingSetRows(model: model, beginInteraction: { pendingNavigation = nil }).id("\(day.rawValue)/\(exercise.id)")
+                        if let last = model.lastReference {
+                            TrainingLastTimeRow(
+                                summary: ProgressFormatting.set(last.values, exercise: exercise, unit: model.unit),
+                                day: last.day,
+                                showSet: { pendingNavigation = nil; model.openReference(last) },
+                                showHistory: { open(.sheet(.history(exercise.id))) })
+                        }
+                        TrainingSetRows(model: model, records: model.workoutPersonalRecords,
+                                        beginInteraction: { pendingNavigation = nil }).id("\(day.rawValue)/\(exercise.id)")
+                        if let best = model.personalBest {
+                            TrainingPersonalBest(model: model, best: best, beginNavigation: { pendingNavigation = nil })
+                        }
                         if model.focus == nil && model.errorMessage == nil && !model.canRetrySave {
                             TrainingNextWorkoutFeedback(model: model, day: day, exercise: exercise)
                         }
                     } else {
-                        emptyWorkout
+                        TrainingEmptyWorkout(isFirstWorkout: isFirstWorkout, unit: model.unit,
+                            addExercise: hasExercises ? nil : { open(.addExercise) },
+                            chooseTemplate: { open(.sheet(.library)) })
                     }
                 }
-                .padding(.horizontal, 24).padding(.top, 2).padding(.bottom, 28)
+                .padding(.horizontal, hasExercises ? 24 : 20).padding(.top, 2).padding(.bottom, 28)
                 .frame(maxWidth: 560).frame(maxWidth: .infinity)
                 .id("day-top")
             }
@@ -148,10 +166,14 @@ struct TrainingDayView: View {
                 case .exercises:
                     TrainingDayExerciseList(model: model, day: day, close: { presentedSheet = nil },
                         add: { searchAfterDismissal = day; presentedSheet = nil })
-                case .reuse:
-                    TrainingWorkoutReusePicker(model: model, close: { presentedSheet = nil })
                 case .library:
                     TrainingWorkoutLibrary(model: model, close: { presentedSheet = nil })
+                case .saveTemplate:
+                    TrainingWorkoutTemplateEditor(model: model, template: nil, isEditing: false, copiesCurrentDay: true,
+                        close: { presentedSheet = nil }, saved: { _ in presentedSheet = nil })
+                case .history(let exerciseID):
+                    TrainingWorkoutExerciseHistory(model: model, exercise: model.exercise(exerciseID), before: day,
+                        close: { presentedSheet = nil })
                 }
             }
             .sheet(item: $planContext) { context in
@@ -199,7 +221,7 @@ struct TrainingDayView: View {
             }
             .onChange(of: showingSearch) { _, isOpen in
                 if !isOpen && presentedSheet == nil && model.section == .log && model.selectedDay == day {
-                    scroll.scrollTo("active-exercise", anchor: .top)
+                    scroll.scrollTo(hasExercises ? "active-exercise" : "day-header", anchor: .top)
                 }
             }
             .onChange(of: model.rows) { _, _ in reconcilePendingNavigation() }
@@ -259,29 +281,30 @@ struct TrainingDayView: View {
         }
     }
 
-    private var emptyWorkout: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Button { open(.sheet(.library)) } label: {
-                Label("Choose workout", systemImage: "list.bullet.rectangle")
-                    .font(.subheadline.weight(.medium))
-                    .frame(minWidth: 44, minHeight: 44)
-                    .contentShape(Rectangle())
+    private func emptyDayNavigation(isFirstWorkout: Bool) -> some View {
+        let dateLayout = textSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 0))
+            : AnyLayout(HStackLayout(alignment: .center, spacing: 4))
+        return VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                weekButton
+                if day != model.today && !textSize.isAccessibilitySize { todayControl }
+                Spacer(minLength: 8)
+                TrainingWordmark(width: 103)
             }
-            .foregroundStyle(NotebookStyle.clay)
-            .accessibilityIdentifier("choose-workout")
-            if !model.reusableWorkouts.isEmpty {
-                Button { open(.sheet(.reuse)) } label: {
-                    Text("Use a previous workout")
-                        .font(.subheadline.weight(.medium))
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(minHeight: 44)
-                        .contentShape(Rectangle())
-                }
-                .foregroundStyle(NotebookStyle.quiet)
-                .accessibilityHint("Choose exercises from an earlier day without copying recorded sets")
-                .accessibilityIdentifier("reuse-workout")
+            Text(isFirstWorkout ? "Your first workout" : "Add a workout")
+                .font(NotebookTypography.heading(34, relativeTo: .title2))
+                .tracking(-0.7)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityAddTraits(.isHeader)
+                .accessibilityIdentifier("day-title")
+            dateLayout {
+                dateTitle(fullDateFormat, font: .subheadline)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                dateControls
             }
-        }.padding(.top, 12)
+            if day != model.today && textSize.isAccessibilitySize { todayControl }
+        }
     }
 
     private var dayNavigation: some View {
@@ -304,10 +327,18 @@ struct TrainingDayView: View {
         .padding(.bottom, 4)
     }
 
+    private var fullDateFormat: String {
+        day.rawValue.prefix(4) == model.today.rawValue.prefix(4) ? "EEEE, MMMM d" : "EEEE, MMMM d, yyyy"
+    }
+
     private var dayHeading: some View {
         VStack(alignment: .leading, spacing: 2) {
-            weekdayTitle
-            dateTitle(day == model.today ? "MMM d" : "MMM d, yyyy")
+            TrainingDateStamp(day: day, isToday: day == model.today, isHeading: true)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(TrainingText.date(day, format: "EEEE"))
+                .accessibilityAddTraits(.isHeader)
+                .accessibilityIdentifier("day-title")
+            dateTitle(day == model.today ? "MMMM" : "MMMM yyyy", font: .subheadline)
         }
     }
 
@@ -329,64 +360,66 @@ struct TrainingDayView: View {
         }
     }
 
-    private var workoutExercises: some View {
-        let addLayout = textSize >= .accessibility3
+    @ViewBuilder private var workoutExercises: some View {
+        if model.tabs.isEmpty {
+            HStack {
+                Text("Exercises").font(NotebookTypography.heading(17, relativeTo: .headline)).accessibilityAddTraits(.isHeader)
+                Spacer()
+                if !model.indexedExercises(on: day).isEmpty { workoutOptions }
+                addExerciseButton
+            }
+        } else {
+            TrainingWorkoutExerciseList(exercises: model.tabs, selectedID: model.exercise?.id, select: { id in
+                guard showingSearch || id != model.exercise?.id else { return }
+                pendingNavigation = nil
+                showingSearch = false
+                model.selectExercise(id)
+            }, add: { addExerciseButton })
+        }
+    }
+    private var addExerciseButton: some View {
+        let layout = textSize >= .accessibility3
             ? AnyLayout(VStackLayout(spacing: 0))
             : AnyLayout(HStackLayout(spacing: 5))
-        return HStack(alignment: .top, spacing: 8) {
-            if model.tabs.isEmpty {
-                Text("Exercises").font(.headline)
-                    .accessibilityAddTraits(.isHeader)
-                Spacer(minLength: 0)
-                if !model.indexedExercises(on: day).isEmpty { workoutOptions }
-            } else {
-                TrainingWorkoutExerciseList(exercises: model.tabs, selectedID: model.exercise?.id) { id in
-                    guard showingSearch || id != model.exercise?.id else { return }
-                    pendingNavigation = nil
-                    showingSearch = false
-                    model.selectExercise(id)
-                }
+        return Button { open(.addExercise) } label: {
+            layout {
+                Image(systemName: "plus").font(.caption.weight(.semibold)).accessibilityHidden(true)
+                Text("Add").font(.subheadline.weight(.semibold))
             }
-            Button { open(.addExercise) } label: {
-                addLayout {
-                    Image(systemName: "plus").font(.caption.weight(.semibold))
-                    Text("Add").font(.subheadline.weight(.semibold))
-                }
-                .frame(minWidth: 44, minHeight: 46)
-                .contentShape(Rectangle())
-            }
-            .fixedSize()
-            .foregroundStyle(NotebookStyle.clay)
-            .disabled(showingSearch)
-            .accessibilityLabel("Add exercise")
-            .accessibilityIdentifier("add-exercise")
+            .frame(minWidth: 44, minHeight: 46).contentShape(Rectangle())
         }
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(NotebookStyle.rule).frame(height: 0.5).accessibilityHidden(true)
-        }
+        .foregroundStyle(NotebookStyle.clay)
+        .disabled(showingSearch)
+        .accessibilityLabel("Add exercise")
+        .accessibilityIdentifier("add-exercise")
     }
 
     private func exerciseControls(_ exercise: Exercise) -> some View {
         let layout = textSize >= .xxxLarge
             ? AnyLayout(VStackLayout(alignment: .leading, spacing: 0))
             : AnyLayout(HStackLayout(spacing: 4))
-        return layout {
-            TrainingPlanSummary(model: model) {
-                pendingNavigation = nil
-                planContext = TrainingMetadataContext(day: day, exerciseID: exercise.id, rowIDs: model.rows.map(\.id))
+        return VStack(alignment: .leading, spacing: 0) {
+            Text(exercise.displayName).font(NotebookTypography.heading(24, relativeTo: .title2))
+                .fixedSize(horizontal: false, vertical: true).accessibilityAddTraits(.isHeader)
+            layout {
+                TrainingPlanSummary(model: model) {
+                    pendingNavigation = nil
+                    planContext = TrainingMetadataContext(day: day, exerciseID: exercise.id, rowIDs: model.rows.map(\.id))
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                HStack(spacing: 4) {
+                    progressButton(exercise)
+                    unitToggle
+                    workoutOptions
+                }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            HStack(spacing: 4) {
-                progressButton(exercise)
-                unitToggle
-                workoutOptions
-            }
-        }
+        }.padding(.top, 6)
     }
 
     private var workoutOptions: some View {
         TrainingWorkoutOptions(model: model, day: day, showAll: { open(.sheet(.exercises)) },
-            chooseWorkout: { open(.sheet(.library)) }, beginNavigation: { pendingNavigation = nil })
+            chooseWorkout: { open(.sheet(.library)) }, saveTemplate: { open(.sheet(.saveTemplate)) },
+            beginNavigation: { pendingNavigation = nil })
     }
     private func progressButton(_ exercise: Exercise) -> some View {
         Button { pendingNavigation = nil; model.openProgress(for: exercise.id) } label: {
@@ -439,19 +472,12 @@ struct TrainingDayView: View {
         }.foregroundStyle(NotebookStyle.quiet)
     }
 
-    private var weekdayTitle: some View {
-        Text(TrainingText.date(day, format: "EEEE"))
-            .font(NotebookTypography.heading(28, relativeTo: .largeTitle))
-            .fixedSize(horizontal: false, vertical: true)
-            .accessibilityAddTraits(.isHeader)
-            .accessibilityIdentifier("day-title")
-    }
-
-    private func dateTitle(_ format: String = "MMM d, yyyy") -> some View {
+    private func dateTitle(_ format: String, font: Font) -> some View {
         Text(TrainingText.date(day, format: format))
-            .font(.caption).foregroundStyle(NotebookStyle.quiet)
+            .font(font).foregroundStyle(NotebookStyle.quiet)
             .fixedSize(horizontal: false, vertical: true)
-            .accessibilityValue(format == "MMM d" ? TrainingText.date(day, format: "yyyy") : "")
+            .accessibilityLabel(TrainingText.date(day, format: fullDateFormat))
+            .accessibilityValue(fullDateFormat.contains("y") ? "" : TrainingText.date(day, format: "yyyy"))
             .accessibilityIdentifier("day-date")
     }
 }
@@ -463,38 +489,70 @@ private struct TrainingSetDetailsRequest: Identifiable {
     var id: UUID { row.id }
 }
 
-struct TrainingReferenceBanners: View {
+private struct TrainingLastTimeRow: View {
+    let summary: String
+    let day: TrainingDay
+    let showSet: () -> Void
+    let showHistory: () -> Void
+    @Environment(\.dynamicTypeSize) private var textSize
+
+    var body: some View {
+        let layout = textSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 0))
+            : AnyLayout(HStackLayout(alignment: .center, spacing: 8))
+        layout {
+            Button(action: showSet) {
+                Text("Last time · \(Text(summary).fontWeight(.semibold).foregroundColor(NotebookStyle.ink))")
+                    .font(.subheadline.monospacedDigit()).foregroundStyle(NotebookStyle.quiet)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                    .contentShape(Rectangle())
+            }
+            .accessibilityValue("Top set on \(TrainingText.date(day, format: "MMM d, yyyy"))")
+            .accessibilityHint("View this recorded top set").accessibilityIdentifier("last-reference")
+            Button(action: showHistory) {
+                HStack(spacing: 4) {
+                    Text("History")
+                    Image(systemName: "chevron.right").font(.caption2).accessibilityHidden(true)
+                }.font(.subheadline.weight(.medium))
+                    .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+            }
+            .foregroundStyle(NotebookStyle.clay)
+            .accessibilityHint("Read all earlier sets for this exercise")
+            .accessibilityIdentifier("exercise-history")
+        }
+        .overlay(alignment: .top) { Rectangle().fill(NotebookStyle.rule).frame(height: 0.5) }
+        .overlay(alignment: .bottom) { Rectangle().fill(NotebookStyle.rule).frame(height: 0.5) }
+    }
+}
+
+private struct TrainingPersonalBest: View {
     @Bindable var model: TrainingNotebookModel
-    var beginNavigation: () -> Void = {}
+    let best: TrainingPerformanceReference
+    let beginNavigation: () -> Void
     @State private var expanded = false
     @Environment(\.dynamicTypeSize) private var textSize
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if hasReferences { disclosure }
-            if expanded { references }
+            disclosure
+            if expanded { banner("PR", best, id: "personal-best-reference") }
         }
         .onChange(of: model.focus?.rowID) { _, rowID in if rowID != nil { expanded = false } }
         .onChange(of: model.exercise?.id) { _, _ in expanded = false }
     }
-    private var hasReferences: Bool { model.lastReference != nil || model.personalBest != nil }
     private var disclosure: some View {
         Button { expanded.toggle() } label: {
             HStack(spacing: 6) {
-                Text(model.lastReference != nil ? (model.personalBest != nil ? "Previous / PR" : "Previous") : "PR")
+                Text("Personal best")
                     .font(.caption.weight(.medium))
                 Image(systemName: expanded ? "chevron.up" : "chevron.down").font(.caption)
             }.frame(minHeight: 44).contentShape(Rectangle())
         }
         .foregroundStyle(NotebookStyle.quiet)
-        .accessibilityLabel(model.lastReference != nil ? "Previous workout top set\(model.personalBest != nil ? " and personal best" : "")" : "Personal best")
+        .accessibilityLabel("Personal best")
         .accessibilityValue(expanded ? "Expanded" : "Collapsed")
         .accessibilityIdentifier("toggle-entry-references")
-    }
-    private var references: some View {
-        VStack(spacing: 0) {
-            if let last = model.lastReference { banner("Previous workout · top set", last, id: "last-reference") }
-            if let best = model.personalBest { banner("PR", best, id: "personal-best-reference") }
-        }
     }
     private func banner(_ label: String, _ reference: TrainingPerformanceReference, id: String) -> some View {
         Button { beginNavigation(); model.openReference(reference) } label: {
@@ -527,7 +585,7 @@ struct TrainingReferenceBanners: View {
 struct TrainingSetRows: View {
     private enum Ledger {
         static let numberWidth: CGFloat = 24
-        static let typeWidth: CGFloat = 90
+        static let typeWidth: CGFloat = 104
         static let repsWidth: CGFloat = 50
         static let columnSpacing: CGFloat = 4
         static let valueInset: CGFloat = 4
@@ -535,11 +593,16 @@ struct TrainingSetRows: View {
     }
 
     @Bindable var model: TrainingNotebookModel
+    let records: [UUID: TrainingWorkoutRecord]
     var beginInteraction: () -> Void = {}
+    @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dynamicTypeSize) private var textSize
+    @Environment(\.colorScheme) private var colorScheme
     @ScaledMetric(relativeTo: .title2) private var numeralSize: CGFloat = 24
     @State private var highlightedRow: UUID?
+    @State private var pendingRecord: TrainingPerformanceReference?
+    @State private var celebratedRows: Set<UUID> = []
     @State private var revealedRowID: UUID?
     @State private var detailsRequest: TrainingSetDetailsRequest?
     @State private var typeRequest: TrainingSetDetailsRequest?
@@ -578,6 +641,10 @@ struct TrainingSetRows: View {
             }
         }
         .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: model.rows.map(\.id))
+        .onChange(of: RecordUpdate(records: records, write: model.latestWorkoutSetWrite), recordChanged)
+        .onChange(of: scenePhase) { _, phase in if phase != .active { pendingRecord = nil } }
+        .onDisappear { pendingRecord = nil }
+        .task(id: pendingRecord, celebrateRecord)
         .onChange(of: model.focus?.id) { _, _ in revealedRowID = nil }
         .onChange(of: model.rows.map(\.id)) { _, _ in revealedRowID = nil }
         .sheet(item: $detailsRequest) { request in
@@ -598,7 +665,7 @@ struct TrainingSetRows: View {
 
     @ViewBuilder private var columnHeadings: some View {
         if usesLabeledValues {
-            Text("Sets").font(.headline).accessibilityAddTraits(.isHeader)
+            Text("Sets").font(NotebookTypography.heading(17, relativeTo: .headline)).accessibilityAddTraits(.isHeader)
                 .frame(maxWidth: .infinity, alignment: .leading).padding(.bottom, 8)
         } else {
             HStack(spacing: SwipeableSetRowMetrics.menuSpacing) {
@@ -792,7 +859,7 @@ struct TrainingSetRows: View {
                 .frame(minHeight: 44)
                 .contentShape(Rectangle())
         }
-        .foregroundStyle(NotebookStyle.quiet)
+        .foregroundStyle(colorScheme == .dark ? NotebookStyle.clay : NotebookStyle.quiet)
         .opacity(canRepeat ? 1 : 0)
         .disabled(!canRepeat)
         .accessibilityHidden(!canRepeat)
@@ -827,15 +894,21 @@ struct TrainingSetRows: View {
     }
     private func typeButtonLabel(_ row: TrainingRow) -> some View {
         let title = row.kind == nil && !usesLabeledValues ? "Choose" : TrainingSetTypeText.buttonTitle(row.kind)
-        return Text(title)
-            .font(.footnote.weight(.medium))
-            .lineLimit(usesLabeledValues ? nil : 1)
-            .fixedSize(horizontal: false, vertical: true)
-            .padding(.horizontal, 6).padding(.vertical, 7)
-            .frame(maxWidth: .infinity)
-            .background(NotebookStyle.clay.opacity(0.06), in: RoundedRectangle(cornerRadius: 5))
-            .frame(minHeight: 44)
-            .contentShape(Rectangle())
+        return HStack(spacing: 5) {
+            Text(title)
+                .font(.footnote.weight(.medium))
+                .foregroundStyle(row.kind == nil ? NotebookStyle.quiet : NotebookStyle.ink)
+                .fixedSize(horizontal: !usesLabeledValues, vertical: true)
+            Image(systemName: "chevron.down")
+                .font(.caption2.weight(.semibold))
+                .imageScale(.small)
+                .foregroundStyle(NotebookStyle.quiet)
+                .accessibilityHidden(true)
+        }
+        .padding(.horizontal, 8).padding(.vertical, 6)
+        .background(NotebookStyle.typeFill, in: RoundedRectangle(cornerRadius: 8))
+        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+        .contentShape(Rectangle())
     }
     private func stackedCell(_ row: TrainingRow, field: NumericField) -> some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -844,10 +917,67 @@ struct TrainingSetRows: View {
             cell(field == .weight ? weightText(row) : row.reps.isEmpty ? "—" : row.reps, row: row, field: field)
         }.frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, usesCompactRows ? 2 : 4)
     }
+
+    private struct RecordUpdate: Equatable {
+        let records: [UUID: TrainingWorkoutRecord]
+        let write: TrainingPerformanceReference?
+    }
+
+    private func recordChanged(_ before: RecordUpdate, _ after: RecordUpdate) {
+        guard before.write != after.write else { return }
+        guard let write = after.write, write.day == model.selectedDay, write.exerciseID == model.exercise?.id,
+              after.records[write.rowID]?.values == write.values, !celebratedRows.contains(write.rowID),
+              before.records[write.rowID] == nil || pendingRecord?.rowID == write.rowID else {
+            pendingRecord = nil
+            return
+        }
+        pendingRecord = write
+    }
+
+    private func celebrateRecord() async {
+        guard let write = pendingRecord else { return }
+        // Each valid digit autosaves. Let a multi-digit entry settle before announcing its result.
+        do { try await Task.sleep(for: .milliseconds(650)) } catch { return }
+        guard !Task.isCancelled, scenePhase == .active, model.section == .log, !model.canRetrySave,
+              model.selectedDay == write.day, let exercise = model.exercise, exercise.id == write.exerciseID,
+              let row = model.rows.first(where: { $0.id == write.rowID }),
+              model.workoutPersonalRecords[row.id]?.values == write.values,
+              row.pendingCorrection != true, row.parsed(for: exercise) == write.values else { return }
+        celebratedRows.insert(row.id)
+        let result = ProgressFormatting.set(write.values, exercise: exercise, unit: row.unit)
+        TrainingAccessibility.announce("Personal record for \(exercise.displayName), \(result).")
+    }
+
+    private func recordMark(_ record: TrainingWorkoutRecord, row: TrainingRow, exercise: Exercise) -> some View {
+        let previous = ProgressFormatting.set(record.previousValues, exercise: exercise, unit: row.unit)
+        let result = ProgressFormatting.set(record.values, exercise: exercise, unit: row.unit)
+        let title = Text("Personal record").fontWeight(.semibold).foregroundColor(NotebookStyle.clay)
+        let crown = Image(systemName: "crown.fill").foregroundStyle(NotebookStyle.clay)
+        return HStack(alignment: .firstTextBaseline, spacing: 5) {
+            Group {
+                if reduceMotion { crown }
+                else { crown.symbolEffect(.pulse, options: .nonRepeating, value: celebratedRows.contains(row.id)) }
+            }.accessibilityHidden(true)
+            Text("\(title) · was \(previous)")
+                .foregroundStyle(NotebookStyle.quiet)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .font(.footnote)
+        .padding(.bottom, 8)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Personal record for \(exercise.displayName), \(positionLabel(row))")
+        .accessibilityValue("\(result), previously \(previous)")
+        .accessibilityIdentifier("\(rowIdentifier(row))-pr")
+    }
+
     @ViewBuilder private func stateContext(_ row: TrainingRow) -> some View {
         let status = model.focus?.rowID == row.id ? nil : model.rowStatus(for: row)
         let hint = status.flatMap { $0 == .empty ? nil : completionHint(row) }
         VStack(alignment: .leading, spacing: 3) {
+            if let record = records[row.id], let exercise = model.exercise,
+               row.pendingCorrection != true, row.parsed(for: exercise) == record.values {
+                recordMark(record, row: row, exercise: exercise)
+            }
             if status == .pendingCorrection, let saved = model.recordedValues(for: row) {
                 Text("Last saved: \(TrainingText.set(saved, unit: model.unit))")
                     .font(.caption.monospacedDigit()).foregroundStyle(NotebookStyle.quiet)
@@ -927,8 +1057,8 @@ private struct WorkoutPrimaryActionLabel: View {
             .fixedSize(horizontal: false, vertical: true)
             .padding(.horizontal, 14).padding(.vertical, 6)
             .frame(minHeight: 44)
-            .foregroundStyle(NotebookStyle.ivory)
-            .background(NotebookStyle.clay, in: RoundedRectangle(cornerRadius: 7))
+            .foregroundStyle(NotebookStyle.onPrimary)
+            .background(NotebookStyle.primaryFill, in: RoundedRectangle(cornerRadius: 7))
             .contentShape(Rectangle())
     }
 }

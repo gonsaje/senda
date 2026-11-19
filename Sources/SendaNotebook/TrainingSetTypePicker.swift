@@ -26,51 +26,52 @@ public struct TrainingSetTypePicker: View {
     }
 
     public var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 22) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Set \(index) type").font(NotebookTypography.heading(32)).accessibilityAddTraits(.isHeader)
-                    Text(model.exercise(context.exerciseID).displayName).font(.subheadline).foregroundStyle(NotebookStyle.quiet)
-                }.fixedSize(horizontal: false, vertical: true)
-                if (model.setPosition(for: rowID)?.stageCount ?? 1) > 1 {
-                    Text("Choosing another type splits these stages into individual sets.")
-                        .font(.subheadline).foregroundStyle(NotebookStyle.quiet)
+        VStack(spacing: 0) {
+            header
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("\(model.exercise(context.exerciseID).displayName) · Set \(index)")
+                        .font(.subheadline)
+                        .foregroundStyle(NotebookStyle.quiet)
                         .fixedSize(horizontal: false, vertical: true)
-                        .accessibilityIdentifier("drop-set-split-notice")
-                }
-                VStack(spacing: 0) {
-                    ForEach(TrainingSetTypeText.choices, id: \.self) { kind in
-                        Rectangle().fill(NotebookStyle.rule).frame(height: 0.5).accessibilityHidden(true)
-                        option(kind)
-                    }
-                    Rectangle().fill(NotebookStyle.rule).frame(height: 0.5).accessibilityHidden(true)
-                }
-                if let error = model.errorMessage {
-                    if pending != nil && context.matches(model) {
-                        TrainingSaveError(model: model, message: error, retrySucceeded: completePending)
-                    } else {
-                        Text(error).font(.callout).foregroundStyle(NotebookStyle.clay)
+                        .padding(.leading, 12)
+                    if wouldSplitStages {
+                        Text("Choosing another type splits these stages into individual sets.")
+                            .font(.subheadline).foregroundStyle(NotebookStyle.quiet)
                             .fixedSize(horizontal: false, vertical: true)
-                            .accessibilityIdentifier("save-error-message")
+                            .accessibilityIdentifier("drop-set-split-notice")
+                    }
+                    VStack(spacing: 2) {
+                        ForEach(TrainingSetTypeText.choices, id: \.self) { kind in
+                            option(kind)
+                        }
+                    }
+                    if let error = model.errorMessage {
+                        if pending != nil && context.matches(model) {
+                            TrainingSaveError(model: model, message: error, retrySucceeded: completePending)
+                        } else {
+                            Text(error).font(.callout).foregroundStyle(NotebookStyle.clay)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .accessibilityIdentifier("save-error-message")
+                        }
                     }
                 }
-            }.padding(24).frame(maxWidth: 560).frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .safeAreaInset(edge: .top, spacing: 0) {
-            HStack {
-                Spacer(minLength: 0)
-                Button(action: dismiss) {
-                    Text("Close").frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
-                }
-                .accessibilityIdentifier("close-set-type")
+                .padding(.horizontal, 16)
+                .padding(.bottom, 8)
+                .frame(maxWidth: 540)
+                .frame(maxWidth: .infinity)
             }
-            .padding(.horizontal, 24).padding(.vertical, 4)
-            .frame(maxWidth: 560).frame(maxWidth: .infinity)
-            .background(NotebookStyle.ivory)
-            .overlay(alignment: .bottom) { Rectangle().fill(NotebookStyle.rule).frame(height: 0.5).accessibilityHidden(true) }
+            .accessibilityIdentifier("set-type-picker")
         }
-        .background(NotebookStyle.ivory).foregroundStyle(NotebookStyle.ink).tint(NotebookStyle.clay).buttonStyle(.plain)
-        .accessibilityIdentifier("set-type-picker")
+        .background(NotebookStyle.ivory)
+        .foregroundStyle(NotebookStyle.ink)
+        .tint(NotebookStyle.clay)
+        .buttonStyle(.plain)
+        #if os(iOS)
+        .presentationBackground(NotebookStyle.ivory)
+        .presentationDragIndicator(.visible)
+        .presentationDetents(detents)
+        #endif
         .onAppear(perform: beginEditing)
         .onChange(of: model.workspace) { _, _ in reconcile() }
         .onChange(of: model.canRetrySave) { _, _ in completePending() }
@@ -78,34 +79,79 @@ public struct TrainingSetTypePicker: View {
         .onDisappear { cancelPending() }
     }
 
+    private var wouldSplitStages: Bool { (model.setPosition(for: rowID)?.stageCount ?? 1) > 1 }
+
+    #if os(iOS)
+    private var detents: Set<PresentationDetent> {
+        if textSize >= .xxLarge || model.errorMessage != nil { return [.large] }
+        let standardHeight: CGFloat = textSize == .xLarge ? 356 : 316
+        return [.height(standardHeight + (wouldSplitStages ? 58 : 0)), .large]
+    }
+    #endif
+
+    private var header: some View {
+        HStack(alignment: .center, spacing: 12) {
+            Text("Set type")
+                .font(NotebookTypography.heading(27, relativeTo: .title2))
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityAddTraits(.isHeader)
+            Spacer(minLength: 0)
+            Button(action: dismiss) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 13, weight: .semibold))
+                    .frame(width: 30, height: 30)
+                    .background(NotebookStyle.typeFill, in: Circle())
+                    .frame(minWidth: 44, minHeight: 44)
+                    .contentShape(Rectangle())
+            }
+            .accessibilityLabel("Close")
+            .accessibilityIdentifier("close-set-type")
+        }
+        .padding(.leading, 28)
+        .padding(.trailing, 16)
+        .padding(.top, 17)
+        .frame(maxWidth: 540)
+        .frame(maxWidth: .infinity)
+        .background(NotebookStyle.ivory)
+    }
+
     private var currentKind: TrainingSetKind? {
         TrainingSetTypeText.selectedChoice(for: model.rows.first(where: { $0.id == rowID })?.kind)
     }
+
     private func option(_ kind: TrainingSetKind) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Button { choose(kind) } label: {
-                HStack(alignment: .firstTextBaseline, spacing: 16) {
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text(TrainingSetTypeText.title(kind)).font(.body.weight(currentKind == kind ? .semibold : .regular))
-                        if !textSize.isAccessibilitySize {
-                            Text(TrainingSetTypeText.definition(kind)).font(.subheadline).foregroundStyle(NotebookStyle.quiet)
-                        }
-                    }.fixedSize(horizontal: false, vertical: true)
-                    Spacer(minLength: 0)
-                    if currentKind == kind {
-                        Image(systemName: "checkmark").foregroundStyle(NotebookStyle.clay).accessibilityHidden(true)
-                    }
-                }.frame(maxWidth: .infinity, minHeight: 44, alignment: .leading).padding(.vertical, 14).contentShape(Rectangle())
+        let isSelected = currentKind == kind
+        return Button { choose(kind) } label: {
+            HStack(spacing: 8) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(TrainingSetTypeText.title(kind))
+                        .font(.body.weight(isSelected ? .semibold : .medium))
+                    Text(TrainingSetTypeText.definition(kind))
+                        .font(.subheadline)
+                        .foregroundStyle(NotebookStyle.quiet)
+                }
+                .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+                if isSelected {
+                    Image(systemName: "checkmark")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(NotebookStyle.clay)
+                        .accessibilityHidden(true)
+                }
             }
-            .accessibilityAddTraits(currentKind == kind ? .isSelected : [])
-            .accessibilityHint("Save this type for set \(index)")
-            .accessibilityIdentifier("set-type-\(TrainingSetTypeText.identifier(kind))")
-            if textSize.isAccessibilitySize {
-                Text(TrainingSetTypeText.definition(kind)).font(.subheadline).foregroundStyle(NotebookStyle.quiet)
-                    .fixedSize(horizontal: false, vertical: true).padding(.bottom, 14)
-            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 9)
+            .frame(maxWidth: .infinity, minHeight: 58, alignment: .leading)
+            .background(isSelected ? NotebookStyle.dockSelectionFill : .clear,
+                        in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .contentShape(Rectangle())
         }
+        .accessibilityLabel(TrainingSetTypeText.title(kind))
+        .accessibilityHint(TrainingSetTypeText.accessibilityDetail(kind))
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .accessibilityIdentifier("set-type-\(TrainingSetTypeText.identifier(kind))")
     }
+
     private func beginEditing() {
         guard !beganEditing else { return }
         guard context.matches(model), model.rows.contains(where: { $0.id == rowID }) else { close(); return }
@@ -153,6 +199,13 @@ enum TrainingSetTypeText {
     }
     static func buttonTitle(_ kind: TrainingSetKind?) -> String { kind == nil ? "Choose type" : title(kind) }
     static func definition(_ kind: TrainingSetKind) -> String {
+        switch kind {
+        case .warmup: "Prepare for your working sets."
+        case .regular, .working: "Counts toward your set target."
+        case .dropSet: "Lower the weight within the same set."
+        }
+    }
+    static func accessibilityDetail(_ kind: TrainingSetKind) -> String {
         switch kind {
         case .regular, .working: "A set toward your planned working-set target."
         case .warmup: "A preparation set. Does not count toward your working-set target."

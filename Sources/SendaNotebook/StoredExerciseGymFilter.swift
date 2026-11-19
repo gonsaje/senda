@@ -58,12 +58,17 @@ struct GymSetupSwitcher: View {
             onSwitch()
             action()
         } label: {
-            HStack(spacing: 4) {
-                if selected { Image(systemName: "checkmark").font(.caption).accessibilityHidden(true) }
-                Text(name).font(.subheadline.weight(selected ? .semibold : .regular))
-            }
-            .fixedSize()
-            .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+            Text(name)
+                .font(.subheadline.weight(selected ? .semibold : .regular))
+                .fixedSize()
+                .padding(.horizontal, 10)
+                .frame(minWidth: 44, minHeight: 44)
+                .background {
+                    if selected {
+                        RoundedRectangle(cornerRadius: 8).fill(NotebookStyle.clay.opacity(0.1))
+                    }
+                }
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .foregroundStyle(selected ? NotebookStyle.clay : NotebookStyle.ink)

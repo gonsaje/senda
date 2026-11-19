@@ -23,6 +23,7 @@ import SendaDomain
         try repository.saveSnapshot(legacy)
         let legacyBytes = try Data(contentsOf: url)
         let untagged = try repository.loadSnapshot()
+        #expect(untagged.customExercises?.first?.isArchived == false)
         #expect(untagged.customExercises?.first?.customSetup.isEmpty == true)
         #expect(!String(decoding: legacyBytes, as: UTF8.self).contains("customSetup"))
 
@@ -48,6 +49,94 @@ import SendaDomain
         let setup = try #require(records.first?["customSetup"] as? [String: Any])
         #expect(setup["gyms"] as? [String] == ["crossFit", "home"])
         #expect(setup["requiredEquipment"] as? [String] == ["dumbbells", "flatBench"])
+    }
+
+    @Test func archivedExercisesSurviveLocalStorageAndBackupsWithTheirHistoryAndTemplates() throws {
+        let url = location()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let repository = FileJournalRepository(url: url)
+        let day = try TrainingDay("2026-11-16")
+        var custom = try ExerciseLibrary.custom(named: "Porch circuit", muscleGroup: .legs, equipment: .dumbbell,
+            customSetup: .init(gyms: [.home], requiredEquipment: [.dumbbells]))
+        var journal = Journal()
+        let date = day.date(in: .current)
+        let batch = try journal.record(DraftBatch(exerciseID: custom.id, sets: [SetValues(weight: 1_500, reps: 8)]), at: date)
+        let set = try #require(batch.sets.first)
+        let row = TrainingRow(set: set, unit: .pounds)
+        let workout = DayWorkout(exerciseIDs: [custom.id], selectedExerciseID: custom.id, rows: [custom.id: [row]])
+        let template = WorkoutTemplate(name: "Porch day", exerciseIDs: [custom.id])
+        let training = TrainingWorkspace(visibleWeek: day, days: [day.rawValue: workout], workoutTemplates: [template])
+        custom.isArchived = true
+        let fresh = try ExerciseLibrary.custom(named: custom.name, existing: ExerciseLibrary.resolved(custom: [custom]))
+        let snapshot = JournalSnapshot(journal: journal, customExercises: [custom, fresh], training: training)
+
+        try repository.saveSnapshot(snapshot)
+        let file = try Data(contentsOf: url)
+        var localJSON = try #require(JSONSerialization.jsonObject(with: file) as? [String: Any])
+        #expect(localJSON["version"] as? Int == 10)
+        #expect(try repository.loadSnapshot() == snapshot)
+        #expect(try Data(contentsOf: url) == file)
+
+        let backup = NotebookArchive(snapshot: snapshot, profile: ProfileDetails(), createdAt: date)
+        let backupBytes = try NotebookBackupCodec.encode(backup)
+        var backupJSON = try #require(JSONSerialization.jsonObject(with: backupBytes) as? [String: Any])
+        #expect(backupJSON["version"] as? Int == 9)
+        let restored = try NotebookBackupCodec.decode(backupBytes)
+        #expect(restored == backup)
+        #expect(try NotebookBackupCodec.encode(restored) == backupBytes)
+        let resolved = try #require(restored.snapshot.exerciseLibrary.first { $0.id == custom.id })
+        #expect(resolved.name == "Porch circuit" && resolved.isArchived)
+        #expect(restored.snapshot.recordedSessions(for: resolved).first?.sets.first?.id == set.id)
+        let active = try #require(restored.snapshot.exerciseLibrary.first { $0.id == fresh.id })
+        #expect(active.name == resolved.name && !active.isArchived)
+        #expect(restored.snapshot.recordedSessions(for: active).isEmpty)
+        #expect(restored.snapshot.training?.workoutTemplates?.first?.exerciseIDs == [custom.id])
+        let legacy = JournalSnapshot(journal: journal, customExercises: [custom, fresh])
+        let migrated = try TrainingWorkspace.migrate(legacy, today: day, calendar: .current)
+        #expect(migrated.legacyExerciseIDs == nil)
+        #expect(migrated.days[day.rawValue]?.rows[custom.id]?.first?.performedSetID == set.id)
+        let csv = try NotebookBackupCodec.csv(snapshot: restored.snapshot)
+        #expect(String(decoding: csv, as: UTF8.self).contains("Porch circuit," + custom.id))
+
+        let restoredJournal = location()
+        let restoredProfile = location()
+        defer {
+            try? FileManager.default.removeItem(at: restoredJournal)
+            try? FileManager.default.removeItem(at: restoredProfile)
+            try? FileManager.default.removeItem(at: restoredJournal.appendingPathExtension("before-restore.senda.json"))
+        }
+        let store = FileNotebookRestoreStore(journalURL: restoredJournal, profileURL: restoredProfile)
+        try store.restore(restored, current: backup)
+        #expect(try FileJournalRepository(url: restoredJournal).loadSnapshot() == snapshot)
+        let beforeRestore = try #require(try store.previousBackupData())
+        #expect(try NotebookBackupCodec.decode(beforeRestore) == backup)
+
+        // A downgraded or incomplete payload must not resurrect an archived exercise.
+        localJSON["version"] = 9
+        let downgradedLocal = try JSONSerialization.data(withJSONObject: localJSON)
+        try downgradedLocal.write(to: url)
+        #expect(throws: StorageError.invalidExerciseArchive) { try repository.loadSnapshot() }
+        #expect(try Data(contentsOf: url) == downgradedLocal)
+        backupJSON["version"] = 8
+        #expect(throws: NotebookBackupError.invalidBackup) {
+            try NotebookBackupCodec.decode(JSONSerialization.data(withJSONObject: backupJSON))
+        }
+
+        localJSON["version"] = 10
+        backupJSON["version"] = 9
+        var entries = try #require(localJSON["customExercises"] as? [[String: Any]])
+        entries[0].removeValue(forKey: "archived")
+        localJSON["customExercises"] = entries
+        let incompleteLocal = try JSONSerialization.data(withJSONObject: localJSON)
+        try incompleteLocal.write(to: url)
+        #expect(throws: StorageError.invalidExerciseArchive) { try repository.loadSnapshot() }
+        #expect(try Data(contentsOf: url) == incompleteLocal)
+        var payload = try #require(backupJSON["snapshot"] as? [String: Any])
+        payload["customExercises"] = entries
+        backupJSON["snapshot"] = payload
+        #expect(throws: NotebookBackupError.invalidBackup) {
+            try NotebookBackupCodec.decode(JSONSerialization.data(withJSONObject: backupJSON))
+        }
     }
 
     @Test func taggedFormatsRejectLostTagsAndLostWorkoutTemplates() throws {

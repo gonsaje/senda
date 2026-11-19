@@ -26,6 +26,74 @@ import SendaPersistence
         model.typeInput(reps, focus: try #require(model.focus))
     }
 
+    @Test func workoutRecordsMarkOnlyTheSetThatStrictlyBeatEarlierSavedPerformance() throws {
+        let store = MemoryJournalRepository(), model = try model(store)
+        let prior = try day.adding(days: -1)
+        #expect(model.openDay(prior))
+        #expect(model.addExercise("bench"))
+        try enter(model, row: try #require(model.rows.first?.id), weight: "45")
+        #expect(model.newSet())
+        try enter(model, row: try #require(model.rows.last?.id))
+        #expect(model.workoutPersonalRecords.isEmpty)
+
+        let tie = try begin(model)
+        try enter(model, row: tie)
+        #expect(model.workoutPersonalRecords.isEmpty)
+        #expect(model.newSet())
+        let extraRep = try #require(model.rows.last?.id)
+        try enter(model, row: extraRep, reps: "11")
+        #expect(model.newSet())
+        let heavier = try #require(model.rows.last?.id)
+        try enter(model, row: heavier, weight: "140", reps: "5")
+        #expect(model.repeatLastSet())
+
+        let records = model.workoutPersonalRecords
+        #expect(Set(records.keys) == [extraRep, heavier])
+        #expect(records[extraRep]?.previousValues == SetValues(weight: 13_500, reps: 10))
+        #expect(records[heavier]?.values == SetValues(weight: 14_000, reps: 5))
+        #expect(records[heavier]?.previousValues == SetValues(weight: 13_500, reps: 11))
+        #expect(try self.model(store).workoutPersonalRecords == records)
+
+        #expect(model.openDay(prior))
+        #expect(model.workoutPersonalRecords.isEmpty)
+        try enter(model, row: try #require(model.rows.first?.id), weight: "145")
+        #expect(model.openDay(day))
+        #expect(model.workoutPersonalRecords.isEmpty)
+    }
+
+    @Test func bodyweightRecordUsesSavedRepsThroughFailedSaveCorrectionAndUndo() throws {
+        let store = AutomaticSavingFailureRepository(), model = try model(store)
+        #expect(model.openDay(try day.adding(days: -1)))
+        #expect(model.addExercise("push-up"))
+        try enter(model, row: try #require(model.rows.first?.id), weight: "", reps: "8")
+        let baselineWrite = try #require(model.latestWorkoutSetWrite)
+        let row = try begin(model, exercise: "push-up")
+        #expect(model.selectInput(row, field: .reps))
+        let focus = try #require(model.focus)
+        store.reject = true
+        model.typeInput("10", focus: focus)
+        #expect(model.canRetrySave && model.workoutPersonalRecords.isEmpty)
+        #expect(model.latestWorkoutSetWrite == baselineWrite)
+        store.reject = false
+        #expect(model.retrySave())
+        let earned = try #require(model.latestWorkoutSetWrite)
+        #expect(earned.rowID == row && earned.day == day && earned.exerciseID == "push-up")
+        #expect(earned.values == SetValues(weight: 0, reps: 10))
+        #expect(try self.model(store).latestWorkoutSetWrite == nil)
+        #expect(model.workoutPersonalRecords[row]?.values == SetValues(weight: 0, reps: 10))
+        model.typeInput("", focus: focus)
+        #expect(model.workoutPersonalRecords[row]?.values == SetValues(weight: 0, reps: 10))
+        model.typeInput("7", focus: focus)
+        #expect(model.workoutPersonalRecords.isEmpty)
+        model.typeInput("9", focus: focus)
+        let edited = model.latestWorkoutSetWrite
+        #expect(model.deleteSet(row))
+        #expect(model.workoutPersonalRecords.isEmpty)
+        #expect(model.undoChange())
+        #expect(model.latestWorkoutSetWrite == edited)
+        #expect(model.workoutPersonalRecords[row]?.previousValues == SetValues(weight: 0, reps: 8))
+    }
+
     @Test func completeInputSavesBeforeFocusLeavesTheRow() throws {
         let store = MemoryJournalRepository(), model = try model(store)
         let row = try begin(model)

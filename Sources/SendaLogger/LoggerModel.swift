@@ -40,10 +40,11 @@ public final class LoggerModel {
         }
     }
 
-    public var exercise: Exercise { availableExercises.first { $0.id == selectedExerciseID }! }
-    public var availableExercises: [Exercise] { ExerciseLibrary.resolved(custom: customExercises) }
+    private var allExercises: [Exercise] { ExerciseLibrary.resolved(custom: customExercises) }
+    public var exercise: Exercise { allExercises.first { $0.id == selectedExerciseID }! }
+    public var availableExercises: [Exercise] { allExercises.filter { !$0.isArchived } }
     public var workoutExercises: [Exercise] {
-        let library = Dictionary(uniqueKeysWithValues: availableExercises.map { ($0.id, $0) })
+        let library = Dictionary(uniqueKeysWithValues: allExercises.map { ($0.id, $0) })
         return workoutExerciseIDs.compactMap { library[$0] }
     }
 
@@ -53,7 +54,7 @@ public final class LoggerModel {
     }
     @discardableResult public func createAndAddExercise(named name: String, customSetup: CustomExerciseSetup = .init()) -> Bool {
         do {
-            let exercise = try ExerciseLibrary.custom(named: name, existing: availableExercises, customSetup: customSetup)
+            let exercise = try ExerciseLibrary.custom(named: name, existing: allExercises, customSetup: customSetup)
             guard prepareWorkoutChange() else { return false }
             return addToWorkout(exercise, custom: customExercises + [exercise])
         } catch { errorMessage = error.localizedDescription; return false }
@@ -64,7 +65,7 @@ public final class LoggerModel {
         var order = workoutExerciseIDs
         order.remove(at: index)
         workspace.workoutExerciseIDs = order
-        if selectedExerciseID == id, let next = availableExercises.first(where: { $0.id == order[min(index, order.count - 1)] }) {
+        if selectedExerciseID == id, let next = allExercises.first(where: { $0.id == order[min(index, order.count - 1)] }) {
             select(next, in: &workspace)
         }
         return commit(makeSnapshot(journal: journal, workspace: workspace))
@@ -178,7 +179,7 @@ public final class LoggerModel {
         return setValue(min(selectedField.range.upperBound, max(selectedField.range.lowerBound, proposed)), for: selectedField)
     }
     public func selectExercise(_ id: String) {
-        guard editor == nil, workoutExerciseIDs.contains(id), let exercise = availableExercises.first(where: { $0.id == id }), applyInput() else { return }
+        guard editor == nil, workoutExerciseIDs.contains(id), let exercise = allExercises.first(where: { $0.id == id }), applyInput() else { return }
         if sessions[id] == nil { sessions[id] = .draft(makeDraft(for: exercise)) }
         selectedExerciseID = id
         selectedSetIndex = nil
@@ -349,11 +350,14 @@ public final class LoggerModel {
         resetNumberInput(); _ = flushRecovery(); return true
     }
     public var editorWeightUnit: WeightUnit { editor?.inputs.first?.unit ?? selectedWeightUnit }
+    public var weightForDial: Int {
+        if selectedField == .weight, numberInputDirty, let typed = selectedWeightUnit.parse(numberInputText) {
+            return typed
+        }
+        return numericValue(.weight, values: values, index: selectedSetIndex)
+    }
     public var weightAmount: Double {
-        let value = selectedField == .weight && numberInputDirty
-            ? (selectedWeightUnit.parse(numberInputText) ?? numericValue(.weight, values: values, index: selectedSetIndex))
-            : numericValue(.weight, values: values, index: selectedSetIndex)
-        return NSDecimalNumber(decimal: selectedWeightUnit.amount(for: value)).doubleValue
+        NSDecimalNumber(decimal: selectedWeightUnit.amount(for: weightForDial)).doubleValue
     }
     public func selectSet(_ index: Int, field: NumericField, unit: WeightUnit? = nil) {
         guard editor == nil, values.indices.contains(index), field != .sets, applyInput() else { return }

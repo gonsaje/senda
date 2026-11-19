@@ -13,35 +13,35 @@ struct TrainingWeekNavigation: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                TrainingWordmark()
-                Spacer(minLength: 8)
-                HStack(spacing: 4) {
-                    today
-                    Button(action: showCalendar) {
-                        Image(systemName: "calendar")
-                            .font(.system(size: 19, weight: .medium))
-                            .foregroundStyle(NotebookStyle.clay)
-                            .frame(width: 44, height: 44)
-                            .contentShape(Rectangle())
-                    }
-                    .accessibilityLabel("Calendar")
-                    .accessibilityHint("Browse workout dates by month")
-                    .accessibilityIdentifier("week-calendar")
-                }
-            }
+            HStack { TrainingWordmark(); Spacer(); dateShortcuts }
             VStack(alignment: .leading, spacing: 4) {
                 monthAndYear
                 dateAndControls
-                Rectangle().fill(NotebookStyle.ivory.opacity(0.2))
+                Rectangle().fill(NotebookStyle.coverRule)
                     .frame(height: 0.5).accessibilityHidden(true)
                     .padding(.top, 4)
                 overview
             }
             .padding(.horizontal, 16)
             .padding(.top, 13).padding(.bottom, 5)
-            .foregroundStyle(NotebookStyle.ivory)
-            .background(NotebookStyle.ink, in: RoundedRectangle(cornerRadius: 17))
+            .foregroundStyle(NotebookStyle.onCover)
+            .background(NotebookStyle.cover, in: RoundedRectangle(cornerRadius: 17))
+        }
+    }
+
+    private var dateShortcuts: some View {
+        HStack(spacing: 4) {
+            today
+            Button(action: showCalendar) {
+                Image(systemName: "calendar")
+                    .font(.system(size: 19, weight: .medium))
+                    .foregroundStyle(NotebookStyle.clay)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .accessibilityLabel("Calendar")
+            .accessibilityHint("Browse workout dates by month")
+            .accessibilityIdentifier("week-calendar")
         }
     }
 
@@ -69,7 +69,7 @@ struct TrainingWeekNavigation: View {
                 .accessibilityIdentifier("week-month")
             Text(startYear == endYear ? startYear : "\(startYear)–\(endYear)")
                 .font(.caption.monospacedDigit())
-                .foregroundStyle(NotebookStyle.ivory.opacity(0.78))
+                .foregroundStyle(NotebookStyle.onCover.opacity(0.78))
                 .contentTransition(dateTransition)
                 .animation(dateAnimation, value: first)
                 .accessibilityHidden(true)
@@ -103,7 +103,7 @@ struct TrainingWeekNavigation: View {
         return layout {
             Text(days == 0 ? "No workouts logged" : summary)
                 .font(.footnote)
-                .foregroundStyle(NotebookStyle.ivory.opacity(0.82))
+                .foregroundStyle(NotebookStyle.onCover.opacity(0.82))
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityLabel(days == 0 ? "No workouts logged, 0 sets" : summary)

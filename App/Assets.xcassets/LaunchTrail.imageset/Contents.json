@@ -1,0 +1,26 @@
+{
+  "images": [
+    {
+      "filename": "trail.svg",
+      "idiom": "universal"
+    },
+    {
+      "appearances": [
+        {
+          "appearance": "luminosity",
+          "value": "dark"
+        }
+      ],
+      "filename": "trail-dark.svg",
+      "idiom": "universal"
+    }
+  ],
+  "properties": {
+    "preserves-vector-representation": true,
+    "template-rendering-intent": "original"
+  },
+  "info": {
+    "author": "xcode",
+    "version": 1
+  }
+}

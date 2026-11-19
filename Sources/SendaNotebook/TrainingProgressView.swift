@@ -6,6 +6,133 @@ private struct ProgressHistoryEntry: Identifiable {
     let id: UUID
     var stages: [ExerciseProgressSet]
     var isDropSet: Bool { stages.first?.dropGroupID != nil }
+
+    static func grouped(_ session: ExerciseProgressSession) -> [Self] {
+        var entries: [Self] = []
+        var groupIndexes: [UUID: Int] = [:]
+        for stage in session.sets {
+            if let group = stage.dropGroupID, let index = groupIndexes[group] {
+                entries[index].stages.append(stage)
+            } else {
+                if let group = stage.dropGroupID { groupIndexes[group] = entries.count }
+                entries.append(Self(id: stage.dropGroupID ?? stage.id, stages: [stage]))
+            }
+        }
+        return entries
+    }
+}
+
+struct WorkoutHistoryRow: Identifiable {
+    let id: UUID
+    let values: SetValues
+    let label: String
+    let detail: String
+
+    static func records(_ session: ExerciseProgressSession, rows: [TrainingRow]) -> [Self] {
+        var savedRows: [UUID: (row: TrainingRow, stage: Int)] = [:]
+        for entry in TrainingSetEntry.grouping(rows) {
+            for (stage, row) in entry.rows.enumerated() {
+                if let id = row.performedSetID { savedRows[id] = (row, stage) }
+            }
+        }
+        return ProgressHistoryEntry.grouped(session).enumerated().flatMap { index, entry in
+            entry.stages.enumerated().map { offset, set in
+                let saved = savedRows[set.id]
+                let stage = saved?.stage ?? offset
+                let stageLabel = stage == 0 ? "Start" : "Drop \(stage)"
+                let label = entry.isDropSet ? "Set \(index + 1) · \(stageLabel)" : "Set \(index + 1)"
+                let row = saved?.row
+                let detail = [row?.kind == .warmup ? "Warm-up" : nil,
+                              row?.repsInReserve.map { TrainingSetDetailsText.reserve($0) }].compactMap { $0 }.joined(separator: " · ")
+                return Self(id: set.id, values: set.values, label: label, detail: detail)
+            }
+        }
+    }
+}
+
+struct TrainingWorkoutExerciseHistory: View {
+    let model: TrainingNotebookModel
+    let exercise: Exercise
+    let before: TrainingDay
+    let close: () -> Void
+    @Environment(\.dynamicTypeSize) private var textSize
+
+    var body: some View {
+        let sessions = model.snapshot.recordedSessions(for: exercise, calendar: model.calendar)
+            .filter { $0.day < before }.reversed()
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 24) {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("Exercise history").font(NotebookTypography.heading(31)).accessibilityAddTraits(.isHeader)
+                    Text(exercise.displayName).font(.title3).foregroundStyle(NotebookStyle.quiet)
+                }
+                ForEach(sessions) { session in
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text(TrainingText.date(session.day, format: "EEEE, MMM d, yyyy"))
+                            .font(NotebookTypography.heading(21, relativeTo: .title2))
+                            .accessibilityAddTraits(.isHeader)
+                            .accessibilityIdentifier("exercise-history-day-\(session.day.rawValue)")
+                        records(session)
+                    }
+                }
+            }
+            .padding(24).frame(maxWidth: 560).frame(maxWidth: .infinity)
+        }
+        .accessibilityIdentifier("workout-exercise-history")
+        .safeAreaInset(edge: .top, spacing: 0) {
+            HStack {
+                Button(action: close) {
+                    Label("Workout", systemImage: "chevron.left").font(.body.weight(.medium))
+                        .frame(minHeight: 44).contentShape(Rectangle())
+                }
+                .accessibilityLabel("Return to workout").accessibilityIdentifier("close-exercise-history")
+                Spacer()
+            }
+            .padding(.horizontal, 24).padding(.vertical, 4)
+            .frame(maxWidth: 560).frame(maxWidth: .infinity)
+            .background(NotebookStyle.ivory).overlay(alignment: .bottom) { Divider() }
+        }
+        .background(NotebookStyle.ivory).foregroundStyle(NotebookStyle.ink).buttonStyle(.plain)
+    }
+
+    private func records(_ session: ExerciseProgressSession) -> some View {
+        let rows = model.workspace.days[session.day.rawValue]?.rows[exercise.id] ?? []
+        return VStack(alignment: .leading, spacing: 0) {
+            if !textSize.isAccessibilitySize {
+                HStack {
+                    Text("Set").frame(maxWidth: .infinity, alignment: .leading)
+                    Text("Weight").frame(maxWidth: .infinity, alignment: .trailing)
+                    Text("Reps").frame(maxWidth: .infinity, alignment: .trailing)
+                }.font(.footnote).foregroundStyle(NotebookStyle.quiet).padding(.bottom, 6)
+            }
+            Divider()
+            ForEach(WorkoutHistoryRow.records(session, rows: rows)) { row in
+                historyRow(row)
+                Divider()
+            }
+        }
+    }
+
+    private func historyRow(_ row: WorkoutHistoryRow) -> some View {
+        let load = ProgressFormatting.load(row.values.weight, exercise: exercise, unit: model.unit)
+        let reps = "\(row.values.reps) \(row.values.reps == 1 ? "rep" : "reps")"
+        return VStack(alignment: .leading, spacing: 4) {
+            if textSize.isAccessibilitySize {
+                Text(row.label).font(.headline)
+                Text([load, reps].compactMap { $0 }.joined(separator: " × "))
+            } else {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(row.label).frame(maxWidth: .infinity, alignment: .leading)
+                    Text(load ?? "—").frame(maxWidth: .infinity, alignment: .trailing)
+                    Text("\(row.values.reps)").frame(maxWidth: .infinity, alignment: .trailing)
+                }
+            }
+            if !row.detail.isEmpty { Text(row.detail).font(.caption).foregroundStyle(NotebookStyle.quiet) }
+        }.font(.body.monospacedDigit()).padding(.vertical, 10)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel([row.label, load, reps, row.detail.isEmpty ? nil : row.detail].compactMap { $0 }.joined(separator: ", "))
+        .accessibilityIdentifier("exercise-history-set-\(row.id.uuidString)")
+    }
 }
 
 /// A read-only view of performed exercise history. Browsing never opens a workout.
@@ -273,7 +400,7 @@ public struct TrainingProgressView: View {
             .accessibilityIdentifier("progress-edit-workout")
             VStack(alignment: .leading, spacing: 0) {
                 progressRule
-                ForEach(Array(historyEntries(session).enumerated()), id: \.element.id) { index, entry in
+                ForEach(Array(ProgressHistoryEntry.grouped(session).enumerated()), id: \.element.id) { index, entry in
                     VStack(alignment: .leading, spacing: 12) {
                         if entry.isDropSet {
                             Text("Set \(index + 1) · Drop set · \(entry.stages.count) \(entry.stages.count == 1 ? "stage" : "stages")")
@@ -312,16 +439,6 @@ public struct TrainingProgressView: View {
             .accessibilityAddTraits(model.progressSetID == set.id ? .isSelected : [])
             .id("history-set-\(set.id.uuidString)")
             .accessibilityIdentifier("progress-recorded-set-\(set.id.uuidString)")
-    }
-
-    private func historyEntries(_ session: ExerciseProgressSession) -> [ProgressHistoryEntry] {
-        var entries: [ProgressHistoryEntry] = []
-        for stage in session.sets {
-            let id = stage.dropGroupID ?? stage.id
-            if let index = entries.firstIndex(where: { $0.id == id }) { entries[index].stages.append(stage) }
-            else { entries.append(ProgressHistoryEntry(id: id, stages: [stage])) }
-        }
-        return entries
     }
 
     private func sessionCountText(_ session: ExerciseProgressSession) -> String {

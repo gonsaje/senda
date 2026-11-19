@@ -11,7 +11,7 @@ struct TrainingNextWorkoutFeedback: View {
         let guidance = model.nextWorkoutGuidance(for: exercise.id, on: day)
         if guidance.status != .noPlan {
             VStack(alignment: .leading, spacing: 4) {
-                Text("Next workout").font(.subheadline.weight(.semibold)).accessibilityAddTraits(.isHeader)
+                Text("Next workout").font(NotebookTypography.heading(15, relativeTo: .subheadline)).accessibilityAddTraits(.isHeader)
                 Text(TrainingNextWorkoutText.make(guidance, exercise: exercise, unit: model.unit))
                     .font(.footnote).foregroundStyle(NotebookStyle.quiet)
                     .fixedSize(horizontal: false, vertical: true)

@@ -145,11 +145,11 @@ import SendaDomain
     @Test func futureHeadersAreRejectedBeforeEnumPayloadDecodingAndLeaveLocalBytesUntouched() throws {
         let folder = try directory(); defer { try? FileManager.default.removeItem(at: folder) }
         let url = folder.appendingPathComponent("journal.json")
-        let bytes = Data(#"{"version":10,"journal":{"kind":"future-kind"}}"#.utf8)
+        let bytes = Data(#"{"version":11,"journal":{"kind":"future-kind"}}"#.utf8)
         try bytes.write(to: url)
-        #expect(throws: StorageError.unsupportedVersion(10)) { try FileJournalRepository(url: url).loadSnapshot() }
+        #expect(throws: StorageError.unsupportedVersion(11)) { try FileJournalRepository(url: url).loadSnapshot() }
         #expect(try Data(contentsOf: url) == bytes)
-        let backup = Data(#"{"format":"senda-backup","version":9,"snapshot":{"kind":"future-kind"}}"#.utf8)
-        #expect(throws: NotebookBackupError.unsupportedVersion(9)) { try NotebookBackupCodec.decode(backup) }
+        let backup = Data(#"{"format":"senda-backup","version":10,"snapshot":{"kind":"future-kind"}}"#.utf8)
+        #expect(throws: NotebookBackupError.unsupportedVersion(10)) { try NotebookBackupCodec.decode(backup) }
     }
 }

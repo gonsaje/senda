@@ -28,7 +28,7 @@ public enum ExerciseSelectionFilter {
         let key = ExerciseLibrary.matchingKey(query)
         var seen = Set<String>()
         return exercises.filter { exercise in
-            exercise.isLibraryChoice
+            !exercise.isArchived && exercise.isLibraryChoice
                 && (group == nil || exercise.group == group)
                 && (equipment == nil || exercise.equipmentType == equipment)
                 && gymFilter.matches(exercise)

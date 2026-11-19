@@ -125,8 +125,15 @@ import SendaPersistence
         #expect(results() == [partial.id])
     }
 
-    @Test func learnReselectionResetsGuideAndQueryOnlyWhenLearnIsAlreadySelected() throws {
+    @Test func libraryReselectionReturnsToWorkoutsAndClearsExerciseNavigation() throws {
         let model = try TrainingNotebookModel(repository: MemoryJournalRepository())
+        #expect(TrainingSection.allCases.map(\.title) == ["Log", "Trends", "Library", "Profile"])
+        #expect(TrainingLibraryArea.allCases == [.workouts, .exercises, .learn])
+        #expect(model.libraryArea == .workouts)
+        model.guideTopic = .muscles
+        model.guideQuery = "Back"
+        model.guideExerciseID = "row"
+        model.libraryArea = .exercises
         model.learningExerciseID = "bench"
         model.learningQuery = "bench"
         let reset = model.landingResetID
@@ -136,7 +143,12 @@ import SendaPersistence
         #expect(model.selectSection(.learn))
         #expect(model.landingResetID == reset && model.learningExerciseID == "bench" && model.learningQuery == "bench")
 
+        #expect(model.selectDockSection(.trends))
         #expect(model.selectDockSection(.learn))
+        #expect(model.libraryArea == .exercises && model.learningExerciseID == "bench")
+        #expect(model.selectDockSection(.learn))
+        #expect(model.libraryArea == .workouts)
+        #expect(model.guideTopic == nil && model.guideQuery.isEmpty && model.guideExerciseID == nil)
         #expect(model.landingResetID == reset + 1 && model.learningExerciseID == nil && model.learningQuery.isEmpty)
     }
 

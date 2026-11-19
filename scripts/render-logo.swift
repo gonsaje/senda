@@ -66,7 +66,11 @@ guard CommandLine.arguments.count == 3 || appIcon else { throw LogoExportError.i
 let source = URL(fileURLWithPath: CommandLine.arguments[appIcon ? 2 : 1]), destination = URL(fileURLWithPath: CommandLine.arguments[appIcon ? 3 : 2])
 let reader = LogoReader(), parser = XMLParser(data: try Data(contentsOf: source))
 parser.delegate = reader
-guard parser.parse(), reader.paths.count == 6 else { throw reader.failure ?? LogoExportError.invalid("Expected six approved paths") }
+guard parser.parse() else { throw reader.failure ?? LogoExportError.invalid("Invalid logo SVG") }
+let singleTrail = appIcon && reader.paths.count == 1
+guard singleTrail || reader.paths.count == 6 else {
+    throw LogoExportError.invalid("Expected the six-path logo or a single trail for the app icon")
+}
 let paths = appIcon ? reader.paths.filter { $0.1 == "#A94E32" } : reader.paths
 guard !appIcon || paths.count == 1 else { throw LogoExportError.invalid("Expected one approved trail path") }
 let artworkBounds = paths.reduce(CGRect.null) { $0.union($1.0.boundingBoxOfPath) }

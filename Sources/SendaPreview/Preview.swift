@@ -105,6 +105,7 @@ struct SendaPreview {
         }
         if learnOnly {
             let model = try TrainingNotebookModel(repository: MemoryJournalRepository(), isSample: true)
+            model.libraryArea = .exercises
             _ = model.selectSection(.learn)
             try render(TrainingNotebookView(model: model), to: directory.appendingPathComponent("senda-learn.png"))
             try render(TrainingNotebookView(model: model), to: directory.appendingPathComponent("senda-learn-compact.png"), width: 320, height: 568)
@@ -150,6 +151,10 @@ struct SendaPreview {
         try render(TrainingNotebookView(model: model), to: directory.appendingPathComponent("senda-profile.png"))
         try render(TrainingNotebookView(model: model), to: directory.appendingPathComponent("senda-profile-compact.png"), width: 320, height: 568)
         _ = model.selectSection(.learn)
+        try render(TrainingNotebookView(model: model), to: directory.appendingPathComponent("senda-workout-library.png"))
+        model.libraryArea = .learn
+        try render(TrainingNotebookView(model: model), to: directory.appendingPathComponent("senda-library-learn.png"))
+        model.libraryArea = .exercises
         try render(TrainingNotebookView(model: model), to: directory.appendingPathComponent("senda-learn.png"))
         try render(TrainingNotebookView(model: model), to: directory.appendingPathComponent("senda-learn-compact.png"), width: 320, height: 568)
         model.learningExerciseID = "bench"
@@ -227,6 +232,7 @@ struct SendaPreview {
         guard drop.retrySave(), let blank = drop.focus?.rowID else { throw CocoaError(.coderInvalidValue) }
         try logPreviewSet(drop, rowID: blank, weight: "55", reps: "12")
         try render(TrainingNotebookView(model: drop), to: directory.appendingPathComponent("senda-ux-drop-retried.png"), height: 1450)
+        working.libraryArea = .exercises
         _ = working.selectSection(.learn); working.learningExerciseID = "bench"
         try render(TrainingNotebookView(model: working), to: directory.appendingPathComponent("senda-ux-learn.png"))
     }
@@ -277,6 +283,7 @@ struct SendaPreview {
         try render(selected, to: directory.appendingPathComponent("senda-picker-multiple.png"), width: 320, height: 568)
         try render(selected, to: directory.appendingPathComponent("senda-picker-multiple-accessibility.png"), width: 320, height: 1500, textSize: .accessibility3)
         try render(TrainingWorkoutReusePicker(model: model, close: {}), to: directory.appendingPathComponent("senda-picker-reuse-compact.png"), width: 320, height: 568)
+        model.libraryArea = .exercises
         guard model.selectSection(.learn) else { throw CocoaError(.coderInvalidValue) }
         try render(TrainingNotebookView(model: model), to: directory.appendingPathComponent("senda-learn-hierarchy-compact.png"), width: 320, height: 568)
     }
@@ -360,6 +367,7 @@ struct SendaPreview {
         let custom = Exercise(id: "custom-test", name: "Travel press", shortName: "Travel", startingWeight: 0)
         let repository = try MemoryJournalRepository(snapshot: JournalSnapshot(customExercises: [custom]))
         let model = try TrainingNotebookModel(repository: repository, isSample: true)
+        model.libraryArea = .exercises
         _ = model.selectSection(.learn)
         try render(TrainingNotebookView(model: model), to: directory.appendingPathComponent("senda-learn-accessibility.png"), width: 320, height: 568, textSize: .accessibility3)
         for (name, query) in [("search", "Bench"), ("empty", "zzzz-no-match"), ("custom-results", "press")] {

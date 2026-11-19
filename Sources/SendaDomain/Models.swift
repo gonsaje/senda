@@ -12,6 +12,11 @@ public struct Exercise: Codable, Identifiable, Equatable, Sendable {
         get { savedCustomSetup ?? .init() }
         set { savedCustomSetup = newValue.isEmpty ? nil : newValue }
     }
+    private var savedArchiveState: Bool?
+    public var isArchived: Bool {
+        get { savedArchiveState == true }
+        set { savedArchiveState = newValue ? true : nil }
+    }
     // The resolved library decorates exercises for this notebook. The saved custom record
     // retains its original identifiers and name, including those imported before a new preset.
     enum LibraryOrigin: Equatable, Sendable {
@@ -24,6 +29,7 @@ public struct Exercise: Codable, Identifiable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case id, name, shortName, startingWeight, muscleGroup, equipment
         case savedCustomSetup = "customSetup"
+        case savedArchiveState = "archived"
     }
 
     public var displayName: String {
@@ -40,10 +46,11 @@ public struct Exercise: Codable, Identifiable, Equatable, Sendable {
 
     public init(id: String, name: String, shortName: String, startingWeight: Int,
                 muscleGroup: MuscleGroup? = nil, equipment: ExerciseEquipment? = nil,
-                customSetup: CustomExerciseSetup = .init()) {
+                customSetup: CustomExerciseSetup = .init(), isArchived: Bool = false) {
         self.id = id; self.name = name; self.shortName = shortName; self.startingWeight = startingWeight
         self.muscleGroup = muscleGroup; self.equipment = equipment
         self.customSetup = customSetup
+        self.isArchived = isArchived
     }
 
     public static let catalog = originalCatalog + ExpandedExerciseCatalog.exercises + GymExerciseCatalog.exercises
@@ -80,6 +87,11 @@ public struct SetValues: Codable, Equatable, Sendable {
     public init(weight: Int, reps: Int) {
         self.weight = weight
         self.reps = reps
+    }
+
+    /// A heavier set wins, then more reps at exactly the same weight.
+    public func isPersonalRecord(over previous: SetValues) -> Bool {
+        weight == previous.weight ? reps > previous.reps : weight > previous.weight
     }
 }
 

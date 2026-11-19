@@ -2,26 +2,61 @@ import SwiftUI
 import SendaDomain
 import SendaLogger
 
-struct TrainingWorkoutExerciseList: View {
+struct TrainingWorkoutExerciseList<Add: View>: View {
     let exercises: [Exercise]
     let selectedID: String?
     let select: (String) -> Void
+    @ViewBuilder let add: () -> Add
     @Environment(\.dynamicTypeSize) private var textSize
     @State private var visibleID: String?
     @State private var viewportWidth: CGFloat = .infinity
 
-    init(exercises: [Exercise], selectedID: String?, select: @escaping (String) -> Void) {
+    init(exercises: [Exercise], selectedID: String?, select: @escaping (String) -> Void,
+         @ViewBuilder add: @escaping () -> Add) {
         self.exercises = exercises
         self.selectedID = selectedID
         self.select = select
+        self.add = add
         _visibleID = State(initialValue: selectedID)
     }
 
     var body: some View {
+        if exercises.count <= 6 && !textSize.isAccessibilitySize {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack {
+                    Text("Exercises").font(NotebookTypography.heading(17, relativeTo: .headline)).accessibilityAddTraits(.isHeader)
+                    Spacer()
+                    add()
+                }
+                Divider()
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: min(2, exercises.count)),
+                          alignment: .leading, spacing: 0) {
+                    ForEach(exercises) { exercise in
+                        tab(exercise, fillsColumn: true)
+                            .overlay(alignment: .bottom) { exerciseRule }
+                    }
+                }.accessibilityIdentifier("workout-exercises")
+            }
+        } else {
+            HStack(alignment: .top, spacing: 8) {
+                scrollingTabs
+                add().fixedSize()
+            }
+            .overlay(alignment: .bottom) { exerciseRule }
+        }
+    }
+
+    private var exerciseRule: some View {
+        Rectangle().fill(NotebookStyle.rule).frame(height: 0.5).accessibilityHidden(true)
+    }
+
+    private var scrollingTabs: some View {
         ScrollView(.horizontal) {
             HStack(alignment: .top, spacing: 8) {
                 ForEach(exercises) { exercise in
-                    tab(exercise).id(exercise.id)
+                    ExerciseTabWidth(limit: viewportWidth) {
+                        tab(exercise, fillsColumn: false)
+                    }.id(exercise.id)
                 }
             }
             .scrollTargetLayout()
@@ -36,36 +71,22 @@ struct TrainingWorkoutExerciseList: View {
         .accessibilityIdentifier("workout-exercises")
     }
 
-    private func tab(_ exercise: Exercise) -> some View {
+    private func tab(_ exercise: Exercise, fillsColumn: Bool) -> some View {
         let selected = exercise.id == selectedID
-        let labelLayout = textSize >= .accessibility3
-            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 0))
-            : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: 5))
         return Button { select(exercise.id) } label: {
-            ExerciseTabWidth(limit: viewportWidth) {
-                labelLayout {
-                    Image(systemName: "checkmark")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(NotebookStyle.clay)
-                        .opacity(selected ? 1 : 0)
-                        .accessibilityHidden(true)
-                    // Reserve the selected label's wrapped height so switching keeps the editor in place.
-                    Text(exercise.displayName)
-                        .font(.subheadline.weight(.semibold))
-                        .fixedSize(horizontal: false, vertical: true)
-                        .hidden()
-                        .overlay(alignment: .topLeading) {
-                            Text(exercise.displayName)
-                                .font(.subheadline.weight(selected ? .semibold : .regular))
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                        .multilineTextAlignment(.leading)
-                }
-                .padding(.horizontal, 4)
-                .padding(.vertical, 4)
-                .frame(minWidth: 44, minHeight: 44)
+            // Both weights size the tab so a selection change cannot shift its neighbors.
+            ZStack(alignment: .topLeading) {
+                Text(exercise.displayName).font(.subheadline)
+                    .opacity(selected ? 0 : 1)
+                Text(exercise.displayName).font(.subheadline.bold())
+                    .opacity(selected ? 1 : 0)
             }
-            .foregroundStyle(selected ? NotebookStyle.ink : NotebookStyle.quiet)
+            .fixedSize(horizontal: false, vertical: true)
+            .multilineTextAlignment(.leading)
+            .padding(.horizontal, 8).padding(.vertical, 5)
+            .foregroundStyle(selected ? NotebookStyle.ivory : NotebookStyle.quiet)
+            .background(selected ? NotebookStyle.ink : .clear, in: RoundedRectangle(cornerRadius: 8))
+            .frame(minWidth: 44, maxWidth: fillsColumn ? .infinity : nil, minHeight: 44, alignment: .leading)
             .contentShape(Rectangle())
         }
         .accessibilityLabel(exercise.displayName)
@@ -96,6 +117,7 @@ struct TrainingWorkoutOptions: View {
     let day: TrainingDay
     let showAll: () -> Void
     let chooseWorkout: () -> Void
+    let saveTemplate: () -> Void
     let beginNavigation: () -> Void
 
     var body: some View {
@@ -109,6 +131,10 @@ struct TrainingWorkoutOptions: View {
                     Label("Choose workout", systemImage: "list.bullet.rectangle")
                 }
                 .accessibilityIdentifier("choose-workout")
+                Button(action: saveTemplate) {
+                    Label("Save as template", systemImage: "bookmark")
+                }
+                .accessibilityIdentifier("day-save-template")
                 Menu("Hide an exercise") {
                     ForEach(model.tabs) { exercise in
                         Button(exercise.displayName) { beginNavigation(); model.removeExercise(exercise.id) }

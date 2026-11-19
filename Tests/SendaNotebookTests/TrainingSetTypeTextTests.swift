@@ -27,8 +27,16 @@ struct TrainingSetTypeTextTests {
         #expect(TrainingSetTypeText.selectedChoice(for: nil) == nil)
     }
 
-    @Test func dropDefinitionKeepsStagesInOneSetAndDoesNotRequireFailure() {
-        let definition = TrainingSetTypeText.definition(.dropSet)
+    @Test func eachPickerOptionHasAShortSingleSentenceExplanation() {
+        for kind in TrainingSetTypeText.choices {
+            let text = TrainingSetTypeText.definition(kind)
+            #expect(!text.isEmpty && text.count <= 42)
+            #expect(text.filter { $0 == "." }.count == 1)
+        }
+    }
+
+    @Test func dropAccessibilityDetailExplainsHowToRecordStages() {
+        let definition = TrainingSetTypeText.accessibilityDetail(.dropSet)
         #expect(definition.contains("Reduce the weight"))
         #expect(definition.contains("little rest"))
         #expect(definition.contains("starting weight and reps"))

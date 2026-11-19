@@ -112,7 +112,7 @@ public extension JournalSnapshot {
             var recordDays: Set<TrainingDay> = []
             for day in allDays.keys.sorted() {
                 guard let sets = allDays[day], let top = progressBestSet(in: sets, metric: .weight) else { continue }
-                if let previousBest = priorBest, isStrictTrendBest(top.values, over: previousBest) {
+                if let previousBest = priorBest, top.values.isPersonalRecord(over: previousBest) {
                     if window.startDay <= day {
                         recordDays.insert(day)
                         latestRecord = TrainingTrendBest(exerciseID: exerciseID, day: day, values: top.values,
@@ -149,8 +149,3 @@ public extension JournalSnapshot {
             exerciseSummaries: summaries, recentBests: recentBests)
     }
 }
-
-private func isStrictTrendBest(_ candidate: SetValues, over previous: SetValues) -> Bool {
-    candidate.weight == previous.weight ? candidate.reps > previous.reps : candidate.weight > previous.weight
-}
-

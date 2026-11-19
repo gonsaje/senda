@@ -16,18 +16,15 @@ struct ProgressRangeControl: View {
             ForEach(ExerciseProgressRange.allCases, id: \.self) { range in
                 let selected = selection == range
                 Button { selection = range } label: {
-                    HStack(spacing: 6) {
-                        if selected { Image(systemName: "checkmark").accessibilityHidden(true) }
-                        Text(textSize.isAccessibilitySize ? range.label : range.rawValue.uppercased())
-                    }
-                    .font(.subheadline.weight(selected ? .semibold : .regular))
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, 6)
-                    .frame(maxWidth: .infinity, minHeight: 46)
-                    .foregroundStyle(selected ? NotebookStyle.ivory : NotebookStyle.ink)
-                    .background(selected ? NotebookStyle.ink : .clear, in: RoundedRectangle(cornerRadius: 8))
-                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(selected ? .clear : NotebookStyle.rule, lineWidth: 1))
-                    .contentShape(Rectangle())
+                    Text(textSize.isAccessibilitySize ? range.label : range.rawValue.uppercased())
+                        .font(.subheadline.weight(selected ? .bold : .regular))
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 6)
+                        .frame(maxWidth: .infinity, minHeight: 46)
+                        .foregroundStyle(selected ? NotebookStyle.ivory : NotebookStyle.ink)
+                        .background(selected ? NotebookStyle.ink : .clear, in: RoundedRectangle(cornerRadius: 8))
+                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(selected ? .clear : NotebookStyle.rule, lineWidth: 1))
+                        .contentShape(Rectangle())
                 }
                 .accessibilityLabel(range.label)
                 .accessibilityAddTraits(selected ? .isSelected : [])

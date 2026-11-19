@@ -1,6 +1,42 @@
+import CoreImage
 import XCTest
 
 final class LoggerUITests: XCTestCase {
+    @MainActor
+    func testBodyMeasurementsCanBeLoggedAndFoundInTrendsAfterRelaunch() {
+        let app = launch()
+        tap("dock-trends", in: app)
+        tap("trends-body-measurements", in: app)
+        XCTAssertTrue(app.staticTexts["No body weight readings"].exists)
+        tap("body-measurements-add", in: app)
+
+        for (metric, value) in [("weight", "180.25"), ("waist", "32.5"), ("bodyFat", "23.4")] {
+            let field = app.textFields["body-measurement-input-\(metric)"]
+            XCTAssertTrue(field.waitForExistence(timeout: 5))
+            field.tap()
+            field.typeText(value)
+        }
+        tap("body-measurements-save", in: app)
+        let weight = app.buttons["body-measurement-manual-row"].firstMatch
+        XCTAssertTrue(weight.waitForExistence(timeout: 5))
+        XCTAssertTrue(weight.label.contains("180.25 lb"))
+        attach("Body weight history", app)
+
+        tap("body-measurements-metric", in: app)
+        tap("body-measurements-metric-waist", in: app)
+        XCTAssertTrue(app.buttons["body-measurement-manual-row"].firstMatch.label.contains("32.5 in"))
+
+        app.terminate()
+        app.launch()
+        tap("dock-trends", in: app)
+        tap("trends-body-measurements", in: app)
+        tap("body-measurements-metric", in: app)
+        tap("body-measurements-metric-bodyFat", in: app)
+        let fat = app.buttons["body-measurement-manual-row"].firstMatch
+        XCTAssertTrue(fat.label.contains("23.4%"))
+        XCTAssertTrue(fat.label.contains("Manual"))
+    }
+
     @MainActor
     func testMyExercisesFindsMissingDetailsAndEquipmentFreeRepsSurviveRelaunch() {
         let app = launch()
@@ -17,7 +53,7 @@ final class LoggerUITests: XCTestCase {
         XCTAssertEqual(selected.label, name)
         let id = String(selected.identifier.dropFirst("exercise-".count))
 
-        tap("dock-learn", in: app)
+        openLibraryExercises(in: app)
         let query = app.textFields["learn-search"]
         query.tap(); query.typeText(name + "\n")
         app.buttons["learn-gym-filters"].tap()
@@ -55,7 +91,7 @@ final class LoggerUITests: XCTestCase {
     @MainActor
     func testSavedSetupsSwitchBrowseAllAndOpenAnAvailableAlternative() {
         let app = launch()
-        tap("dock-learn", in: app)
+        openLibraryExercises(in: app)
         let query = app.textFields["learn-search"]
         query.tap(); query.typeText("Flat dumbbell press\n")
         app.buttons["learn-gym-filters"].tap()
@@ -90,7 +126,7 @@ final class LoggerUITests: XCTestCase {
         tap("gym-setup-switch-Travel", in: app)
         XCTAssertFalse(app.buttons[alternative].exists)
         app.terminate(); app.launch()
-        tap("dock-learn", in: app)
+        openLibraryExercises(in: app)
         app.buttons["learn-gym-filters"].tap()
         XCTAssertTrue(app.buttons["gym-gear-none"].isSelected)
         tap("gym-filter-cancel", in: app)
@@ -133,40 +169,41 @@ final class LoggerUITests: XCTestCase {
     }
 
     @MainActor
-    func testWorkoutExerciseTabsScrollWithAddPinnedAtTheRight() {
+    func testWorkoutExerciseGridShowsEveryMovementAndAdd() {
         let app = launch()
         _ = openDay(0, in: app)
         tap("choose-workout", in: app)
         tap("workout-template-dumbbell-basics", in: app)
         tap("apply-workout-template", in: app)
-        let strip = element("workout-exercises", in: app)
         let add = element("add-exercise", in: app)
         let first = app.buttons["exercise-goblet-squat"]
         let last = app.buttons["exercise-dumbbell-romanian-deadlift"]
         XCTAssertTrue(first.isSelected)
-        XCTAssertTrue(first.isHittable)
-        XCTAssertFalse(app.staticTexts["entry-exercise"].exists, "The selected tab already names the active exercise.")
-        let pinnedFrame = add.frame
-        XCTAssertGreaterThanOrEqual(pinnedFrame.width, 44 - 0.01)
-        XCTAssertGreaterThanOrEqual(pinnedFrame.height, 44 - 0.01)
-        XCTAssertLessThanOrEqual(first.frame.maxX, pinnedFrame.minX + 1)
-        XCTAssertLessThan(abs(first.frame.midY - pinnedFrame.midY), 5)
-        XCTAssertFalse(last.exists && last.isHittable && last.frame.maxX <= pinnedFrame.minX + 1)
-        attach("Workout exercise tabs with Add pinned on the right", app)
-        for _ in 0..<4 {
-            strip.swipeLeft()
-            if last.exists && last.isHittable && last.frame.maxX <= add.frame.minX + 1 { break }
+        for id in ["goblet-squat", "dumbbell-bench", "one-arm-dumbbell-row", "dumbbell-romanian-deadlift"] {
+            let movement = app.buttons["exercise-\(id)"]
+            XCTAssertTrue(movement.isHittable)
+            XCTAssertGreaterThanOrEqual(movement.frame.height, 44 - 0.01)
+            XCTAssertGreaterThanOrEqual(movement.frame.minX, app.frame.minX)
+            XCTAssertLessThanOrEqual(movement.frame.maxX, app.frame.maxX)
         }
-        XCTAssertTrue(last.isHittable)
-        XCTAssertLessThanOrEqual(last.frame.maxX, add.frame.minX + 1)
-        XCTAssertEqual(add.frame.midX, pinnedFrame.midX, accuracy: 1)
-        XCTAssertEqual(add.frame.midY, pinnedFrame.midY, accuracy: 1)
+        XCTAssertGreaterThan(last.frame.midY, first.frame.midY)
         XCTAssertTrue(add.isHittable)
+        XCTAssertGreaterThanOrEqual(add.frame.width, 44 - 0.01)
+        XCTAssertGreaterThanOrEqual(add.frame.height, 44 - 0.01)
+        attach("Workout with all four movements visible", app)
         last.tap()
         XCTAssertTrue(last.isSelected)
         add.tap()
         XCTAssertTrue(element("workout-inline-search", in: app).exists)
         tap("close-exercise-picker", in: app)
+        XCTAssertTrue(last.isSelected)
+        XCTAssertFalse(app.buttons["day-workout-library"].exists)
+        tap("workout-options", in: app)
+        tap("day-save-template", in: app)
+        let editor = app.scrollViews["workout-template-editor"]
+        XCTAssertTrue(editor.waitForExistence(timeout: 3))
+        XCTAssertTrue(editor.staticTexts["Goblet squat"].exists)
+        tap("cancel-workout-template", in: app)
         XCTAssertTrue(last.isSelected)
     }
 
@@ -466,7 +503,7 @@ final class LoggerUITests: XCTestCase {
 
         app.terminate()
         app.launch()
-        tap("dock-learn", in: app)
+        openLibraryExercises(in: app)
         let learnSearch = app.textFields["learn-search"]
         learnSearch.tap()
         learnSearch.typeText("Flat dumbbell press\n")
@@ -483,7 +520,7 @@ final class LoggerUITests: XCTestCase {
     @MainActor
     func testLargestTextNoEquipmentExcludesPullUpsAndClearingRestoresLearnAlias() {
         let app = launch(extra: ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
-        tap("dock-learn", in: app)
+        openLibraryExercises(in: app)
         let search = app.textFields["learn-search"]
         search.tap()
         search.typeText("Dead hang pull up\n")
@@ -545,7 +582,7 @@ final class LoggerUITests: XCTestCase {
 
         app.terminate()
         app.launch()
-        tap("dock-learn", in: app)
+        openLibraryExercises(in: app)
         let search = app.textFields["learn-search"]
         search.tap()
         search.typeText(name + "\n")
@@ -611,7 +648,7 @@ final class LoggerUITests: XCTestCase {
         app.terminate()
         app.launchArguments += ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
         app.launch()
-        tap("dock-learn", in: app)
+        openLibraryExercises(in: app)
         let search = app.textFields["learn-search"]
         search.tap()
         search.typeText(name + "\n")
@@ -1029,7 +1066,7 @@ final class LoggerUITests: XCTestCase {
         let todayRow = reveal(todayRowID(), in: app)
         XCTAssertTrue(todayRow.label.contains("Add workout"))
         XCTAssertGreaterThanOrEqual(todayRow.frame.height, 44 - 0.01)
-        attach("Today’s Add workout row at the largest text size", app)
+        attach("Today’s first workout row at the largest text size", app)
         todayRow.tap()
         let goToToday = app.buttons["go-to-today"]
         XCTAssertFalse(goToToday.exists)
@@ -1152,6 +1189,84 @@ final class LoggerUITests: XCTestCase {
         XCTAssertFalse(app.buttons["exit-demo"].exists)
         tap("dock-trends", in: app)
         XCTAssertTrue(element("trends-strength-chart", in: app).exists)
+    }
+
+    @MainActor
+    func testColdLaunchOpensNotebookAndResumeKeepsWorkout() {
+        let app = launch(extra: ["--sample-data"])
+        let intro = app.descendants(matching: .any).matching(identifier: "senda-launch-intro").firstMatch
+        XCTAssertTrue(intro.waitForNonExistence(timeout: 5))
+        tap(todayRowID(), in: app)
+
+        let day = element("day-date", in: app).label
+        let history = app.buttons["exercise-history"]
+        XCTAssertTrue(history.isHittable)
+        XCUIDevice.shared.press(.home)
+        XCTAssertTrue(app.wait(for: .runningBackground, timeout: 3) || app.state == .runningBackgroundSuspended)
+        app.activate()
+
+        XCTAssertFalse(intro.exists)
+        XCTAssertEqual(element("day-date", in: app).label, day)
+        XCTAssertTrue(history.isHittable)
+        history.tap()
+        XCTAssertTrue(app.scrollViews["workout-exercise-history"].waitForExistence(timeout: 3))
+    }
+
+    @MainActor
+    func testWeekAndActiveWorkoutFollowPhoneAppearance() async throws {
+        let device = XCUIDevice.shared
+        let originalAppearance = device.appearance
+        defer { device.appearance = originalAppearance }
+        device.appearance = .light
+
+        let app = launch(extra: ["--sample-data"])
+        let ivory = [247, 243, 235]
+        let espresso = [37, 31, 26]
+        let context = CIContext()
+        let sRGB = try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB))
+
+        func expectPaper(_ expected: [Int], capture title: String? = nil,
+                         file: StaticString = #filePath, line: UInt = #line) async throws {
+            let deadline = ContinuousClock.now + .seconds(5)
+            var actual = [Int]()
+            repeat {
+                let shot = app.screenshot()
+                let image = CIImage(cgImage: try XCTUnwrap(shot.image.cgImage))
+                // The outer margin at mid-height contains only the page background on these screens.
+                let sample = CGRect(x: 3, y: floor(image.extent.midY), width: 1, height: 1)
+                var pixel = [UInt8](repeating: 0, count: 4)
+                context.render(image, toBitmap: &pixel, rowBytes: 4, bounds: sample, format: .RGBA8, colorSpace: sRGB)
+                actual = pixel.prefix(3).map(Int.init)
+                if zip(actual, expected).allSatisfy({ abs($0.0 - $0.1) <= 2 }) {
+                    if let title {
+                        let attachment = XCTAttachment(screenshot: shot)
+                        attachment.name = title
+                        attachment.lifetime = .keepAlways
+                        self.add(attachment)
+                    }
+                    return
+                }
+                try await Task.sleep(for: .milliseconds(100))
+            } while ContinuousClock.now < deadline
+            XCTFail("Expected page RGB \(expected), found \(actual)", file: file, line: line)
+        }
+
+        try await expectPaper(ivory, capture: "Week · Light")
+        device.appearance = .dark
+        try await expectPaper(espresso, capture: "Week · Brown")
+        tap("dock-library", in: app)
+        XCTAssertTrue(element("library-workouts", in: app).isHittable)
+        try await expectPaper(ivory)
+        tap("dock-log", in: app)
+        XCTAssertTrue(element("week-summary", in: app).exists)
+        try await expectPaper(espresso)
+
+        tap(todayRowID(), in: app)
+        XCTAssertTrue(app.buttons["last-reference"].waitForExistence(timeout: 3))
+        XCTAssertTrue(element("row-1-weight", in: app).exists)
+        try await expectPaper(espresso, capture: "Active workout · Brown")
+        device.appearance = .light
+        try await expectPaper(ivory, capture: "Active workout · Light")
     }
 
     @MainActor
@@ -1347,7 +1462,7 @@ final class LoggerUITests: XCTestCase {
         tap("dock-log", in: app)
 
         let day = todayRowID()
-        attach("Add workout is the same for every empty day", app)
+        attach("Week with the first workout and library entrances", app)
         tap(day, in: app)
         XCTAssertFalse(app.buttons["go-to-today"].exists)
         add("Bench", id: "bench", in: app)
@@ -1643,6 +1758,44 @@ final class LoggerUITests: XCTestCase {
     }
 
     @MainActor
+    func testWorkoutMarksTheRecordBreakingSetAndKeepsTheCrownOnReturn() {
+        let device = XCUIDevice.shared
+        let originalAppearance = device.appearance
+        defer { device.appearance = originalAppearance }
+        device.appearance = .light
+
+        let app = launch()
+        let today = todayRowID()
+        tap(today, in: app)
+        tap("previous-day", in: app)
+        add("Bench", id: "bench", in: app)
+        enter(weight: "135", reps: "8", in: app)
+        tap("input-done", in: app)
+        let crown = app.descendants(matching: .any).matching(identifier: "row-1-pr").firstMatch
+        XCTAssertFalse(crown.exists, "A first set establishes the baseline.")
+
+        tap("go-to-today", in: app)
+        add("Bench", id: "bench", in: app)
+        enter(weight: "145", reps: "8", in: app)
+        tap("input-done", in: app)
+        XCTAssertTrue(crown.waitForExistence(timeout: 3))
+        XCTAssertTrue(crown.label.localizedCaseInsensitiveContains("Personal record"))
+        XCTAssertTrue(element("last-reference", in: app).label.contains("135 lb"))
+        attach("Workout personal record - Light", app)
+
+        tap("repeat-set", in: app)
+        XCTAssertTrue(element("row-2-weight", in: app).label.contains("145 lb"))
+        XCTAssertFalse(app.descendants(matching: .any).matching(identifier: "row-2-pr").firstMatch.exists,
+                       "Repeating the exact performance keeps the crown on the set that earned it.")
+        tap("back-to-week", in: app)
+        device.appearance = .dark
+        tap(today, in: app)
+        XCTAssertTrue(crown.waitForExistence(timeout: 3))
+        XCTAssertTrue(element("row-2-reps", in: app).label.contains("8 reps"))
+        attach("Workout personal record - Espresso", app)
+    }
+
+    @MainActor
     func testLastAndPrOpenReadOnlyHistoryBeforeExplicitEditing() throws {
         let app = launch()
         defer { diagnostics(app) }
@@ -1673,6 +1826,48 @@ final class LoggerUITests: XCTestCase {
         XCTAssertTrue(element("last-reference", in: app).label.contains("140 lb"))
         XCTAssertTrue(element("personal-best-reference", in: app).label.contains("200 lb"))
         attach("Expandable Last and PR history", app)
+    }
+
+    @MainActor
+    func testWorkoutHistoryShowsEarlierSetsAndReturnsToDraft() {
+        let app = launch()
+        defer { diagnostics(app) }
+        tap("previous-week", in: app)
+        let earlier = openDay(6, in: app)
+        add("Bench", id: "bench", in: app)
+        enter(weight: "135", reps: "10", in: app); tap("input-done", in: app)
+        tap("repeat-set", in: app)
+        tap("row-2-reps", in: app); replace("8", in: app); tap("input-done", in: app)
+        tap("back-to-week", in: app)
+        tap("today-week", in: app)
+        let today = element(todayRowID(), in: app)
+        XCTAssertTrue(today.label.contains("Add workout"))
+        attach("Week with today’s date stamp", app)
+        today.tap()
+        add("Bench", id: "bench", in: app)
+        tap("row-1-weight", in: app); replace("31.", in: app); tap("input-done", in: app)
+        let day = element("day-date", in: app).label
+        let lastTime = app.buttons["last-reference"]
+        XCTAssertEqual(lastTime.label, "Last time · 135 lb × 10")
+        let firstSet = element("row-1-weight", in: app)
+        XCTAssertLessThanOrEqual(lastTime.frame.maxY, firstSet.frame.minY)
+        XCTAssertGreaterThanOrEqual(app.buttons["toggle-entry-references"].frame.minY, firstSet.frame.maxY)
+        XCTAssertTrue(app.buttons["exercise-history"].isHittable)
+        attach("Active Bench workout with prior top set and History", app)
+        tap("exercise-history", in: app)
+        XCTAssertTrue(app.scrollViews["workout-exercise-history"].exists)
+        XCTAssertTrue(element("exercise-history-day-" + String(earlier.dropFirst(4)), in: app).exists)
+        let rows = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "exercise-history-set-"))
+        XCTAssertEqual(rows.count, 2)
+        XCTAssertTrue(rows.element(boundBy: 0).label.contains("10 reps"))
+        XCTAssertTrue(rows.element(boundBy: 1).label.contains("8 reps"))
+        XCTAssertFalse(app.buttons["progress-edit-workout"].exists)
+        attach("Read-only exercise history", app)
+        tap("close-exercise-history", in: app)
+        XCTAssertEqual(element("day-date", in: app).label, day)
+        XCTAssertEqual(selectedExercise(in: app).label, "Bench")
+        tap("row-1-weight", in: app)
+        XCTAssertEqual(element("set-input", in: app).value as? String, "31.")
     }
 
     @MainActor
@@ -1839,12 +2034,20 @@ final class LoggerUITests: XCTestCase {
         add("Deadlift", id: "deadlift", in: app)
         enter(weight: "225", reps: "5", in: app); tap("input-done", in: app)
         tap("next-day", in: app)
-        tap("reuse-workout", in: app); tap("reuse-workout-" + source, in: app)
+        tap("choose-workout", in: app)
+        tap("workout-library-tab-recent", in: app)
+        tap("reuse-workout-" + source, in: app)
+        for result in ["135 lb × 10", "225 lb × 5"] {
+            XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", result)).firstMatch.exists, result)
+        }
+        attach("Recent workout with its saved sets", app)
+        tap("apply-recent-workout", in: app)
         XCTAssertEqual(selectedExercise(in: app).label, "Bench")
         XCTAssertTrue(element("row-1-weight", in: app).label.contains("—"))
         tap("row-1-weight", in: app); replace("95", in: app); tap("input-done", in: app)
         openExerciseCatalog(in: app); tap("picker-more", in: app); tap("reuse-workout", in: app)
         tap("reuse-workout-" + source, in: app)
+        tap("apply-recent-workout", in: app)
         XCTAssertTrue(element("row-1-weight", in: app).label.contains("95 lb"))
         tap("all-exercises", in: app)
         XCTAssertTrue(element("day-exercise-deadlift", in: app).label.contains("No sets yet"))
@@ -1875,6 +2078,57 @@ final class LoggerUITests: XCTestCase {
         XCTAssertTrue(element(day, in: app).label.contains("2 sets"))
         attach("Hidden movements retain discoverable recorded sets", app)
     }
+
+    @MainActor
+    func testWeightDialPreservesTypedPrecisionAndSettlesInBothDirections() throws {
+        let app = launch()
+        tap(todayRowID(), in: app)
+        add("Bench", id: "bench", in: app)
+        enter(weight: "135", reps: "8", in: app)
+        tap("input-done", in: app)
+        tap("row-1-weight", in: app)
+        replace("127.25", in: app)
+        tap("input-use-dial", in: app)
+        let dial = element("weight-dial", in: app)
+        func pounds() throws -> Double {
+            let value = try XCTUnwrap(dial.value as? String)
+            return try XCTUnwrap(Double(value.components(separatedBy: " ").first ?? ""))
+        }
+        func drag(by distance: CGFloat, speed: CGFloat = 160, hold: TimeInterval = 0.35) {
+            let from = dial.coordinate(withNormalizedOffset: CGVector(dx: distance < 0 ? 0.75 : 0.25, dy: 0.4))
+            from.press(forDuration: 0.08, thenDragTo: from.withOffset(CGVector(dx: distance, dy: 0)),
+                       withVelocity: XCUIGestureVelocity(rawValue: speed), thenHoldForDuration: hold)
+        }
+        XCTAssertEqual(try pounds(), 127.25)
+        attach("Weight dial before turning", app)
+        drag(by: -96)
+        let heavier = try pounds()
+        XCTAssertEqual(heavier, 135, "A slow 96-point turn from 127.25 lb should settle three increments higher.")
+        XCTAssertEqual(heavier.truncatingRemainder(dividingBy: 2.5), 0)
+        try XCTContext.runActivity(named: "Turn below and across a single click") { _ in
+            drag(by: -17, speed: 600, hold: 0)
+            XCTAssertEqual(try pounds(), 135, "Releasing short of the click must keep the saved weight.")
+            drag(by: -23, speed: 120, hold: 0)
+            XCTAssertEqual(try pounds(), 137.5, "Crossing one click should advance one weight increment.")
+            drag(by: 23)
+            XCTAssertEqual(try pounds(), 135)
+        }
+        drag(by: 40)
+        let lighter = try pounds()
+        XCTAssertLessThan(lighter, heavier)
+        drag(by: -73, speed: 600, hold: 0)
+        let settled = try pounds()
+        XCTAssertGreaterThan(settled, lighter)
+        XCTAssertLessThanOrEqual(settled - lighter, 7.5, "A fast 73-point turn should land within three 2.5 lb increments.")
+        XCTAssertEqual(settled.truncatingRemainder(dividingBy: 2.5), 0)
+        attach("Weight dial after settling", app)
+        tap("input-done", in: app)
+        app.terminate()
+        app.launch()
+        tap("row-1-weight", in: app)
+        XCTAssertEqual(try pounds(), settled)
+    }
+
 
     @MainActor
     func testFastDecimalTypingAndFingerDial() throws {
@@ -1972,7 +2226,7 @@ final class LoggerUITests: XCTestCase {
     @MainActor
     func testLearnFindsExercisesByDisplayedMuscleAndCommonName() {
         let app = launch()
-        tap("dock-learn", in: app)
+        openLibraryExercises(in: app)
         let search = element("learn-search", in: app)
         search.tap()
         search.typeText("hamstrings\n")
@@ -1989,7 +2243,7 @@ final class LoggerUITests: XCTestCase {
     @MainActor
     func testLearnSearchClearAndBackPreserveResults() throws {
         let app = launch()
-        tap("dock-learn", in: app)
+        openLibraryExercises(in: app)
         let search = element("learn-search", in: app)
         search.tap(); search.typeText("Bench\n")
         XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 3))
@@ -2017,7 +2271,7 @@ final class LoggerUITests: XCTestCase {
     @MainActor
     func testLearnGuideBackRestoresFilteredListAndReselectClearsSearch() throws {
         let app = launch()
-        tap("dock-learn", in: app)
+        openLibraryExercises(in: app)
         let search = element("learn-search", in: app)
         let landingY = search.frame.minY
         search.tap()
@@ -2027,7 +2281,7 @@ final class LoggerUITests: XCTestCase {
         let list = app.scrollViews["learn-scroll"]
         func visibleExercise() throws -> XCUIElement {
             let visibleArea = list.frame.intersection(app.frame)
-                .intersection(CGRect(x: 0, y: 0, width: app.frame.width, height: app.buttons["dock-learn"].frame.minY))
+                .intersection(CGRect(x: 0, y: 0, width: app.frame.width, height: app.buttons["dock-library"].frame.minY))
             let exerciseButtons = list.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "learn-exercise-"))
             return try XCTUnwrap(exerciseButtons.allElementsBoundByIndex.first {
                 visibleArea.contains($0.frame) && $0.isHittable
@@ -2052,7 +2306,9 @@ final class LoggerUITests: XCTestCase {
         let nextGuideID = "form-guide-" + next.identifier.dropFirst("learn-exercise-".count)
         next.tap()
         XCTAssertTrue(element(nextGuideID, in: app).exists)
-        tap("dock-learn", in: app)
+        tap("dock-library", in: app)
+        XCTAssertTrue(element("library-workouts", in: app).isSelected)
+        tap("library-exercises", in: app)
         XCTAssertTrue(search.isHittable)
         XCTAssertEqual(search.value as? String, "")
         XCTAssertEqual(search.frame.minY, landingY, accuracy: 2)
@@ -2062,7 +2318,7 @@ final class LoggerUITests: XCTestCase {
     @MainActor
     func testLargestTextLearnSearchAndIllustrationsStayReachable() throws {
         let app = launch(extra: ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
-        tap("dock-learn", in: app)
+        openLibraryExercises(in: app)
         let search = reveal("learn-search", in: app)
         search.tap(); search.typeText("Bench\n")
         XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 3))
@@ -2084,7 +2340,7 @@ final class LoggerUITests: XCTestCase {
     @MainActor
     func testLearnFormPositionsOpenAndDismiss() throws {
         let app = launch()
-        tap("dock-learn", in: app)
+        openLibraryExercises(in: app)
         attach("Learn library", app)
         let search = element("learn-search", in: app)
         search.tap(); search.typeText("Bench")
@@ -2122,13 +2378,13 @@ final class LoggerUITests: XCTestCase {
         tap("preference-kg", in: app)
         tap("close-settings", in: app)
         tap("close-profile-settings", in: app)
-        tap("dock-learn", in: app)
+        openLibraryExercises(in: app)
         let search = element("learn-search", in: app)
         search.tap(); search.typeText("Bench")
         tap("learn-exercise-bench", in: app)
         XCTAssertTrue(element("form-guide-bench", in: app).exists)
         XCTAssertTrue(element("form-source", in: app).exists)
-        tap("dock-profile", in: app); tap("dock-learn", in: app)
+        tap("dock-profile", in: app); tap("dock-library", in: app)
         XCTAssertTrue(element("form-guide-bench", in: app).exists)
         tap("dock-log", in: app)
         XCTAssertEqual(selectedExercise(in: app).label, "Bench")
@@ -2227,6 +2483,50 @@ final class LoggerUITests: XCTestCase {
         XCTAssertFalse(element("row-1-weight", in: app).label.contains("Recorded"))
         XCTAssertFalse(app.descendants(matching: .any).matching(identifier: "row-1-status").firstMatch.exists)
         attach("Plan targets reflect sets saved during input", app)
+    }
+
+    @MainActor
+    func testSetTypeSheetKeepsWorkoutVisibleAndAllThreeChoicesWithinReach() throws {
+        let device = XCUIDevice.shared
+        let originalAppearance = device.appearance
+        defer { device.appearance = originalAppearance }
+        device.appearance = .light
+
+        let app = launch(extra: ["--sample-data"])
+        tap(todayRowID(), in: app)
+        let exercise = selectedExercise(in: app).label
+        tap("row-1-type", in: app)
+        if !element("set-type-working", in: app).isSelected {
+            tap("set-type-working", in: app)
+            tap("row-1-type", in: app)
+        }
+
+        let sheet = app.scrollViews["set-type-picker"]
+        XCTAssertTrue(sheet.waitForExistence(timeout: 3))
+        XCTAssertGreaterThan(sheet.frame.minY, app.frame.height * 0.30,
+                             "The compact sheet should leave the top of the workout visible.")
+        XCTAssertTrue(app.staticTexts["Set type"].isHittable)
+        let context = app.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS %@ AND label CONTAINS %@", exercise, "Set 1")
+        ).firstMatch
+        XCTAssertTrue(context.isHittable)
+        for id in ["warmup", "working", "drop"] {
+            let option = element("set-type-\(id)", in: app)
+            XCTAssertTrue(option.isHittable)
+            XCTAssertGreaterThanOrEqual(option.frame.height, 44)
+        }
+        XCTAssertTrue(element("set-type-working", in: app).isSelected)
+        attach("Compact set type picker - Light", app)
+
+        device.appearance = .dark
+        tap("set-type-warmup", in: app)
+        XCTAssertTrue(element("row-1-type", in: app).label.contains("Warm-up"))
+        tap("row-1-type", in: app)
+        XCTAssertTrue(element("set-type-warmup", in: app).isSelected)
+        attach("Compact set type picker - Espresso", app)
+        tap("set-type-working", in: app)
+        XCTAssertTrue(element("row-1-type", in: app).label.contains("Working set"))
+        attach("Workout set type controls - Espresso", app)
     }
 
     @MainActor
@@ -2337,6 +2637,13 @@ final class LoggerUITests: XCTestCase {
         XCTAssertGreaterThanOrEqual(type.frame.height, 44)
         XCTAssertGreaterThanOrEqual(type.frame.width, 44)
         type.tap()
+        let close = element("close-set-type", in: app)
+        let closePosition = close.frame.midY
+        app.scrollViews["set-type-picker"].swipeUp()
+        XCTAssertTrue(close.isHittable)
+        XCTAssertEqual(close.frame.midY, closePosition, accuracy: 1,
+                       "Close stays in reach when larger text requires scrolling.")
+        attach("Set type picker - Larger Text", app)
         tap("set-type-drop", in: app)
         XCTAssertTrue(element("row-1-type", in: app).label.contains("Drop set"))
         tap("row-1-details", in: app)
@@ -2566,10 +2873,141 @@ final class LoggerUITests: XCTestCase {
     }
 
     @MainActor
+    func testLibraryLearnHasReadOnlyGuidesAndMuscleMaps() {
+        let app = launch()
+        tap("dock-library", in: app)
+        tap("library-learn", in: app)
+        XCTAssertTrue(app.buttons["library-learn"].isSelected)
+        attach("Library Learn", app)
+        for topic in ["form", "muscles"] {
+            tap("learn-topic-" + topic, in: app)
+            let search = app.textFields["guide-search"]
+            search.tap()
+            search.typeText("Bench\n")
+            tap("guide-exercise-bench", in: app)
+            let detailID = topic == "form" ? "form-guide-bench" : "exercise-muscles-bench"
+            XCTAssertTrue(element(detailID, in: app).exists)
+            XCTAssertFalse(app.buttons["library-edit-exercise"].exists)
+            XCTAssertFalse(app.buttons["library-delete-exercise"].exists)
+            tap("back-to-guides", in: app)
+            XCTAssertEqual(search.value as? String, "Bench")
+            tap("back-to-learn-topics", in: app)
+        }
+        tap("library-exercises", in: app)
+        let search = app.textFields["learn-search"]
+        search.tap()
+        search.typeText("Bench\n")
+        tap("learn-exercise-bench", in: app)
+        XCTAssertFalse(app.buttons["library-edit-exercise"].exists)
+        XCTAssertFalse(app.buttons["library-delete-exercise"].exists)
+    }
+
+    @MainActor
+    func testDeletingCustomExerciseKeepsItsLoggedSetsAfterRelaunch() {
+        let app = launch()
+        openLibraryExercises(in: app)
+        tap("library-add-exercise", in: app)
+        let name = app.textFields["library-exercise-name"]
+        name.tap()
+        name.typeText("Garage")
+        tap("library-save-exercise", in: app)
+        tap("library-edit-exercise", in: app)
+        name.tap()
+        name.typeText(" press")
+        tap("library-save-exercise", in: app)
+        let title = app.staticTexts.matching(NSPredicate(format: "identifier BEGINSWITH 'form-guide-custom-'")).firstMatch
+        XCTAssertTrue(title.waitForExistence(timeout: 4))
+        XCTAssertEqual(title.label, "Garage press")
+        let id = String(title.identifier.dropFirst("form-guide-".count))
+        attach("Custom exercise actions", app)
+        tap("dock-log", in: app)
+        let dayID = openDay(0, in: app)
+        add("Garage press", id: id, in: app)
+        enter(weight: "45", reps: "8", in: app)
+        tap("input-done", in: app)
+        tap("dock-library", in: app)
+        tap("library-delete-exercise", in: app)
+        let confirmation = app.buttons.matching(identifier: "confirm-delete-library-exercise").firstMatch
+        if confirmation.exists { confirmation.tap() } else { app.sheets.buttons["Delete exercise"].tap() }
+        XCTAssertTrue(app.buttons["library-edit-exercise"].waitForNonExistence(timeout: 4))
+        XCTAssertFalse(app.buttons["learn-exercise-" + id].exists)
+
+        app.terminate()
+        app.launch()
+        if app.buttons[dayID].exists { tap(dayID, in: app) }
+        XCTAssertEqual(selectedExercise(in: app).label, "Garage press")
+        XCTAssertTrue(element("row-1-weight", in: app).label.contains("45 lb"))
+        XCTAssertTrue(element("row-1-reps", in: app).label.contains("8 reps"))
+        tap("next-day", in: app)
+        tap("add-exercise", in: app)
+        let search = app.textFields["picker-search"]
+        search.tap()
+        search.typeText("Garage press\n")
+        XCTAssertFalse(app.buttons["picker-" + id].exists)
+    }
+
+    @MainActor
+    func testStarterCopyCanBeEditedAndDeletedIndependently() {
+        let app = launch()
+        tap("dock-library", in: app)
+        tap("workout-template-push", in: app)
+        XCTAssertFalse(app.buttons["edit-workout-template"].exists)
+        XCTAssertFalse(app.buttons["delete-workout-template"].exists)
+        tap("copy-workout-template", in: app)
+        let name = app.textFields["workout-template-name"]
+        name.tap()
+        name.typeText(" at home")
+        tap("save-workout-template", in: app)
+        let personal = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Push at home'")).firstMatch
+        XCTAssertTrue(personal.waitForExistence(timeout: 4))
+        personal.tap()
+        tap("edit-workout-template", in: app)
+        name.tap()
+        name.typeText(" A")
+        tap("save-workout-template", in: app)
+        XCTAssertTrue(app.staticTexts["Push at home A"].waitForExistence(timeout: 4))
+        tap("delete-workout-template", in: app)
+        let confirmation = app.buttons.matching(identifier: "confirm-delete-workout-template").firstMatch
+        if confirmation.exists { confirmation.tap() } else { app.sheets.buttons["Delete template"].tap() }
+        XCTAssertTrue(personal.waitForNonExistence(timeout: 5))
+        tap("workout-library-tab-starters", in: app)
+        XCTAssertTrue(app.buttons["workout-template-push"].exists)
+    }
+
+    @MainActor
+    func testLibraryDockOpensTemplatesAndRetainsExerciseGuide() {
+        let app = launch()
+        XCTAssertFalse(app.buttons["dock-learn"].exists)
+        tap("dock-library", in: app)
+        XCTAssertTrue(app.buttons["dock-library"].isSelected)
+        XCTAssertTrue(element("library-workouts", in: app).isSelected)
+        XCTAssertTrue(app.buttons["workout-template-push"].exists)
+        XCTAssertFalse(app.textFields["learn-search"].exists)
+
+        tap("library-exercises", in: app)
+        XCTAssertTrue(element("library-exercises", in: app).isSelected)
+        XCTAssertFalse(app.buttons["workout-template-push"].exists)
+        let search = reveal("learn-search", in: app)
+        search.tap(); search.typeText("Bench\n")
+        tap("learn-exercise-bench", in: app)
+        XCTAssertTrue(element("form-guide-bench", in: app).exists)
+
+        tap("dock-profile", in: app)
+        tap("dock-library", in: app)
+        XCTAssertTrue(element("form-guide-bench", in: app).exists)
+        tap("back-to-learn", in: app)
+        XCTAssertEqual(search.value as? String, "Bench")
+
+        tap("library-workouts", in: app)
+        XCTAssertTrue(app.buttons["workout-template-push"].exists)
+        XCTAssertFalse(app.textFields["learn-search"].exists)
+    }
+
+    @MainActor
     func testAdjacentDockPagesKeepTheDockInPlace() {
         let app = launch()
-        let ids = ["dock-log", "dock-trends", "dock-learn", "dock-profile"]
-        let pages = ["week-view", "trends-scroll", "learn-scroll", "profile-scroll"]
+        let ids = ["dock-log", "dock-trends", "dock-library", "dock-profile"]
+        let pages = ["week-view", "trends-scroll", "workout-library", "profile-scroll"]
         let dock = element("app-dock", in: app)
         let originalDock = dock.frame
         let originalButtons = ids.map { element($0, in: app).frame }
@@ -2629,7 +3067,7 @@ final class LoggerUITests: XCTestCase {
         let dock = element("app-dock", in: app)
         // Includes the bottom safe area; leave the page room to remain useful.
         XCTAssertLessThanOrEqual(dock.frame.height, 120)
-        let tabs = [("dock-log", "Log"), ("dock-trends", "Trends"), ("dock-learn", "Learn"), ("dock-profile", "Profile")]
+        let tabs = [("dock-log", "Log"), ("dock-trends", "Trends"), ("dock-library", "Library"), ("dock-profile", "Profile")]
         var tabFrames: [CGRect] = []
         for (id, title) in tabs {
             let tab = element(id, in: app)
@@ -2656,7 +3094,7 @@ final class LoggerUITests: XCTestCase {
         tap("profile-settings", in: app)
         tap("profile-weight-units", in: app); tap("preference-kg", in: app); tap("close-settings", in: app)
         tap("close-profile-settings", in: app)
-        tap("dock-learn", in: app)
+        openLibraryExercises(in: app)
         let search = element("learn-search", in: app)
         search.tap(); search.typeText("Bench\n")
         XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 3))
@@ -2664,7 +3102,84 @@ final class LoggerUITests: XCTestCase {
         XCTAssertTrue(element("form-guide-bench", in: app).exists)
         tap("dock-log", in: app)
         XCTAssertTrue(app.scrollViews["week-view"].exists)
-        attach("Large text Log Trends Learn Profile dock", app)
+        attach("Large text Log Trends Library Profile dock", app)
+    }
+
+    @MainActor
+    func testFirstWorkoutAndLibraryPreviewBeforeApplyingPushToToday() {
+        let app = launch()
+        let today = todayRowID()
+        tap(today, in: app)
+        XCTAssertEqual(element("day-title", in: app).label, "Your first workout")
+        XCTAssertTrue(element("first-workout-example", in: app).label.contains("135 lb"))
+        XCTAssertTrue(app.buttons["add-exercise"].isHittable)
+        XCTAssertTrue(app.buttons["choose-workout"].isHittable)
+        attach("Your first workout", app)
+
+        tap("choose-workout", in: app)
+        tap("workout-library-tab-personal", in: app)
+        tap("workout-library-tab-recent", in: app)
+        XCTAssertTrue(app.staticTexts["No recent workouts"].exists)
+        tap("close-workout-library", in: app)
+        tap("back-to-week", in: app)
+        XCTAssertFalse(app.buttons["week-workout-library"].exists)
+        tap("dock-library", in: app)
+        XCTAssertTrue(app.buttons["workout-template-push"].isHittable)
+        attach("Workout library starters", app)
+        tap("workout-template-push", in: app)
+        attach("Push template preview", app)
+        tap("back-to-workout-library", in: app)
+        tap("dock-log", in: app)
+        XCTAssertTrue(element(today, in: app).label.contains("Add workout"))
+        tap("previous-week", in: app)
+        tap("dock-library", in: app)
+        tap("workout-template-push", in: app)
+        tap("apply-workout-template", in: app)
+        XCTAssertTrue(app.buttons["dock-log"].isSelected)
+        XCTAssertEqual(selectedExercise(in: app).label, "Bench")
+        XCTAssertFalse(app.descendants(matching: .any)["first-workout-example"].exists)
+        for id in ["bench", "overhead-press", "lateral-raise", "triceps-extension"] {
+            XCTAssertTrue(app.buttons["exercise-" + id].isHittable, id)
+        }
+        XCTAssertTrue(element("row-1-weight", in: app).label.contains("—"))
+        attach("Push workout before logging", app)
+        tap("back-to-week", in: app)
+        let planned = element(today, in: app)
+        XCTAssertTrue(planned.label.contains("4 exercises planned"))
+        XCTAssertTrue(planned.label.contains("0 sets"))
+    }
+
+    @MainActor
+    func testSaveActiveWorkoutAsTemplateAndApplyFromLibraryToSelectedDay() {
+        let app = launch()
+        tap("previous-week", in: app)
+        _ = openDay(0, in: app)
+        tap("choose-workout", in: app)
+        tap("workout-template-push", in: app)
+        tap("apply-workout-template", in: app)
+        XCTAssertFalse(app.buttons["day-workout-library"].exists)
+        tap("workout-options", in: app)
+        tap("day-save-template", in: app)
+        let name = element("workout-template-name", in: app)
+        name.tap()
+        name.typeText("Push at home")
+        tap("save-workout-template", in: app)
+        tap("next-day", in: app)
+        add("Cable row", id: "cable-row", in: app)
+        let date = element("day-date", in: app).label
+        tap("dock-library", in: app)
+        tap("workout-library-tab-personal", in: app)
+        let stored = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Push at home")).firstMatch
+        XCTAssertTrue(stored.waitForExistence(timeout: 5))
+        stored.tap()
+        let benchPlan = NSPredicate(format: "label BEGINSWITH %@ AND label CONTAINS %@", "Bench", "3 working sets · 6–10 reps")
+        XCTAssertTrue(app.descendants(matching: .any).matching(benchPlan).firstMatch.exists)
+        tap("apply-workout-template", in: app)
+        XCTAssertTrue(app.buttons["dock-log"].isSelected)
+        XCTAssertEqual(element("day-date", in: app).label, date)
+        XCTAssertEqual(selectedExercise(in: app).label, "Bench")
+        XCTAssertTrue(app.buttons["exercise-cable-row"].exists)
+        XCTAssertTrue(element("row-1-weight", in: app).label.contains("—"))
     }
 
     @MainActor
@@ -2725,6 +3240,7 @@ final class LoggerUITests: XCTestCase {
         let app = launch()
         _ = openDay(0, in: app)
         tap("choose-workout", in: app)
+        tap("workout-library-tab-personal", in: app)
         func submitTemplate() {
             element("create-workout-template", in: app).tap()
             let name = element("workout-template-name", in: app)
@@ -2753,6 +3269,7 @@ final class LoggerUITests: XCTestCase {
         app.launch()
         let stored = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "My row day")).firstMatch
         tap("choose-workout", in: app)
+        tap("workout-library-tab-personal", in: app)
         XCTAssertTrue(stored.waitForExistence(timeout: 5))
         attach("Personal workout in the library", app)
         stored.tap()
@@ -2816,6 +3333,12 @@ final class LoggerUITests: XCTestCase {
         app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND selected == YES", "exercise-")).firstMatch
     }
 
+    @MainActor private func openLibraryExercises(in app: XCUIApplication) {
+        tap("dock-library", in: app)
+        let exercises = element("library-exercises", in: app)
+        if !exercises.isSelected { tap("library-exercises", in: app) }
+    }
+
     @MainActor private func openExerciseCatalog(in app: XCUIApplication) {
         tap("add-exercise", in: app)
         tap("browse-all-exercises", in: app)
@@ -2865,7 +3388,7 @@ final class LoggerUITests: XCTestCase {
             if id.hasPrefix("row-") && id.hasSuffix("-details"), let index = id.split(separator: "-").dropFirst().first {
                 let menu = id.contains("-drop-") ? String(id.dropLast("-details".count)) + "-actions" : "set-\(index)-actions"
                 reveal(menu, in: app, file: file, line: line).tap()
-            } else if ["all-exercises", "choose-workout", "hide-exercise-menu"].contains(id) {
+            } else if ["all-exercises", "choose-workout", "day-save-template", "hide-exercise-menu"].contains(id) {
                 reveal("workout-options", in: app, file: file, line: line).tap()
             }
         }
@@ -2908,7 +3431,9 @@ final class LoggerUITests: XCTestCase {
         let filters = app.scrollViews["exercise-filters-scroll"]
         let gymFilters = app.scrollViews["gym-filter-scroll"]
         let customSetup = app.scrollViews["custom-setup-scroll"]
-        let reuse = app.scrollViews["workout-reuse-scroll"]
+        let workoutLibrary = app.scrollViews["workout-library"]
+        let workoutTemplate = app.scrollViews["workout-template-detail"]
+        let recentWorkout = app.scrollViews["recent-workout-detail"]
         let custom = app.scrollViews["custom-exercise-scroll"]
         let dayIndex = app.scrollViews["day-exercises-scroll"]
         let profileSettings = app.scrollViews["profile-settings-scroll"]
@@ -2923,10 +3448,19 @@ final class LoggerUITests: XCTestCase {
         let profile = app.scrollViews["profile-scroll"]
         let learnGuide = app.scrollViews["learn-guide-scroll"]
         let learn = learnGuide.exists ? learnGuide : app.scrollViews["learn-scroll"]
-        let sheetScroll = [customSetup, gymFilters, picker, filters, reuse, custom, dayIndex, profileSettings, goalEditor, details, settings, progress, planEditor, setDetailsEditor, setTypePicker].first { $0.exists }
-        let scroll = sheetScroll ?? [trends, profile, learn, app.scrollViews.firstMatch].first { $0.exists } ?? app.scrollViews.firstMatch
-        let inPageContent = sheetScroll == nil && (trends.exists || profile.exists || learn.exists) && scroll.descendants(matching: .any).matching(identifier: id).firstMatch.exists
-        let inSheetContent = sheetScroll != nil && scroll.descendants(matching: .any).matching(identifier: id).firstMatch.exists
+        let libraryScroll = [workoutLibrary, workoutTemplate, recentWorkout].first { $0.exists }
+        let libraryTab = app.buttons["dock-library"]
+        let isLibraryPage = libraryScroll != nil && libraryTab.exists && libraryTab.isSelected
+        let sheetScrolls = [customSetup, gymFilters, picker, filters, custom, dayIndex, profileSettings, goalEditor,
+                            details, settings, progress, planEditor, setDetailsEditor, setTypePicker]
+        let sheetScroll = sheetScrolls.first { $0.exists } ?? (isLibraryPage ? nil : libraryScroll)
+        let pageScroll = [trends, profile, learn].first { $0.exists } ?? (isLibraryPage ? libraryScroll : nil)
+        let scroll = sheetScroll ?? pageScroll ?? app.scrollViews.firstMatch
+        let isFixedLibraryControl = ["apply-workout-template", "apply-recent-workout", "back-to-workout-library",
+                                     "close-workout-library", "close-workout-reuse"].contains(id)
+        let inScroll = !isFixedLibraryControl && scroll.descendants(matching: .any).matching(identifier: id).firstMatch.exists
+        let inPageContent = sheetScroll == nil && pageScroll != nil && inScroll
+        let inSheetContent = sheetScroll != nil && inScroll
         let isFilterChip = filters.exists && (id.hasPrefix("group-") || id.hasPrefix("equipment-"))
         let filterHeading = app.staticTexts["Filters"].firstMatch
         let clearFilters = app.buttons["clear-exercise-filters"].firstMatch
@@ -2968,7 +3502,14 @@ final class LoggerUITests: XCTestCase {
                     recoveringTarget = true
                 }
                 guard bottom - top > 50 else { break }
-                let distance = min(90, (bottom - top) / 3)
+                let distance: CGFloat
+                if workoutLibrary.exists && target.exists {
+                    // At the largest text size a single workout can span several ordinary rows.
+                    let overflow = upward ? target.frame.maxY - bottom : top - target.frame.minY
+                    distance = min((bottom - top) / 2, max(40, overflow + 16))
+                } else {
+                    distance = min(90, (bottom - top) / 3)
+                }
                 let startY = upward ? top + distance + 16 : top + 16
                 let endY = upward ? top + 16 : top + distance + 16
                 let origin = app.coordinate(withNormalizedOffset: .zero)

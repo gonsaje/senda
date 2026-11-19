@@ -47,7 +47,7 @@ public struct TrainingDayExerciseList: View {
                         } label: {
                             HStack(spacing: 12) {
                                 VStack(alignment: .leading, spacing: 4) {
-                                    Text(exercise.displayName).font(.body.weight(selected ? .semibold : .regular))
+                                    Text(exercise.displayName).font(.body.weight(selected ? .bold : .regular))
                                         .foregroundStyle(NotebookStyle.ink).fixedSize(horizontal: false, vertical: true)
                                     Text(countLabel(count)).font(.caption.monospacedDigit()).foregroundStyle(NotebookStyle.quiet)
                                     if hidden {
@@ -55,12 +55,12 @@ public struct TrainingDayExerciseList: View {
                                             .font(.caption).foregroundStyle(NotebookStyle.clay).fixedSize(horizontal: false, vertical: true)
                                     }
                                 }.frame(maxWidth: .infinity, alignment: .leading)
-                                Image(systemName: selected ? "checkmark" : hidden ? "eye" : "chevron.right")
-                                    .font(.body.weight(selected ? .semibold : .regular))
-                                    .foregroundStyle(selected ? NotebookStyle.clay : NotebookStyle.quiet)
+                                Image(systemName: hidden ? "eye" : "chevron.right")
+                                    .font(.body).foregroundStyle(NotebookStyle.quiet)
                                     .accessibilityHidden(true)
                             }
-                            .padding(.vertical, 14).frame(minHeight: 70)
+                            .padding(.horizontal, 10).padding(.vertical, 14).frame(minHeight: 70)
+                            .background(selected ? NotebookStyle.clay.opacity(0.14) : .clear, in: RoundedRectangle(cornerRadius: 8))
                             .contentShape(Rectangle())
                         }
                         .accessibilityLabel("\(exercise.displayName), \(countLabel(count))\(hidden ? ", Hidden tab, retained work" : "")")
