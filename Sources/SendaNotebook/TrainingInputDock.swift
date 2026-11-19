@@ -5,12 +5,15 @@ import SendaLogger
 struct TrainingInputDock: View {
     @Bindable var model: TrainingNotebookModel
     let focus: TrainingFocus
+    @Binding var weightEntry: TrainingWeightEntrySettings
     var beginInteraction: () -> Void = {}
-    let selectExercise: (String) -> Void
     @FocusState private var typing: Bool
     @AccessibilityFocusState(for: .voiceOver) private var editorFocused: Bool
     @Environment(\.dynamicTypeSize) private var textSize
     @ScaledMetric(relativeTo: .largeTitle) private var numeralSize: CGFloat = 31
+    private var usesPlates: Bool { focus.field == .weight && weightEntry.usesPlates }
+    private var plateSize: Decimal { weightEntry[model.unit] }
+    private var plateDelta: String { (plateSize * Decimal(weightEntry.count)).formatted(.number) }
     private var index: Int { model.setPosition(for: focus.rowID)?.setIndex ?? 1 }
     private var setContext: String {
         let base = "Set \(index)"
@@ -40,14 +43,21 @@ struct TrainingInputDock: View {
         return "\(text) \(unit)"
     }
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: usesPlates && !typing ? 3 : 8) {
             Rectangle().fill(NotebookStyle.rule).frame(height: 0.5)
-            adjacentExercises
             headerLayout {
-                Text(textSize.isAccessibilitySize ? setContext : "\(model.exercise?.displayName ?? "") · \(setContext)")
-                    .font(textSize.isAccessibilitySize ? .caption2 : .caption).foregroundStyle(NotebookStyle.quiet)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityIdentifier("input-set-context")
+                if textSize.isAccessibilitySize && focus.field == .weight {
+                    ViewThatFits(in: .horizontal) {
+                        HStack(alignment: .firstTextBaseline, spacing: 12) {
+                            contextTitle
+                            fieldTitle
+                        }
+                        .fixedSize(horizontal: true, vertical: false)
+                        VStack(alignment: .leading, spacing: 0) { contextTitle; fieldTitle }
+                    }
+                } else {
+                    contextTitle
+                }
                 HStack(spacing: 8) {
                     if !textSize.isAccessibilitySize { Spacer(minLength: 0) }
                     if focus.field == .weight {
@@ -56,7 +66,7 @@ struct TrainingInputDock: View {
                                 Image(systemName: "keyboard.chevron.compact.down")
                                     .frame(width: 44, height: 44).contentShape(Rectangle())
                             }
-                            .accessibilityLabel("Use weight dial")
+                            .accessibilityLabel(usesPlates ? "Use plates" : "Use weight dial")
                             .accessibilityHint("Close the keyboard without changing the value")
                             .accessibilityIdentifier("input-use-dial")
                         }
@@ -92,9 +102,17 @@ struct TrainingInputDock: View {
                     .accessibilityIdentifier("input-done")
                 }
             }
-            Text(fieldLabel).font(.caption.weight(.medium)).foregroundStyle(NotebookStyle.quiet)
-                .frame(maxWidth: .infinity, alignment: .center)
-                .accessibilityIdentifier("input-field-label")
+            if focus.field == .weight {
+                HStack(spacing: 6) {
+                    if !textSize.isAccessibilitySize { fieldTitle }
+                    Spacer(minLength: 0)
+                    modeButton(plates: false)
+                    modeButton(plates: true)
+                    if textSize.isAccessibilitySize { Spacer(minLength: 0) }
+                }
+            } else {
+                fieldTitle.frame(maxWidth: .infinity)
+            }
             if textSize.isAccessibilitySize {
                 valueInput
                 HStack {
@@ -109,9 +127,9 @@ struct TrainingInputDock: View {
                     step(true)
                 }
             }
-            // Typing and the large step controls retain the same adjustments at
-            // accessibility sizes without taking another line of entry space.
-            if focus.field == .weight && !typing && !textSize.isAccessibilitySize {
+            if usesPlates && !typing {
+                TrainingPlateControls(unit: model.unit, settings: $weightEntry)
+            } else if focus.field == .weight && !typing && !textSize.isAccessibilitySize {
                 WeightDialSurface(
                     value: model.focusedRow?.parsedWeight ?? model.focusedRow?.canonicalWeight ?? 0,
                     unit: model.unit,
@@ -120,44 +138,86 @@ struct TrainingInputDock: View {
                 )
                 .id(model.unit)
             }
+            if focus.field == .weight && !typing {
+                if let last = model.lastPlateAdjustment(focus: focus) {
+                    undoPlate(size: last.size, count: last.count)
+                } else if usesPlates {
+                    let equation = "\(plateSize.formatted(.number)) × \(weightEntry.count) = \(plateDelta) \(model.unit.symbol)"
+                    Text(equation)
+                        .font(.caption.monospacedDigit()).foregroundStyle(NotebookStyle.quiet)
+                        .frame(minHeight: 44)
+                        .accessibilityLabel("\(weightEntry.count) \(plateSize.formatted(.number)) \(model.unit.symbol) \(weightEntry.count == 1 ? "plate" : "plates"), \(plateDelta) \(model.unit.symbol) total change")
+                        .accessibilityIdentifier("input-plate-calculation")
+                }
+            }
         }
         .padding(.horizontal, 24).padding(.bottom, 12).frame(maxWidth: 560).frame(maxWidth: .infinity)
-        .background(NotebookStyle.ivory).foregroundStyle(NotebookStyle.ink)
+        .background(NotebookStyle.inputSurface, ignoresSafeAreaEdges: .bottom)
+        .foregroundStyle(NotebookStyle.ink)
         .task {
             await Task.yield()
             if !Task.isCancelled { typing = focus.keyboard; editorFocused = true }
         }
     }
 
-    @ViewBuilder private var adjacentExercises: some View {
-        let exercises = model.tabs
-        if exercises.count > 1, let index = exercises.firstIndex(where: { $0.id == focus.exerciseID }) {
-            HStack(spacing: 8) {
-                if index > 0 { exerciseButton(exercises[index - 1], previous: true) }
-                Spacer(minLength: 4)
-                if index + 1 < exercises.count { exerciseButton(exercises[index + 1], previous: false) }
-            }
-        }
+    private var contextTitle: some View {
+        Text(textSize.isAccessibilitySize ? setContext : "\(model.exercise?.displayName ?? "") · \(setContext)")
+            .font(textSize.isAccessibilitySize ? .caption2 : .caption).foregroundStyle(NotebookStyle.quiet)
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityIdentifier("input-set-context")
     }
 
-    private func exerciseButton(_ exercise: Exercise, previous: Bool) -> some View {
-        Button { selectExercise(exercise.id) } label: {
-            HStack(spacing: 6) {
-                if previous { Image(systemName: "chevron.backward") }
-                Text(exercise.displayName).fixedSize(horizontal: false, vertical: true)
-                if !previous { Image(systemName: "chevron.forward") }
-            }
-            .font(.footnote.weight(.semibold))
-            .frame(minWidth: 44, minHeight: 44)
-            .contentShape(Rectangle())
+    private var fieldTitle: some View {
+        Text(fieldLabel).font(.caption.weight(.medium)).foregroundStyle(NotebookStyle.quiet)
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityIdentifier("input-field-label")
+    }
+
+    private func modeButton(plates: Bool) -> some View {
+        let selected = weightEntry.usesPlates == plates
+        return Button {
+            beginInteraction()
+            weightEntry.usesPlates = plates
+            typing = false
+        } label: {
+            Text(plates ? "Plates" : "Dial")
+                .font(.subheadline.weight(selected ? .semibold : .regular))
+                .fixedSize(horizontal: true, vertical: true)
+                .padding(.horizontal, 6)
+                .frame(minWidth: 44, minHeight: 44)
+                .foregroundStyle(selected ? NotebookStyle.ink : NotebookStyle.quiet)
+                .overlay(alignment: .bottom) {
+                    if selected { Rectangle().fill(NotebookStyle.clay).frame(height: 2) }
+                }
+                .contentShape(Rectangle())
         }
-        .foregroundStyle(NotebookStyle.clay)
-        .accessibilityLabel(previous ? "Previous exercise, \(exercise.displayName)" : "Next exercise, \(exercise.displayName)")
-        .accessibilityIdentifier(previous ? "input-previous-exercise" : "input-next-exercise")
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+        .accessibilityIdentifier(plates ? "input-mode-plates" : "input-mode-dial")
+    }
+
+    private func undoPlate(size: Decimal, count: Int) -> some View {
+        let magnitude = (size * Decimal(abs(count))).formatted(.number)
+        let signed = (count > 0 ? "+" : "−") + magnitude
+        return Button {
+            beginInteraction()
+            if model.undoPlateAdjustment(focus: focus) {
+                TrainingAccessibility.announce("Plate change undone. \(inputAccessibilityValue).")
+            }
+        } label: {
+            Label("Undo \(signed) \(model.unit.symbol)", systemImage: "arrow.uturn.backward")
+                .font(.subheadline.weight(.medium).monospacedDigit())
+                .foregroundStyle(NotebookStyle.clay)
+                .frame(minWidth: 44, minHeight: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Undo \(count > 0 ? "adding" : "removing") \(abs(count)) \(size.formatted(.number)) \(model.unit.symbol) \(abs(count) == 1 ? "plate" : "plates")")
+        .accessibilityIdentifier("input-plate-undo")
     }
 
     private var valueInput: some View {
-                TextField("", text: Binding(
+                TextField(usesPlates ? "0" : "", text: Binding(
                     get: { model.inputText(for: focus) }, set: { beginInteraction(); model.typeInput($0, focus: focus) }))
                     .font(.system(size: numeralSize, weight: .medium).monospacedDigit()).multilineTextAlignment(.center)
                     .textFieldStyle(.plain).numericKeyboard(decimal: focus.field == .weight).focused($typing)
@@ -186,17 +246,34 @@ struct TrainingInputDock: View {
         TrainingAccessibility.announce(message)
     }
     private func step(_ increasing: Bool) -> some View {
-        Button {
+        let count = increasing ? weightEntry.count : -weightEntry.count
+        return Button {
             beginInteraction()
-            if model.stepInput(increasing: increasing, focus: focus) {
+            let changed = usesPlates
+                ? model.adjustPlate(plateSize, count: count, focus: focus)
+                : model.stepInput(increasing: increasing, focus: focus)
+            if changed {
                 if focus.field == .weight { typing = false }
                 if model.errorMessage == nil { TrainingAccessibility.announce(inputAccessibilityValue) }
             }
         } label: {
-            Image(systemName: increasing ? "plus" : "minus").font(.system(size: 22, weight: .light)).frame(width: 50, height: 48)
-                .contentShape(Rectangle())
-        }.accessibilityLabel("\(increasing ? "Increase" : "Decrease") \(focus.field == .weight ? "weight in \(model.unit.symbol)" : "reps")")
-            .accessibilityValue(inputAccessibilityValue)
-            .accessibilityIdentifier(increasing ? "input-increase" : "input-decrease")
+            if usesPlates {
+                Text((increasing ? "+" : "−") + plateDelta)
+                    .font(.body.weight(.semibold).monospacedDigit()).foregroundStyle(NotebookStyle.clay)
+                    .fixedSize(horizontal: true, vertical: true)
+                    .padding(.horizontal, 8).frame(minWidth: 52, minHeight: 48)
+                    .background(NotebookStyle.ivory, in: RoundedRectangle(cornerRadius: 8))
+                    .contentShape(Rectangle())
+            } else {
+                Image(systemName: increasing ? "plus" : "minus").font(.system(size: 22, weight: .light))
+                    .frame(width: 50, height: 48).contentShape(Rectangle())
+            }
+        }
+        .buttonStyle(.plain)
+        .disabled(usesPlates && !model.canAdjustPlate(plateSize, count: count, focus: focus))
+        .accessibilityLabel(usesPlates ? "\(increasing ? "Add" : "Subtract") \(plateDelta) \(model.unit.symbol)"
+            : "\(increasing ? "Increase" : "Decrease") \(focus.field == .weight ? "weight in \(model.unit.symbol)" : "reps")")
+        .accessibilityValue(inputAccessibilityValue)
+        .accessibilityIdentifier(increasing ? "input-increase" : "input-decrease")
     }
 }

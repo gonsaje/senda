@@ -169,42 +169,109 @@ final class LoggerUITests: XCTestCase {
     }
 
     @MainActor
-    func testWorkoutExerciseGridShowsEveryMovementAndAdd() {
+    func testFiveExerciseStripBrowsesWithoutChangingTheOpenSet() {
         let app = launch()
         _ = openDay(0, in: app)
         tap("choose-workout", in: app)
         tap("workout-template-dumbbell-basics", in: app)
         tap("apply-workout-template", in: app)
-        let add = element("add-exercise", in: app)
+        add("Face pull", id: "face-pull", in: app)
+        let strip = app.scrollViews["workout-exercises"]
+        XCTAssertTrue(strip.waitForExistence(timeout: 3))
+        let addButton = app.buttons["add-exercise"]
+        let addFrame = addButton.frame
         let first = app.buttons["exercise-goblet-squat"]
-        let last = app.buttons["exercise-dumbbell-romanian-deadlift"]
+        let last = app.buttons["exercise-face-pull"]
+        XCTAssertTrue(last.isSelected)
+        XCTAssertTrue(tabIsVisible(last, in: strip))
+        XCTAssertFalse(tabIsVisible(first, in: strip))
+        XCTAssertGreaterThanOrEqual(addFrame.width, 44 - 0.01)
+        XCTAssertGreaterThanOrEqual(addFrame.height, 44 - 0.01)
+        XCTAssertGreaterThanOrEqual(addFrame.minX, strip.frame.maxX - 1)
+
+        tap("row-1-weight", in: app)
+        replace("42.", in: app)
+        tap("input-use-dial", in: app)
+        let dial = element("weight-dial", in: app)
+        let editor = app.textFields["set-input"]
+        let dock = app.descendants(matching: .any).matching(identifier: "app-dock").firstMatch
+        XCTAssertTrue(dock.waitForNonExistence(timeout: 3))
+        last.tap()
+        XCTAssertTrue(dial.isHittable)
+        XCTAssertEqual(editor.value as? String, "42.")
+        browse(to: first, in: strip, towardEnd: false)
+        XCTAssertFalse(tabIsVisible(last, in: strip))
+        XCTAssertFalse(first.isSelected)
+        XCTAssertTrue(element("input-set-context", in: app).label.contains("Face pull"))
+        XCTAssertTrue(dial.isHittable)
+        XCTAssertEqual(editor.value as? String, "42.")
+        XCTAssertFalse(dock.exists)
+        XCTAssertEqual(addButton.frame.midX, addFrame.midX, accuracy: 1)
+        XCTAssertTrue(addButton.isHittable)
+        attach("Five exercises · browsing with the weight dial open", app)
+        first.tap()
         XCTAssertTrue(first.isSelected)
-        for id in ["goblet-squat", "dumbbell-bench", "one-arm-dumbbell-row", "dumbbell-romanian-deadlift"] {
-            let movement = app.buttons["exercise-\(id)"]
-            XCTAssertTrue(movement.isHittable)
-            XCTAssertGreaterThanOrEqual(movement.frame.height, 44 - 0.01)
-            XCTAssertGreaterThanOrEqual(movement.frame.minX, app.frame.minX)
-            XCTAssertLessThanOrEqual(movement.frame.maxX, app.frame.maxX)
-        }
-        XCTAssertGreaterThan(last.frame.midY, first.frame.midY)
-        XCTAssertTrue(add.isHittable)
-        XCTAssertGreaterThanOrEqual(add.frame.width, 44 - 0.01)
-        XCTAssertGreaterThanOrEqual(add.frame.height, 44 - 0.01)
-        attach("Workout with all four movements visible", app)
+        XCTAssertTrue(editor.waitForNonExistence(timeout: 3))
+        XCTAssertTrue(dock.waitForExistence(timeout: 3))
+        XCTAssertFalse(element("row-1-weight", in: app).label.contains("42"))
+        tap("row-1-weight", in: app)
+        replace("135", in: app)
+        tap("input-use-dial", in: app)
+        XCTAssertTrue(first.isSelected)
+        XCTAssertTrue(tabIsVisible(first, in: strip))
+        XCTAssertTrue(dial.isHittable)
+        attach("Five exercises · Goblet squat at 135 lb", app)
+        tap("input-done", in: app)
+        browse(to: last, in: strip, towardEnd: true)
+        XCTAssertFalse(last.isSelected)
         last.tap()
         XCTAssertTrue(last.isSelected)
-        add.tap()
+        tap("row-1-weight", in: app)
+        XCTAssertEqual(editor.value as? String, "42.")
+        tap("input-done", in: app)
+        XCTAssertTrue(dock.waitForExistence(timeout: 3))
+
+        addButton.tap()
         XCTAssertTrue(element("workout-inline-search", in: app).exists)
         tap("close-exercise-picker", in: app)
         XCTAssertTrue(last.isSelected)
         XCTAssertFalse(app.buttons["day-workout-library"].exists)
         tap("workout-options", in: app)
         tap("day-save-template", in: app)
-        let editor = app.scrollViews["workout-template-editor"]
-        XCTAssertTrue(editor.waitForExistence(timeout: 3))
-        XCTAssertTrue(editor.staticTexts["Goblet squat"].exists)
+        let template = app.scrollViews["workout-template-editor"]
+        XCTAssertTrue(template.waitForExistence(timeout: 3))
+        XCTAssertTrue(template.staticTexts["Goblet squat"].exists)
         tap("cancel-workout-template", in: app)
         XCTAssertTrue(last.isSelected)
+    }
+
+    @MainActor
+    func testPinnedStripOpensTheFirstSetOfAnotherLongExercise() {
+        let app = launch(extra: ["--sample-data"])
+        tap("previous-week", in: app)
+        _ = openDay(0, in: app)
+        let bench = app.buttons["exercise-bench"]
+        let overhead = app.buttons["exercise-overhead-press"]
+        let strip = app.scrollViews["workout-exercises"]
+        let day = app.scrollViews["day-scroll"]
+        let firstWeight = app.buttons["row-1-weight"]
+        for exercise in [bench, overhead] {
+            exercise.tap()
+            for _ in 0..<6 { tap("repeat-set", in: app) }
+        }
+        day.swipeUp()
+        day.swipeUp()
+        XCTAssertTrue(overhead.isSelected)
+        XCTAssertTrue(tabIsVisible(bench, in: strip))
+        XCTAssertFalse(firstWeight.exists && firstWeight.frame.maxY > strip.frame.maxY,
+                       "The initial set should be above the visible sets before switching.")
+        bench.tap()
+        XCTAssertTrue(bench.isSelected)
+        XCTAssertTrue(firstWeight.isHittable)
+        XCTAssertGreaterThanOrEqual(firstWeight.frame.minY, strip.frame.maxY - 1)
+        firstWeight.tap()
+        XCTAssertTrue(element("weight-dial", in: app).isHittable)
+        XCTAssertEqual(element("input-set-context", in: app).label, "Bench · Set 1")
     }
 
     @MainActor
@@ -220,21 +287,13 @@ final class LoggerUITests: XCTestCase {
         let pinnedFrame = addButton.frame
         let strip = element("workout-exercises", in: app)
         let longTab = app.buttons["exercise-dumbbell-romanian-deadlift"]
-        func fitsInStrip(_ tab: XCUIElement) -> Bool {
-            tab.exists && tab.isHittable && tab.frame.minX >= strip.frame.minX - 1 &&
-                tab.frame.maxX <= strip.frame.maxX + 1
-        }
-        XCTAssertFalse(fitsInStrip(longTab))
-        for _ in 0..<5 {
-            strip.swipeLeft()
-            if fitsInStrip(longTab) { break }
-        }
-        XCTAssertTrue(fitsInStrip(longTab))
+        XCTAssertFalse(tabIsVisible(longTab, in: strip))
+        browse(to: longTab, in: strip, towardEnd: true)
         XCTAssertEqual(addButton.frame.midY, pinnedFrame.midY, accuracy: 1)
         longTab.tap()
         XCTAssertTrue(longTab.isSelected)
         XCTAssertEqual(longTab.label, "Dumbbell Romanian deadlift")
-        XCTAssertTrue(fitsInStrip(longTab))
+        XCTAssertTrue(tabIsVisible(longTab, in: strip))
         XCTAssertGreaterThan(longTab.frame.height, 60, "The long name should wrap at the largest text size.")
         XCTAssertEqual(addButton.frame.midX, pinnedFrame.midX, accuracy: 1)
         XCTAssertEqual(addButton.frame.midY, pinnedFrame.midY, accuracy: 1)
@@ -251,7 +310,7 @@ final class LoggerUITests: XCTestCase {
         let addedTab = app.buttons["exercise-face-pull"]
         XCTAssertTrue(addedTab.isSelected)
         attach("Largest text workout immediately after adding Face pull", app)
-        XCTAssertTrue(fitsInStrip(addedTab),
+        XCTAssertTrue(tabIsVisible(addedTab, in: strip),
                       "Added tab \(addedTab.frame), hittable \(addedTab.isHittable), strip \(strip.frame), Add \(addButton.frame)")
     }
 
@@ -293,10 +352,10 @@ final class LoggerUITests: XCTestCase {
         XCTAssertFalse(app.descendants(matching: .any).matching(identifier: "weight-dial").firstMatch.exists)
         tap("input-use-dial", in: app)
         XCTAssertTrue(keyboard.waitForNonExistence(timeout: 3))
-        XCTAssertTrue(dock.waitForExistence(timeout: 3))
-        XCTAssertTrue(element("weight-dial", in: app).exists)
+        XCTAssertTrue(dock.waitForNonExistence(timeout: 3))
+        XCTAssertTrue(element("weight-dial", in: app).isHittable)
         XCTAssertEqual(element("set-input", in: app).value as? String, "135")
-        attach("Weight ruler with the tab bar restored", app)
+        attach("Weight ruler in place of the tab bar", app)
         replace("135", in: app)
         tap("input-next", in: app)
         XCTAssertTrue(keyboard.waitForExistence(timeout: 3))
@@ -390,13 +449,22 @@ final class LoggerUITests: XCTestCase {
         tap("row-1-weight", in: app)
         replace("31.", in: app)
         XCTAssertTrue(keyboard.waitForExistence(timeout: 3))
-        let next = app.buttons["input-next-exercise"]
-        XCTAssertTrue(next.waitForExistence(timeout: 3))
-        XCTAssertTrue(next.isHittable)
-        XCTAssertTrue(next.label.contains("Cable row"))
-        XCTAssertLessThanOrEqual(next.frame.maxY, editor.frame.minY)
-        attach("Next exercise above the open weight editor", app)
-        next.tap()
+        let strip = app.scrollViews["workout-exercises"]
+        XCTAssertTrue(strip.waitForExistence(timeout: 3))
+        let bench = app.buttons["exercise-bench"]
+        let cableRow = app.buttons["exercise-cable-row"]
+        let dock = app.descendants(matching: .any).matching(identifier: "app-dock").firstMatch
+        XCTAssertTrue(tabIsVisible(bench, in: strip))
+        XCTAssertTrue(tabIsVisible(cableRow, in: strip))
+        XCTAssertEqual(bench.frame.midY, cableRow.frame.midY, accuracy: 1)
+        XCTAssertTrue(bench.isSelected)
+        XCTAssertTrue(dock.waitForNonExistence(timeout: 3))
+        XCTAssertFalse(app.buttons["input-next-exercise"].exists)
+        bench.tap()
+        XCTAssertTrue(keyboard.exists)
+        XCTAssertEqual(editor.value as? String, "31.")
+        attach("Two exercises · typing with both tabs in reach", app)
+        cableRow.tap()
 
         XCTAssertEqual(selectedExercise(in: app).label, "Cable row")
         XCTAssertTrue(editor.waitForNonExistence(timeout: 3))
@@ -406,19 +474,23 @@ final class LoggerUITests: XCTestCase {
         tap("row-1-reps", in: app)
         replace("7", in: app)
         XCTAssertTrue(keyboard.waitForExistence(timeout: 3))
-        let previous = app.buttons["input-previous-exercise"]
-        XCTAssertTrue(previous.waitForExistence(timeout: 3))
-        XCTAssertTrue(previous.isHittable)
-        XCTAssertTrue(previous.label.contains("Bench"))
-        XCTAssertLessThanOrEqual(previous.frame.maxY, editor.frame.minY)
-        attach("Previous exercise above the open reps editor", app)
-        previous.tap()
+        XCTAssertTrue(tabIsVisible(bench, in: strip))
+        XCTAssertFalse(app.buttons["input-previous-exercise"].exists)
+        XCTAssertFalse(dock.exists)
+        bench.tap()
 
         XCTAssertEqual(selectedExercise(in: app).label, "Bench")
         XCTAssertTrue(editor.waitForNonExistence(timeout: 3))
         XCTAssertTrue(keyboard.waitForNonExistence(timeout: 3))
         tap("row-1-weight", in: app)
         XCTAssertEqual(editor.value as? String, "31.")
+        XCTAssertTrue(element("weight-dial", in: app).isHittable)
+        XCTAssertFalse(dock.exists)
+        attach("Two exercises · weight dial", app)
+        tap("input-done", in: app)
+        XCTAssertTrue(dock.waitForExistence(timeout: 3))
+        XCTAssertTrue(bench.isSelected)
+        attach("Two exercises · after Done", app)
     }
 
     @MainActor
@@ -1188,7 +1260,10 @@ final class LoggerUITests: XCTestCase {
         XCTAssertFalse(app.buttons["try-demo"].exists)
         XCTAssertFalse(app.buttons["exit-demo"].exists)
         tap("dock-trends", in: app)
-        XCTAssertTrue(element("trends-strength-chart", in: app).exists)
+        XCTAssertTrue(element("trends-strength-manage", in: app).isHittable)
+        XCTAssertFalse(app.descendants(matching: .any)["trends-strength-chart"].exists)
+        XCTAssertFalse(app.buttons["trends-strength-picker"].exists)
+        attach("Populated Trends before choosing exercises", app)
     }
 
     @MainActor
@@ -2080,6 +2155,138 @@ final class LoggerUITests: XCTestCase {
     }
 
     @MainActor
+    func testPlatePairsAndSinglesKeepExactWeightAndUndoTheLastAdjustment() {
+        let app = launch()
+        _ = openDay(0, in: app)
+        add("Bench", id: "bench", in: app)
+        enter(weight: "135", reps: "8", in: app)
+        tap("input-done", in: app)
+        let confirmation = app.descendants(matching: .any)["first-set-saved"]
+        XCTAssertTrue(confirmation.waitForNonExistence(timeout: 6))
+        tap("row-1-weight", in: app)
+        let dial = app.buttons["input-mode-dial"]
+        let plates = app.buttons["input-mode-plates"]
+        let weight = app.textFields["set-input"]
+        let ruler = app.descendants(matching: .any)["weight-dial"]
+        XCTAssertTrue(dial.isSelected)
+        XCTAssertTrue(ruler.isHittable)
+        attach("Weight entry with Dial selected", app)
+        plates.tap()
+        XCTAssertTrue(plates.isSelected)
+        XCTAssertFalse(dial.isSelected)
+        XCTAssertFalse(ruler.exists)
+        XCTAssertEqual(weight.value as? String, "135")
+
+        let addPlate = app.buttons["input-increase"]
+        let subtractPlate = app.buttons["input-decrease"]
+        let undo = app.buttons["input-plate-undo"]
+        let count = app.buttons["input-plate-count"]
+        let largePlate = app.buttons["input-plate-size-55"]
+        XCTAssertTrue(largePlate.isHittable)
+        largePlate.tap()
+        XCTAssertTrue(largePlate.isSelected)
+        XCTAssertTrue(addPlate.label.contains("110"))
+        XCTAssertTrue(subtractPlate.label.contains("110"))
+        addPlate.tap()
+        XCTAssertEqual(weight.value as? String, "245")
+        XCTAssertTrue(undo.isEnabled)
+        attach("Two 55 lb plates added to a 135 lb set", app)
+        subtractPlate.tap()
+        XCTAssertEqual(weight.value as? String, "135")
+        count.tap()
+        tap("input-plate-count-1", in: app)
+        XCTAssertTrue(addPlate.label.contains("55"))
+        XCTAssertTrue(subtractPlate.label.contains("55"))
+        addPlate.tap()
+        XCTAssertEqual(weight.value as? String, "190")
+        subtractPlate.tap()
+        XCTAssertEqual(weight.value as? String, "135")
+
+        dial.tap()
+        XCTAssertTrue(dial.isSelected)
+        XCTAssertTrue(ruler.isHittable)
+        replace("135.25", in: app)
+        plates.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 3))
+        XCTAssertEqual(weight.value as? String, "135.25")
+        XCTAssertTrue(largePlate.isSelected)
+        addPlate.tap()
+        XCTAssertEqual(weight.value as? String, "190.25")
+        tap("input-plate-size-25", in: app)
+        count.tap()
+        tap("input-plate-count-2", in: app)
+        XCTAssertTrue(addPlate.label.contains("50"))
+        XCTAssertEqual(undo.label, "Undo adding 1 55 lb plate")
+        undo.tap()
+        XCTAssertEqual(weight.value as? String, "135.25")
+        XCTAssertFalse(undo.exists && undo.isEnabled)
+        tap("input-done", in: app)
+        XCTAssertTrue(app.buttons["dock-log"].waitForExistence(timeout: 3))
+        XCTAssertTrue(element("row-1-weight", in: app).label.contains("135.25 lb"))
+        tap("row-1-reps", in: app)
+        XCTAssertFalse(plates.exists)
+        XCTAssertFalse(ruler.exists)
+        tap("input-done", in: app)
+    }
+
+    @MainActor
+    func testLargestTextPlatesInKilogramsCanUndoTheFirstWeight() {
+        let app = launch(extra: ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
+        let day = openDay(0, in: app)
+        add("Bench", id: "bench", in: app)
+        changeUnit("kg", in: app)
+        tap("row-1-reps", in: app)
+        replace("8", in: app)
+        tap("input-done", in: app)
+        tap("row-1-weight", in: app)
+        tap("input-mode-plates", in: app)
+        let weight = app.textFields["set-input"]
+        let before = weight.value as? String
+        XCTAssertTrue(before == "" || before == weight.placeholderValue)
+        let size = app.buttons["input-plate-size-picker"]
+        XCTAssertTrue(size.isHittable)
+        size.tap()
+        let choices = app.scrollViews["input-plate-size-list"]
+        XCTAssertTrue(choices.waitForExistence(timeout: 3))
+        let heavy = app.buttons["input-plate-size-25"]
+        for _ in 0..<5 {
+            if heavy.exists && heavy.isHittable && heavy.frame.minY >= choices.frame.minY - 1
+                && heavy.frame.maxY <= choices.frame.maxY + 1 { break }
+            choices.swipeUp()
+        }
+        XCTAssertTrue(heavy.isHittable, "The 25 kg plate should be reachable inside the size picker.")
+        XCTAssertGreaterThanOrEqual(heavy.frame.height, 44 - 0.01)
+        attach("Scrollable plate sizes at the largest text setting", app)
+        heavy.tap()
+        XCTAssertTrue(choices.waitForNonExistence(timeout: 3))
+        XCTAssertEqual(size.value as? String, "25 kg")
+        XCTAssertEqual(weight.value as? String, before)
+        let minus = app.buttons["input-decrease"]
+        let plus = app.buttons["input-increase"]
+        XCTAssertFalse(minus.isEnabled)
+        XCTAssertTrue(plus.label.contains("50"))
+        plus.tap()
+        XCTAssertEqual(weight.value as? String, "50")
+        XCTAssertTrue(minus.isEnabled)
+        for id in ["input-mode-dial", "input-mode-plates", "input-plate-size-picker", "input-plate-count",
+                   "input-increase", "input-decrease", "input-plate-undo", "input-done"] {
+            let control = app.buttons[id]
+            XCTAssertTrue(control.isHittable, id)
+            XCTAssertFalse(control.label.isEmpty, id)
+            XCTAssertGreaterThanOrEqual(control.frame.width, 44 - 0.01, id)
+            XCTAssertGreaterThanOrEqual(control.frame.height, 44 - 0.01, id)
+        }
+        XCTAssertTrue(app.descendants(matching: .any)["first-set-saved"].waitForNonExistence(timeout: 6))
+        attach("Plates in kilograms at the largest text size", app)
+        tap("input-plate-undo", in: app)
+        XCTAssertEqual(weight.value as? String, before)
+        tap("input-done", in: app)
+        XCTAssertTrue(element("row-1-weight", in: app).label.contains("—"))
+        tap("back-to-week", in: app)
+        XCTAssertTrue(element(day, in: app).label.contains("0 sets"))
+    }
+
+    @MainActor
     func testWeightDialPreservesTypedPrecisionAndSettlesInBothDirections() throws {
         let app = launch()
         tap(todayRowID(), in: app)
@@ -2199,27 +2406,28 @@ final class LoggerUITests: XCTestCase {
         XCTAssertEqual(selectedExercise(in: app).label, "Bench")
         attach("Large text day navigation", app)
         add("Cable row", id: "cable-row", in: app)
-        for id in ["exercise-bench", "exercise-cable-row"] {
-            let movement = reveal(id, in: app)
-            let workout = app.scrollViews["day-scroll"]
-            XCTAssertTrue(movement.isHittable)
+        let strip = app.scrollViews["workout-exercises"]
+        for (id, towardEnd) in [("exercise-bench", false), ("exercise-cable-row", true)] {
+            let movement = app.buttons[id]
+            browse(to: movement, in: strip, towardEnd: towardEnd)
             XCTAssertGreaterThanOrEqual(movement.frame.height, 44 - 0.01)
-            XCTAssertGreaterThanOrEqual(movement.frame.minX, workout.frame.minX)
-            XCTAssertLessThanOrEqual(movement.frame.maxX, workout.frame.maxX)
         }
-        attach("Movement list fits at the largest text size", app)
+        attach("Both exercises are reachable at the largest text size", app)
         tap("all-exercises", in: app)
         _ = element("day-exercises-title", in: app)
         attach("All exercises at large text size", app)
         tap("close-day-exercises", in: app)
         tap("row-1-weight", in: app)
         replace("45", in: app)
-        let previous = app.buttons["input-previous-exercise"]
-        XCTAssertTrue(previous.isHittable)
-        XCTAssertGreaterThanOrEqual(previous.frame.height, 44 - 0.01)
+        let bench = app.buttons["exercise-bench"]
+        browse(to: bench, in: strip, towardEnd: false)
+        XCTAssertGreaterThanOrEqual(bench.frame.height, 44 - 0.01)
         XCTAssertTrue(element("input-done", in: app).isHittable)
+        XCTAssertTrue(app.keyboards.firstMatch.exists)
+        XCTAssertEqual(app.textFields["set-input"].value as? String, "45")
+        XCTAssertFalse(app.buttons["dock-log"].exists)
         attach("Exercise switching with the keyboard at the largest text size", app)
-        previous.tap()
+        bench.tap()
         XCTAssertEqual(selectedExercise(in: app).label, "Bench")
     }
 
@@ -2686,8 +2894,16 @@ final class LoggerUITests: XCTestCase {
         tap("input-done", in: app)
         tap("back-to-week", in: app)
         tap("dock-trends", in: app)
-        attach("Strength Trends overview", app)
-        let picker = element("trends-strength-picker", in: app)
+        XCTAssertTrue(element("trends-strength-manage", in: app).isHittable)
+        XCTAssertFalse(app.descendants(matching: .any)["trends-strength-chart"].exists)
+        attach("Strength Trends before tracking", app)
+        tap("trends-strength-manage", in: app)
+        tap("trends-track-workouts-tab", in: app)
+        tap("trends-track-add-all", in: app)
+        tap("trends-track-done", in: app)
+        let picker = reveal("trends-strength-picker", in: app)
+        picker.tap()
+        tap("trends-strength-exercise-bench", in: app)
         XCTAssertEqual(picker.value as? String, "Bench")
         XCTAssertTrue(element("trends-strength-chart", in: app).label.contains("Bench"))
         XCTAssertTrue(element("trends-strength-latest", in: app).label.contains("145 lb"))
@@ -2708,7 +2924,14 @@ final class LoggerUITests: XCTestCase {
         XCTAssertEqual(picker.value as? String, "Overhead press")
         XCTAssertTrue(element("trends-range-1m", in: app).isSelected)
         tap("trends-range-3m", in: app)
-        picker.tap(); tap("trends-strength-exercise-bench", in: app)
+        picker.tap()
+        let search = app.searchFields.firstMatch
+        XCTAssertTrue(search.waitForExistence(timeout: 3))
+        search.tap()
+        search.typeText("bench\n")
+        let matches = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "trends-strength-exercise-"))
+        XCTAssertEqual(matches.firstMatch.identifier, "trends-strength-exercise-bench")
+        matches.firstMatch.tap()
         tap("trends-strength-history", in: app)
         XCTAssertTrue(app.scrollViews["progress-scroll"].exists)
         XCTAssertTrue(element("progress-chart", in: app).label.contains("Bench"))
@@ -2723,9 +2946,14 @@ final class LoggerUITests: XCTestCase {
         continueAfterFailure = false
         let app = launch(extra: ["--sample-data", "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
         tap("dock-trends", in: app)
-        let picker = reveal("trends-strength-picker", in: app)
-        XCTAssertGreaterThanOrEqual(picker.frame.height, 44 - 0.01)
-        picker.tap(); tap("trends-strength-exercise-bench", in: app)
+        let manage = reveal("trends-strength-manage", in: app)
+        XCTAssertGreaterThanOrEqual(manage.frame.height, 44 - 0.01)
+        manage.tap()
+        let bench = findTrackingExercise("Bench", id: "bench", in: app)
+        XCTAssertGreaterThanOrEqual(bench.frame.height, 44 - 0.01)
+        bench.tap()
+        tap("trends-track-done", in: app)
+        let picker = element("trends-strength-picker", in: app)
         XCTAssertEqual(picker.value as? String, "Bench")
         XCTAssertTrue(element("trends-strength-chart", in: app).label.contains("Bench"))
         attach("Larger Text strength progress", app)
@@ -2756,7 +2984,10 @@ final class LoggerUITests: XCTestCase {
             XCTAssertTrue(element(identifier, in: app).isSelected)
         }
         XCTAssertTrue(element("trends-period-summary", in: app).exists)
-        tap("trends-exercise-bench", in: app)
+        tap("trends-strength-manage", in: app)
+        findTrackingExercise("Bench", id: "bench", in: app).tap()
+        tap("trends-track-done", in: app)
+        tap("trends-strength-history", in: app)
         XCTAssertTrue(app.scrollViews["progress-scroll"].exists)
         XCTAssertTrue(element("progress-range-1y", in: app).isSelected)
         tap("progress-close", in: app)
@@ -2767,6 +2998,108 @@ final class LoggerUITests: XCTestCase {
         XCTAssertEqual(selectedExercise(in: app).label, "Bench")
         XCTAssertTrue(element("row-1-weight", in: app).label.contains("135 lb"))
         attach("Trends preserves the current workout", app)
+    }
+
+    @MainActor
+    func testTrackingAStoredWorkoutOrLoggedDateSelectsItsExercises() throws {
+        let app = launch(extra: ["--sample-data"])
+        tap("previous-week", in: app)
+        let day = String(openDay(0, in: app).dropFirst("day-".count))
+        tap("day-save-template", in: app)
+        let name = element("workout-template-name", in: app)
+        name.tap()
+        name.typeText("Press pair")
+        tap("save-workout-template", in: app)
+        tap("dock-trends", in: app)
+        XCTAssertTrue(app.staticTexts["No exercises tracked yet."].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.buttons["trends-strength-manage"].isHittable)
+        attach("Trends with no tracked exercises", app)
+        tap("trends-strength-manage", in: app)
+        XCTAssertEqual(element("trends-track-count", in: app).label, "0 exercises selected")
+        attach("Strength tracking picker", app)
+        tap("trends-track-workouts-tab", in: app)
+        XCTAssertTrue(element("trends-track-workouts-tab", in: app).isSelected)
+        attach("Workout choices for strength tracking", app)
+        trackingSearch("Press pair", in: app)
+        let stored = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label CONTAINS[cd] %@",
+                                                       "trends-track-workout-", "Press pair")).firstMatch
+        XCTAssertTrue(stored.waitForExistence(timeout: 3))
+        stored.tap()
+        XCTAssertEqual(stored.value as? String, "All exercises selected")
+        XCTAssertTrue(element("trends-track-count", in: app).label.contains("2 exercises selected"))
+        tap("trends-track-cancel", in: app)
+
+        tap("trends-strength-manage", in: app)
+        tap("trends-track-workouts-tab", in: app)
+        let format = DateFormatter()
+        format.locale = Locale(identifier: "en_US_POSIX")
+        format.dateFormat = "yyyy-MM-dd"
+        let date = try XCTUnwrap(format.date(from: day))
+        format.dateFormat = "EEE, MMM d, yyyy"
+        trackingSearch(format.string(from: date), in: app)
+        let logged = app.buttons["trends-track-workout-" + day]
+        XCTAssertTrue(logged.waitForExistence(timeout: 3))
+        XCTAssertTrue(logged.isEnabled)
+        logged.tap()
+        XCTAssertEqual(logged.value as? String, "All exercises selected")
+        attach("A logged workout selected for strength tracking", app)
+        tap("trends-track-done", in: app)
+        tap("trends-strength-picker", in: app)
+        XCTAssertTrue(app.buttons["trends-strength-exercise-bench"].exists)
+        XCTAssertTrue(app.buttons["trends-strength-exercise-overhead-press"].exists)
+        XCTAssertFalse(app.buttons["trends-strength-exercise-deadlift"].exists)
+        tap("trends-strength-exercise-bench", in: app)
+        XCTAssertTrue(element("trends-strength-chart", in: app).label.contains("Bench"))
+        attach("Tracked Bench chart", app)
+    }
+
+    @MainActor
+    func testStrengthTrackingCanBeChosenBeforeLoggingAndPersists() {
+        let app = launch()
+        tap("dock-trends", in: app)
+        let noChart = app.descendants(matching: .any)["trends-strength-chart"]
+        XCTAssertFalse(noChart.exists)
+        tap("trends-strength-manage", in: app)
+        let bench = findTrackingExercise("Bench", id: "bench", in: app)
+        XCTAssertFalse(bench.isSelected)
+        bench.tap()
+        XCTAssertTrue(bench.isSelected)
+        tap("trends-track-cancel", in: app)
+        tap("trends-strength-manage", in: app)
+        _ = findTrackingExercise("Bench", id: "bench", in: app)
+        XCTAssertFalse(bench.isSelected)
+        bench.tap()
+        tap("trends-track-done", in: app)
+        XCTAssertFalse(noChart.exists, "A tracked exercise with no sets should show no chart.")
+        app.terminate()
+        app.launch()
+        let destination = app.buttons["dock-trends"]
+        let ready = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hittable == true"), object: destination)
+        XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 6), .completed)
+        destination.tap()
+        tap("trends-strength-manage", in: app)
+        XCTAssertTrue(findTrackingExercise("Bench", id: "bench", in: app).isSelected)
+        XCTAssertFalse(findTrackingExercise("Squat", id: "squat", in: app).isSelected)
+        tap("trends-track-workouts-tab", in: app)
+        trackingSearch("Upper body", in: app)
+        tap("trends-track-workout-upper-body", in: app)
+        tap("trends-track-done", in: app)
+
+        tap("trends-strength-manage", in: app)
+        XCTAssertTrue(findTrackingExercise("Cable row", id: "cable-row", in: app).isSelected)
+        XCTAssertFalse(findTrackingExercise("Squat", id: "squat", in: app).isSelected)
+        trackingSearch("", in: app)
+        tap("trends-track-add-all", in: app)
+        tap("trends-track-done", in: app)
+        tap("trends-strength-manage", in: app)
+        let squat = findTrackingExercise("Squat", id: "squat", in: app)
+        XCTAssertTrue(squat.isSelected)
+        squat.tap()
+        tap("trends-track-done", in: app)
+        tap("trends-strength-manage", in: app)
+        XCTAssertFalse(findTrackingExercise("Squat", id: "squat", in: app).isSelected)
+        XCTAssertTrue(findTrackingExercise("Cable row", id: "cable-row", in: app).isSelected)
+        tap("trends-track-done", in: app)
     }
 
     @MainActor
@@ -2815,7 +3148,11 @@ final class LoggerUITests: XCTestCase {
         XCTAssertTrue(element("row-1-reps", in: app).label.contains("8 reps"))
         tap("input-done", in: app)
         XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 3))
-        tap("dock-trends", in: app); tap("trends-records-toggle", in: app)
+        tap("dock-trends", in: app)
+        XCTAssertFalse(app.descendants(matching: .any)["big-three-total"].exists)
+        tap("trends-records-toggle", in: app)
+        XCTAssertTrue(app.scrollViews["trends-records-scroll"].waitForExistence(timeout: 3))
+        XCTAssertFalse(app.buttons["trends-range-3m"].exists)
         XCTAssertTrue(element("big-three-total", in: app).label.contains("545 lb"))
         XCTAssertTrue(element("records-pr-bench", in: app).label.contains("135 lb"))
         XCTAssertTrue(element("records-pr-deadlift", in: app).label.contains("225 lb"))
@@ -2823,6 +3160,8 @@ final class LoggerUITests: XCTestCase {
         tap("records-pr-bench", in: app)
         XCTAssertTrue(app.scrollViews["progress-scroll"].exists)
         tap("progress-close", in: app)
+        XCTAssertTrue(app.scrollViews["trends-records-scroll"].exists)
+        app.navigationBars.buttons["Trends"].tap()
         XCTAssertTrue(app.scrollViews["trends-scroll"].exists)
         tap("dock-log", in: app)
         XCTAssertEqual(selectedExercise(in: app).label, "Squat")
@@ -2835,7 +3174,7 @@ final class LoggerUITests: XCTestCase {
         tap("history-return-workout", in: app)
         XCTAssertEqual(selectedExercise(in: app).label, "Squat")
         tap("dock-trends", in: app)
-        tap("trends-records-toggle", in: app)
+        if !app.scrollViews["trends-records-scroll"].exists { tap("trends-records-toggle", in: app) }
         XCTAssertTrue(element("big-three-total", in: app).label.contains("555 lb"))
         XCTAssertTrue(element("records-pr-bench", in: app).label.contains("145 lb"))
         tap("dock-profile", in: app)
@@ -2857,10 +3196,10 @@ final class LoggerUITests: XCTestCase {
         }
         attach("Larger Text Trends overview", app)
         tap("trends-records-toggle", in: app)
-        XCTAssertEqual(element("trends-records-toggle", in: app).value as? String, "Expanded")
+        XCTAssertTrue(app.scrollViews["trends-records-scroll"].waitForExistence(timeout: 3))
         XCTAssertTrue(element("big-three-total", in: app).exists)
         attach("Larger Text all-time records", app)
-        tap("trends-records-toggle", in: app)
+        app.navigationBars.buttons["Trends"].tap()
         tap("trends-history", in: app)
         XCTAssertTrue(element("progress-search", in: app).exists)
         tap("progress-exercise-bench", in: app)
@@ -3040,9 +3379,10 @@ final class LoggerUITests: XCTestCase {
         tap("trends-range-1m", in: app)
         let records = element("trends-records-toggle", in: app)
         records.tap()
-        XCTAssertEqual(records.value as? String, "Expanded")
+        XCTAssertTrue(app.scrollViews["trends-records-scroll"].waitForExistence(timeout: 3))
         tap("dock-trends", in: app)
-        XCTAssertEqual(records.value as? String, "Collapsed")
+        XCTAssertTrue(app.scrollViews["trends-records-scroll"].waitForNonExistence(timeout: 3))
+        XCTAssertTrue(records.isHittable)
         XCTAssertTrue(element("trends-range-1m", in: app).isSelected)
         app.terminate()
 
@@ -3138,9 +3478,12 @@ final class LoggerUITests: XCTestCase {
         XCTAssertTrue(app.buttons["dock-log"].isSelected)
         XCTAssertEqual(selectedExercise(in: app).label, "Bench")
         XCTAssertFalse(app.descendants(matching: .any)["first-workout-example"].exists)
+        let strip = app.scrollViews["workout-exercises"]
         for id in ["bench", "overhead-press", "lateral-raise", "triceps-extension"] {
-            XCTAssertTrue(app.buttons["exercise-" + id].isHittable, id)
+            browse(to: app.buttons["exercise-" + id], in: strip, towardEnd: true)
         }
+        browse(to: app.buttons["exercise-bench"], in: strip, towardEnd: false)
+        XCTAssertTrue(app.buttons["exercise-bench"].isSelected)
         XCTAssertTrue(element("row-1-weight", in: app).label.contains("—"))
         attach("Push workout before logging", app)
         tap("back-to-week", in: app)
@@ -3333,6 +3676,49 @@ final class LoggerUITests: XCTestCase {
         app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND selected == YES", "exercise-")).firstMatch
     }
 
+    @MainActor private func tabIsVisible(_ tab: XCUIElement, in strip: XCUIElement) -> Bool {
+        tab.exists && tab.isHittable && tab.frame.minX >= strip.frame.minX - 1
+            && tab.frame.maxX <= strip.frame.maxX + 1
+    }
+
+    @MainActor private func browse(to tab: XCUIElement, in strip: XCUIElement, towardEnd: Bool,
+                                   file: StaticString = #filePath, line: UInt = #line) {
+        for _ in 0..<10 {
+            if tabIsVisible(tab, in: strip) { return }
+            let viewport = strip.frame
+            let maximum = viewport.width * 0.65
+            var delta = towardEnd ? maximum : -maximum
+            if tab.exists && !tab.frame.isEmpty {
+                if tab.frame.minX < viewport.minX {
+                    delta = -min(maximum, max(16, viewport.minX - tab.frame.minX + 2))
+                } else if tab.frame.maxX > viewport.maxX {
+                    delta = min(maximum, max(16, tab.frame.maxX - viewport.maxX + 2))
+                }
+            }
+            // Full swipes can fly past a middle tab. Stop the finger at the visible edge.
+            let middle = strip.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            middle.withOffset(CGVector(dx: delta / 2, dy: 0)).press(forDuration: 0.05,
+                thenDragTo: middle.withOffset(CGVector(dx: -delta / 2, dy: 0)),
+                withVelocity: .slow, thenHoldForDuration: 0.2)
+        }
+        XCTAssertTrue(tabIsVisible(tab, in: strip),
+                      "Couldn't reveal \(tab.identifier) at \(tab.frame) inside \(strip.frame)",
+                      file: file, line: line)
+    }
+
+    @MainActor private func trackingSearch(_ query: String, in app: XCUIApplication) {
+        let search = element("trends-track-search", in: app)
+        search.tap()
+        let value = search.value as? String ?? ""
+        let current = value == search.placeholderValue ? "" : value
+        search.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: current.count) + query + "\n")
+    }
+
+    @MainActor private func findTrackingExercise(_ name: String, id: String, in app: XCUIApplication) -> XCUIElement {
+        trackingSearch(name, in: app)
+        return app.buttons["trends-track-exercise-" + id]
+    }
+
     @MainActor private func openLibraryExercises(in app: XCUIApplication) {
         tap("dock-library", in: app)
         let exercises = element("library-exercises", in: app)
@@ -3403,9 +3789,17 @@ final class LoggerUITests: XCTestCase {
         let inDay = day.descendants(matching: .any).matching(identifier: id).firstMatch.exists
         let inControls = controls.descendants(matching: .any).matching(identifier: id).firstMatch.exists
         if inDay && !inControls {
+            let strip = app.scrollViews["workout-exercises"]
+            let headerControls = ["workout-exercises", "add-exercise", "day-title", "day-date",
+                                  "previous-day", "next-day", "go-to-today", "back-to-week"]
+            let isTab = strip.buttons.matching(identifier: id).firstMatch.exists
             for _ in 0..<6 {
                 let viewport = app.frame.intersection(day.frame)
-                let top = max(viewport.minY, app.frame.minY + 59)
+                let safeTop = max(viewport.minY, app.frame.minY + 59)
+                // XCTest can mark an underlying row hittable while the pinned tabs cover its tap point.
+                let stripPinned = strip.exists && strip.frame.minY <= safeTop + 6
+                let top = stripPinned && !isTab && !headerControls.contains(id)
+                    ? max(safeTop, strip.frame.maxY + 2) : safeTop
                 let keyboard = app.keyboards.firstMatch
                 let bottom = min(viewport.maxY, app.frame.maxY - 30,
                                  controls.exists && controls.frame.height > 0 ? controls.frame.minY - 4 : viewport.maxY,
@@ -3454,7 +3848,8 @@ final class LoggerUITests: XCTestCase {
         let sheetScrolls = [customSetup, gymFilters, picker, filters, custom, dayIndex, profileSettings, goalEditor,
                             details, settings, progress, planEditor, setDetailsEditor, setTypePicker]
         let sheetScroll = sheetScrolls.first { $0.exists } ?? (isLibraryPage ? nil : libraryScroll)
-        let pageScroll = [trends, profile, learn].first { $0.exists } ?? (isLibraryPage ? libraryScroll : nil)
+        let records = app.scrollViews["trends-records-scroll"]
+        let pageScroll = [records, trends, profile, learn].first { $0.exists } ?? (isLibraryPage ? libraryScroll : nil)
         let scroll = sheetScroll ?? pageScroll ?? app.scrollViews.firstMatch
         let isFixedLibraryControl = ["apply-workout-template", "apply-recent-workout", "back-to-workout-library",
                                      "close-workout-library", "close-workout-reuse"].contains(id)

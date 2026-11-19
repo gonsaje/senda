@@ -5,95 +5,124 @@ import SendaLogger
 struct TrainingWorkoutExerciseList<Add: View>: View {
     let exercises: [Exercise]
     let selectedID: String?
-    let select: (String) -> Void
+    let select: (String) -> Bool
     @ViewBuilder let add: () -> Add
-    @Environment(\.dynamicTypeSize) private var textSize
-    @State private var visibleID: String?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.layoutDirection) private var layoutDirection
+    @FocusState private var keyboardExercise: String?
+    @Namespace private var underline
     @State private var viewportWidth: CGFloat = .infinity
+    @State private var overflowEdges: Edge.Set = []
 
-    init(exercises: [Exercise], selectedID: String?, select: @escaping (String) -> Void,
-         @ViewBuilder add: @escaping () -> Add) {
-        self.exercises = exercises
-        self.selectedID = selectedID
-        self.select = select
-        self.add = add
-        _visibleID = State(initialValue: selectedID)
+    private var selectionAnimation: Animation? {
+        reduceMotion ? nil : .easeOut(duration: 0.22)
     }
 
     var body: some View {
-        if exercises.count <= 6 && !textSize.isAccessibilitySize {
-            VStack(alignment: .leading, spacing: 0) {
-                HStack {
-                    Text("Exercises").font(NotebookTypography.heading(17, relativeTo: .headline)).accessibilityAddTraits(.isHeader)
-                    Spacer()
-                    add()
-                }
-                Divider()
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: min(2, exercises.count)),
-                          alignment: .leading, spacing: 0) {
-                    ForEach(exercises) { exercise in
-                        tab(exercise, fillsColumn: true)
-                            .overlay(alignment: .bottom) { exerciseRule }
+        let leftToRight = layoutDirection == .leftToRight
+        HStack(spacing: 4) {
+            ScrollViewReader { reader in
+                ScrollView(.horizontal) {
+                    HStack(alignment: .bottom, spacing: 16) {
+                        ForEach(exercises) { exercise in
+                            ExerciseTabWidth(limit: viewportWidth) {
+                                tab(exercise)
+                            }.id(exercise.id)
+                        }
                     }
-                }.accessibilityIdentifier("workout-exercises")
-            }
-        } else {
-            HStack(alignment: .top, spacing: 8) {
-                scrollingTabs
-                add().fixedSize()
-            }
-            .overlay(alignment: .bottom) { exerciseRule }
-        }
-    }
-
-    private var exerciseRule: some View {
-        Rectangle().fill(NotebookStyle.rule).frame(height: 0.5).accessibilityHidden(true)
-    }
-
-    private var scrollingTabs: some View {
-        ScrollView(.horizontal) {
-            HStack(alignment: .top, spacing: 8) {
-                ForEach(exercises) { exercise in
-                    ExerciseTabWidth(limit: viewportWidth) {
-                        tab(exercise, fillsColumn: false)
-                    }.id(exercise.id)
+                    .animation(selectionAnimation, value: selectedID)
+                    .onGeometryChange(for: Edge.Set.self) { geometry in
+                        guard let visible = geometry.bounds(of: .scrollView(axis: .horizontal)),
+                              geometry.size.width > visible.width + 1 else { return [] }
+                        var edges: Edge.Set = []
+                        if visible.minX > 1 { edges.insert(leftToRight ? .leading : .trailing) }
+                        if visible.maxX < geometry.size.width - 1 { edges.insert(leftToRight ? .trailing : .leading) }
+                        return edges
+                    } action: { overflowEdges = $0 }
                 }
+                .scrollIndicators(.hidden)
+                .scrollDismissesKeyboard(.never)
+                .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { width in
+                    if width > 0 { viewportWidth = width }
+                }
+                .onChange(of: selectedID, initial: true) { old, id in
+                    guard let id else { return }
+                    // Browsing the scroll view never writes back to the selected exercise.
+                    withAnimation(old == nil || old == id ? nil : selectionAnimation) {
+                        reader.scrollTo(id)
+                    }
+                }
+                .overlay(alignment: .leading) { if overflowEdges.contains(.leading) { overflowLip(at: .leading) } }
+                .overlay(alignment: .trailing) { if overflowEdges.contains(.trailing) { overflowLip(at: .trailing) } }
+                .accessibilityIdentifier("workout-exercises")
             }
-            .scrollTargetLayout()
+            add().fixedSize()
         }
-        .scrollIndicators(.visible, axes: .horizontal)
-        .scrollIndicatorsFlash(onAppear: true)
-        .scrollPosition(id: $visibleID, anchor: .center)
-        .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { width in
-            if width > 0 { viewportWidth = width }
+        .background(alignment: .bottom) {
+            Rectangle().fill(NotebookStyle.rule).frame(height: 0.5).accessibilityHidden(true)
         }
-        .onChange(of: selectedID) { _, id in visibleID = id }
-        .accessibilityIdentifier("workout-exercises")
     }
 
-    private func tab(_ exercise: Exercise, fillsColumn: Bool) -> some View {
+    private func overflowLip(at edge: HorizontalEdge) -> some View {
+        let leading = edge == .leading
+        let fromLeft = leading == (layoutDirection == .leftToRight)
+        let surface = RoundedRectangle(cornerRadius: 6, style: .continuous)
+        return LinearGradient(colors: [NotebookStyle.ivory, NotebookStyle.ivory.opacity(0)],
+                              startPoint: fromLeft ? .leading : .trailing, endPoint: fromLeft ? .trailing : .leading)
+            .frame(width: 16)
+            .overlay(alignment: leading ? .leading : .trailing) {
+                // Only the inner four points of the stationary surface meet the scrolling labels.
+                surface.fill(NotebookStyle.ivory)
+                    .overlay { surface.strokeBorder(NotebookStyle.tabEdgeHighlight, lineWidth: 0.5) }
+                    .shadow(color: NotebookStyle.tabEdgeShadow, radius: 3.5)
+                    .frame(width: 22)
+                    .padding(leading ? .leading : .trailing, -18)
+                    .padding(.vertical, 4)
+            }
+            .clipped()
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
+
+    private func tab(_ exercise: Exercise) -> some View {
         let selected = exercise.id == selectedID
-        return Button { select(exercise.id) } label: {
-            // Both weights size the tab so a selection change cannot shift its neighbors.
-            ZStack(alignment: .topLeading) {
-                Text(exercise.displayName).font(.subheadline)
-                    .opacity(selected ? 0 : 1)
-                Text(exercise.displayName).font(.subheadline.bold())
-                    .opacity(selected ? 1 : 0)
+        let font = NotebookTypography.heading(18, relativeTo: .headline)
+        return Button { _ = select(exercise.id) } label: {
+            // Reserve both label widths so changing weight never moves another tab.
+            ZStack(alignment: .leading) {
+                Text(exercise.displayName).font(font.weight(.regular)).opacity(selected ? 0 : 1)
+                Text(exercise.displayName).font(font).opacity(selected ? 1 : 0)
             }
             .fixedSize(horizontal: false, vertical: true)
             .multilineTextAlignment(.leading)
-            .padding(.horizontal, 8).padding(.vertical, 5)
-            .foregroundStyle(selected ? NotebookStyle.ivory : NotebookStyle.quiet)
-            .background(selected ? NotebookStyle.ink : .clear, in: RoundedRectangle(cornerRadius: 8))
-            .frame(minWidth: 44, maxWidth: fillsColumn ? .infinity : nil, minHeight: 44, alignment: .leading)
+            .padding(.horizontal, 2).padding(.vertical, 7)
+            .frame(minWidth: 44, minHeight: 46, alignment: .leading)
+            .foregroundStyle(selected ? NotebookStyle.ink : NotebookStyle.quiet)
             .contentShape(Rectangle())
+            .overlay(alignment: .bottom) {
+                if selected {
+                    Capsule().fill(NotebookStyle.clay).frame(height: 3)
+                        .matchedGeometryEffect(id: "selection", in: underline)
+                        .transition(.identity)
+                        .allowsHitTesting(false).accessibilityHidden(true)
+                }
+            }
         }
+        .buttonStyle(.plain)
         .accessibilityLabel(exercise.displayName)
-        .accessibilityAddTraits(selected ? .isSelected : [])
+        .accessibilityAddTraits(selected ? [.isSelected, .isHeader] : [])
         .accessibilityIdentifier("exercise-\(exercise.id)")
+        .focused($keyboardExercise, equals: exercise.id)
+        .onKeyPress(keys: [.leftArrow, .rightArrow]) { key in
+            guard let index = exercises.firstIndex(where: { $0.id == exercise.id }) else { return .ignored }
+            let forward = (key.key == .rightArrow) == (layoutDirection == .leftToRight)
+            let next = index + (forward ? 1 : -1)
+            if exercises.indices.contains(next), select(exercises[next].id) { keyboardExercise = exercises[next].id }
+            return .handled
+        }
     }
 }
+
 
 /// A horizontal scroll view proposes unlimited width. Give long names a finite
 /// text layout proposal while letting shorter tabs keep their natural widths.

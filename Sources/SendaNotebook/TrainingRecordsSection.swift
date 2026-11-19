@@ -2,6 +2,36 @@ import SwiftUI
 import SendaDomain
 import SendaLogger
 
+struct TrainingRecordsView: View {
+    let model: TrainingNotebookModel
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                Text("All-time records")
+                    .font(NotebookTypography.heading(31))
+                    .accessibilityAddTraits(.isHeader)
+                    .fixedSize(horizontal: false, vertical: true)
+                TrainingRecordsSection(model: model)
+            }
+            .padding(24)
+            .frame(maxWidth: 600, alignment: .leading)
+            .frame(maxWidth: .infinity)
+        }
+        .scrollIndicators(.never)
+        .background(NotebookStyle.ivory)
+        .foregroundStyle(NotebookStyle.ink)
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("trends-records-scroll")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.visible, for: .navigationBar)
+        .toolbarBackground(NotebookStyle.ivory, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
+        #endif
+    }
+}
+
 struct TrainingRecordsSection: View {
     @Bindable var model: TrainingNotebookModel
     @Environment(\.dynamicTypeSize) private var textSize

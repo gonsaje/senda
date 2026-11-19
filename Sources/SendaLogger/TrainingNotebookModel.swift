@@ -142,6 +142,27 @@ public enum TrainingRowStatus: Equatable, Sendable { case empty, unfinished, rec
         let onSuccess: (() -> Void)?
     }
     private var pendingSave: PendingSave?
+    private var plateUndo: PlateUndo?
+
+    private struct PlateUndo {
+        let day: TrainingDay
+        let exerciseID: String
+        let size: Decimal
+        let count: Int
+        let before: TrainingRow
+        let recordedBefore: SetValues?
+        let after: TrainingRow
+
+        func matches(_ row: TrainingRow?) -> Bool {
+            guard let row, row.id == after.id, row.unit == after.unit, row.actionID == after.actionID,
+                  row.weight == after.weight, row.parsedWeight == after.parsedWeight,
+                  row.performedSetID == after.performedSetID else { return false }
+            if row.reps == after.reps { return true }
+            // Finishing the editor can normalize leading zeros without changing a set.
+            guard let reps = NumericField.reps.parse(row.reps) else { return false }
+            return reps == NumericField.reps.parse(after.reps)
+        }
+    }
 
     public init(repository: any JournalRepository, isSample: Bool = false, calendar: Calendar = .current,
                 now: @escaping () -> Date = Date.init, profileRepository: (any ProfileRepository)? = nil,
@@ -229,6 +250,7 @@ public enum TrainingRowStatus: Equatable, Sendable { case empty, unfinished, rec
                 ? try NotebookArchive(snapshot: snapshot, profile: profile.details, createdAt: now()).validated() : nil
             try restoreStore.restore(archive, current: current)
             snapshot = archive.snapshot; lastWritten = archive.snapshot
+            plateUndo = nil
             if !archive.snapshot.journal.batches.isEmpty { hasSavedFirstSet = true }
             pendingSave = nil; pendingProfileAction = nil; revealRowID = nil
             errorMessage = nil; backupErrorMessage = nil; backupRecoveryRequired = false
@@ -259,6 +281,19 @@ public enum TrainingRowStatus: Equatable, Sendable { case empty, unfinished, rec
         journal.personalRecords.sorted { exercise($0.exerciseID).name.localizedStandardCompare(exercise($1.exerciseID).name) == .orderedAscending }
     }
     public var bigThreeProgress: BigThreeProgress { journal.bigThreeProgress }
+    public var trackedStrengthExerciseIDs: [String] {
+        Self.orderedStrengthExerciseIDs(workspace.trackedStrengthExerciseIDs ?? [])
+    }
+    @discardableResult public func setTrackedStrengthExercises(_ ids: [String]) -> Bool {
+        guard !canRetrySave else { return false }
+        let selection = Self.orderedStrengthExerciseIDs(ids)
+        guard selection != trackedStrengthExerciseIDs else { return true }
+        return commit(synchronizeInput: false) { $0.training!.trackedStrengthExerciseIDs = selection }
+    }
+    private static func orderedStrengthExerciseIDs(_ ids: [String]) -> [String] {
+        var seen = Set<String>()
+        return ids.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && seen.insert($0).inserted }
+    }
     @discardableResult public func openProgress(for exerciseID: String? = nil, on day: TrainingDay? = nil,
                                                highlighting setID: UUID? = nil) -> Bool {
         if let exerciseID, !exercises.contains(where: { $0.id == exerciseID }) {
@@ -519,9 +554,12 @@ public enum TrainingRowStatus: Equatable, Sendable { case empty, unfinished, rec
         let trained = Set(performed.map { exercise($0).group })
         return TrainingDaySummary(exercises: performed.map { exercise($0).name },
             muscleGroups: MuscleGroup.allCases.filter { trained.contains($0) },
-            setCount: workout.rows.values.reduce(0) { count, rows in
-                count + TrainingSetEntry.grouping(rows).filter { $0.rows.contains { $0.performedSetID != nil } }.count
-            })
+            setCount: recordedSetCount(in: workout))
+    }
+    private func recordedSetCount(in workout: DayWorkout) -> Int {
+        workout.rows.values.reduce(0) { count, rows in
+            count + TrainingSetEntry.grouping(rows).filter { $0.rows.contains { $0.performedSetID != nil } }.count
+        }
     }
     public var lastReference: TrainingPerformanceReference? {
         guard let selectedDay else { return nil }
@@ -581,12 +619,15 @@ public enum TrainingRowStatus: Equatable, Sendable { case empty, unfinished, rec
     }
     public func indexedExercises(on day: TrainingDay) -> [Exercise] {
         guard let workout = workspace.days[day.rawValue] else { return [] }
+        return indexedExerciseIDs(in: workout).map { exercise($0) }
+    }
+    private func indexedExerciseIDs(in workout: DayWorkout) -> [String] {
         let hidden = workout.rows.keys.sorted().filter { id in
             !workout.exerciseIDs.contains(id) && workout.rows[id]?.contains {
                 $0.performedSetID != nil || !$0.weight.isEmpty || !$0.reps.isEmpty
             } == true
         }
-        return (workout.exerciseIDs + hidden).map { exercise($0) }
+        return workout.exerciseIDs + hidden
     }
 
     public var starterWorkouts: [WorkoutTemplate] {
@@ -666,11 +707,11 @@ public enum TrainingRowStatus: Equatable, Sendable { case empty, unfinished, rec
     }
 
     public func reusableWorkouts(before destination: TrainingDay) -> [TrainingWorkoutStructure] {
-        return workspace.days.keys.sorted(by: >).compactMap { key in
+        workspace.days.sorted { $0.key > $1.key }.compactMap { key, workout in
             guard let day = try? TrainingDay(key), day < destination else { return nil }
-            let count = summary(for: day).setCount
+            let count = recordedSetCount(in: workout)
             guard count > 0 else { return nil }
-            return TrainingWorkoutStructure(day: day, exerciseIDs: indexedExercises(on: day).map(\.id), recordedSetCount: count)
+            return TrainingWorkoutStructure(day: day, exerciseIDs: indexedExerciseIDs(in: workout), recordedSetCount: count)
         }
     }
     @discardableResult public func reuseWorkout(from day: TrainingDay, on destination: TrainingDay? = nil) -> Bool {
@@ -1193,13 +1234,71 @@ public enum TrainingRowStatus: Equatable, Sendable { case empty, unfinished, rec
         return true
     }
     @discardableResult public func setInputWeight(_ weight: Int, focus token: TrainingFocus) -> Bool {
-        guard focus?.id == token.id, token.field == .weight, NumericField.weight.range.contains(weight) else { return false }
-        return writeSet(token.rowID, recover: true) { state in
+        writeInputWeight(weight, focus: token, recover: true)
+    }
+    private func writeInputWeight(_ weight: Int, focus token: TrainingFocus, recover: Bool,
+                                  onSuccess: (() -> Void)? = nil) -> Bool {
+        guard focus == token, token.field == .weight, NumericField.weight.range.contains(weight) else { return false }
+        return writeSet(token.rowID, recover: recover, onSuccess: onSuccess) { state in
             var rows = state.training!.days[token.day.rawValue]!.rows[token.exerciseID]!
             let index = rows.firstIndex { $0.id == token.rowID }!
             rows[index].canonicalWeight = weight; rows[index].weightIsDirty = false; rows[index].weight = rows[index].unit.text(for: weight)
             updateCorrection(&rows[index], exerciseID: token.exerciseID, journal: state.journal)
             state.training!.days[token.day.rawValue]!.rows[token.exerciseID] = rows; state.training!.undo = nil
+        }
+    }
+    private func adjustedPlateWeight(_ size: Decimal, count: Int, focus token: TrainingFocus) -> Int? {
+        guard !canRetrySave, !backupRecoveryRequired, focus == token, token.field == .weight,
+              let row = focusedRow, [-2, -1, 1, 2].contains(count), row.unit.plateSizes.contains(size),
+              let current = row.weight.isEmpty ? 0 : row.parsedWeight else { return nil }
+        let change = size * Decimal(count)
+        let target = row.unit.displayedAmount(for: current) + change
+        // A reverse move can recover extra precision from a prior lb-to-kg conversion.
+        if target > 0, let undo = plateUndo, undo.matches(row),
+           undo.size * Decimal(undo.count) == -change, let previous = undo.before.parsedWeight {
+            return previous
+        }
+        return row.unit.canonicalValue(for: target)
+    }
+    public func canAdjustPlate(_ size: Decimal, count: Int, focus token: TrainingFocus) -> Bool {
+        adjustedPlateWeight(size, count: count, focus: token) != nil
+    }
+    @discardableResult public func adjustPlate(_ size: Decimal, count: Int, focus token: TrainingFocus) -> Bool {
+        guard let weight = adjustedPlateWeight(size, count: count, focus: token), let before = focusedRow else { return false }
+        let recordedBefore = recordedValues(for: before)
+        return writeInputWeight(weight, focus: token, recover: false) { [weak self] in
+            guard let self, let after = self.focusedRow else { return }
+            self.plateUndo = PlateUndo(day: token.day, exerciseID: token.exerciseID, size: size, count: count,
+                                      before: before, recordedBefore: recordedBefore, after: after)
+        }
+    }
+    public func lastPlateAdjustment(focus token: TrainingFocus) -> (size: Decimal, count: Int)? {
+        guard !canRetrySave, focus == token, token.field == .weight, let undo = plateUndo,
+              undo.day == token.day, undo.exerciseID == token.exerciseID, undo.matches(focusedRow) else { return nil }
+        return (undo.size, undo.count)
+    }
+    @discardableResult public func undoPlateAdjustment(focus token: TrainingFocus) -> Bool {
+        guard lastPlateAdjustment(focus: token) != nil, let undo = plateUndo else { return false }
+        return commit(synchronizeInput: false, onSuccess: { [weak self] in self?.plateUndo = nil }) { state in
+            guard var rows = state.training!.days[token.day.rawValue]?.rows[token.exerciseID],
+                  let index = rows.firstIndex(where: { $0.id == token.rowID }) else { throw TrainingError.missingRow }
+            var row = rows[index]
+            if let performed = row.performedSetID {
+                if let recorded = undo.recordedBefore {
+                    _ = try state.journal.updateSet(performed, values: recorded)
+                } else {
+                    _ = try state.journal.removeSet(performed)
+                    // The journal retains an undo receipt. The restored draft needs a fresh record action.
+                    row.actionID = UUID()
+                }
+            }
+            row.performedSetID = undo.before.performedSetID
+            row.weight = undo.before.weight
+            row.canonicalWeight = undo.before.canonicalWeight
+            row.weightIsDirty = undo.before.weightIsDirty
+            row.pendingCorrection = undo.before.pendingCorrection
+            rows[index] = row
+            state.training!.days[token.day.rawValue]!.rows[token.exerciseID] = rows
         }
     }
     public func dismissError() { errorMessage = nil }
@@ -1211,11 +1310,13 @@ public enum TrainingRowStatus: Equatable, Sendable { case empty, unfinished, rec
         return (day, id)
     }
     /// Publish only a direct numeric edit that reaches storage, including a successful retry.
-    private func writeSet(_ rowID: UUID, recover: Bool = false, _ update: (inout JournalSnapshot) throws -> Void) -> Bool {
+    private func writeSet(_ rowID: UUID, recover: Bool = false, onSuccess: (() -> Void)? = nil,
+                          _ update: (inout JournalSnapshot) throws -> Void) -> Bool {
         guard let selectedDay, let exerciseID = exercise?.id,
               let row = rows.first(where: { $0.id == rowID }) else { return false }
         let before = recordedValues(for: row)
         return commit(recover: recover, onSuccess: { [weak self] in
+            onSuccess?()
             guard let self, let saved = self.workspace.days[selectedDay.rawValue]?.rows[exerciseID]?.first(where: { $0.id == rowID }),
                   let reference = self.recordedReference(saved, exerciseID: exerciseID, day: selectedDay),
                   reference.values != before else { return }
@@ -1258,6 +1359,10 @@ public enum TrainingRowStatus: Equatable, Sendable { case empty, unfinished, rec
             // Retry always reaches storage, including while writes remain unavailable.
             try repository.saveValidatedSnapshot(transaction.checked)
             lastWritten = transaction.checked.snapshot; snapshot = transaction.checked.snapshot
+            if let undo = plateUndo {
+                let current = workspace.days[undo.day.rawValue]?.rows[undo.exerciseID]?.first { $0.id == undo.after.id }
+                if !undo.matches(current) { plateUndo = nil }
+            }
             if !hasSavedFirstSet && !transaction.checked.snapshot.journal.batches.isEmpty { hasSavedFirstSet = true }
             pendingSave = nil; pendingProfileAction = nil; pendingProgressAction = false; errorMessage = nil
             transaction.onSuccess?()

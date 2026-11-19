@@ -10,6 +10,9 @@ public enum WeightUnit: String, Codable, CaseIterable, Sendable {
     public var symbol: String { rawValue }
     public var alternate: WeightUnit { self == .pounds ? .kilograms : .pounds }
     public var step: Decimal { self == .pounds ? Decimal(5) / 2 : Decimal(5) / 4 }
+    public var plateSizes: [Decimal] {
+        self == .pounds ? [2.5, 5, 10, 25, 35, 45, 55] : [1.25, 2.5, 5, 10, 15, 20, 25]
+    }
     public var maximumAmount: Decimal { amount(for: NumericField.weight.range.upperBound) }
 
     /// Converts the stored hundredths of a pound without rounding the display amount.
@@ -18,8 +21,12 @@ public enum WeightUnit: String, Codable, CaseIterable, Sendable {
         return self == .pounds ? pounds : pounds * Self.kilogramsPerPound
     }
 
+    package func displayedAmount(for canonicalWeight: Int) -> Decimal {
+        Self.rounded(amount(for: canonicalWeight), scale: 2)
+    }
+
     public func text(for canonicalWeight: Int) -> String {
-        var displayed = Self.rounded(amount(for: canonicalWeight), scale: 2)
+        var displayed = displayedAmount(for: canonicalWeight)
         var text = NSDecimalString(&displayed, Locale(identifier: "en_US_POSIX"))
         if text.contains(".") {
             while text.last == "0" { text.removeLast() }
@@ -45,7 +52,7 @@ public enum WeightUnit: String, Codable, CaseIterable, Sendable {
         let range = NumericField.weight.range
         let current = min(max(canonicalWeight, range.lowerBound), range.upperBound)
         // Start from the displayed precision so kilogram rounding does not accumulate.
-        let displayed = Self.rounded(amount(for: current), scale: 2)
+        let displayed = displayedAmount(for: current)
         let next = displayed + (increasing ? step : -step)
         if next <= 0 { return range.lowerBound }
         if next >= maximumAmount { return range.upperBound }

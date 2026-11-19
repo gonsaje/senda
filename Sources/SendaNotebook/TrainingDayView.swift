@@ -37,12 +37,13 @@ struct TrainingDayView: View {
     @Bindable var model: TrainingNotebookModel
     let day: TrainingDay
     @State private var presentedSheet: TrainingDaySheet?
+    @State private var weightEntry = TrainingWeightEntrySettings()
     @State private var showingSearch = false
     @State private var searchAfterDismissal: TrainingDay?
     @State private var pendingNavigation: TrainingPendingNavigation?
     @State private var planContext: TrainingMetadataContext?
+    @State private var stripScrolledPast = false
     @State private var measuredFocusLayout: TrainingFocusedRowLayout?
-    @State private var entryNavigationTarget: String?
     @State private var showsFirstSetConfirmation = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dynamicTypeSize) private var textSize
@@ -67,37 +68,52 @@ struct TrainingDayView: View {
         let isFirstWorkout = !hasExercises && model.isFirstWorkout
         return ScrollViewReader { scroll in
             ScrollView {
-                VStack(alignment: .leading, spacing: 8) {
+                LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
                     if hasExercises {
                         dayNavigation.id("day-header")
-                        workoutExercises.id("active-exercise")
+                            .onGeometryChange(for: Bool.self) {
+                                $0.frame(in: .scrollView(axis: .vertical)).maxY < 0
+                            } action: { stripScrolledPast = $0 }
+                        // An unpinned anchor restores the first sets even when the tab strip is pinned.
+                        Color.clear.frame(height: 0).id("active-exercise")
+                            .accessibilityHidden(true)
                     } else {
                         emptyDayNavigation(isFirstWorkout: isFirstWorkout).id("day-header")
                     }
-                    if showingSearch {
-                        TrainingExercisePicker(inline: model, close: { showingSearch = false },
-                            browse: { query in open(.sheet(.catalog(query))) })
-                    } else if let exercise = model.exercise {
-                        exerciseControls(exercise)
-                        if let last = model.lastReference {
-                            TrainingLastTimeRow(
-                                summary: ProgressFormatting.set(last.values, exercise: exercise, unit: model.unit),
-                                day: last.day,
-                                showSet: { pendingNavigation = nil; model.openReference(last) },
-                                showHistory: { open(.sheet(.history(exercise.id))) })
+                    Section {
+                        VStack(alignment: .leading, spacing: 8) {
+                            if showingSearch {
+                                TrainingExercisePicker(inline: model, close: { showingSearch = false },
+                                    browse: { query in open(.sheet(.catalog(query))) })
+                            } else if let exercise = model.exercise {
+                                exerciseControls(exercise)
+                                if let last = model.lastReference {
+                                    TrainingLastTimeRow(
+                                        summary: ProgressFormatting.set(last.values, exercise: exercise, unit: model.unit),
+                                        day: last.day,
+                                        showSet: { pendingNavigation = nil; model.openReference(last) },
+                                        showHistory: { open(.sheet(.history(exercise.id))) })
+                                }
+                                TrainingSetRows(model: model, records: model.workoutPersonalRecords,
+                                                beginInteraction: { pendingNavigation = nil }).id("\(day.rawValue)/\(exercise.id)")
+                                if let best = model.personalBest {
+                                    TrainingPersonalBest(model: model, best: best, beginNavigation: { pendingNavigation = nil })
+                                }
+                                if model.focus == nil && model.errorMessage == nil && !model.canRetrySave {
+                                    TrainingNextWorkoutFeedback(model: model, day: day, exercise: exercise)
+                                }
+                            } else {
+                                TrainingEmptyWorkout(isFirstWorkout: isFirstWorkout, unit: model.unit,
+                                    addExercise: hasExercises ? nil : { open(.addExercise) },
+                                    chooseTemplate: { open(.sheet(.library)) })
+                            }
                         }
-                        TrainingSetRows(model: model, records: model.workoutPersonalRecords,
-                                        beginInteraction: { pendingNavigation = nil }).id("\(day.rawValue)/\(exercise.id)")
-                        if let best = model.personalBest {
-                            TrainingPersonalBest(model: model, best: best, beginNavigation: { pendingNavigation = nil })
+                        .padding(.top, 8)
+                    } header: {
+                        if hasExercises {
+                            workoutExercises(scroll)
+                                .background(NotebookStyle.ivory)
                         }
-                        if model.focus == nil && model.errorMessage == nil && !model.canRetrySave {
-                            TrainingNextWorkoutFeedback(model: model, day: day, exercise: exercise)
-                        }
-                    } else {
-                        TrainingEmptyWorkout(isFirstWorkout: isFirstWorkout, unit: model.unit,
-                            addExercise: hasExercises ? nil : { open(.addExercise) },
-                            chooseTemplate: { open(.sheet(.library)) })
                     }
                 }
                 .padding(.horizontal, hasExercises ? 24 : 20).padding(.top, 2).padding(.bottom, 28)
@@ -114,13 +130,8 @@ struct TrainingDayView: View {
                             .padding(.bottom, model.focus == nil ? 12 : 0)
                     }
                     if let focus = model.focus {
-                        TrainingInputDock(model: model, focus: focus, beginInteraction: {
+                        TrainingInputDock(model: model, focus: focus, weightEntry: $weightEntry, beginInteraction: {
                             pendingNavigation = nil
-                            entryNavigationTarget = nil
-                        }, selectExercise: { id in
-                            pendingNavigation = nil
-                            entryNavigationTarget = id
-                            model.selectExercise(id)
                         }).id(focus.id)
                     }
                     else if model.errorMessage == nil, let label = model.undoLabel {
@@ -189,13 +200,13 @@ struct TrainingDayView: View {
                 guard !Task.isCancelled, let focus = model.focus,
                       measuredFocusLayout?.focusID == focus.id else { return }
                 withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) {
-                    scroll.scrollTo("\(focus.rowID)/\(focus.field.rawValue)", anchor: .center)
+                    scroll.scrollTo("\(focus.rowID)/\(focus.field.rawValue)", anchor: textSize.isAccessibilitySize ? .bottom : .center)
                 }
             }
             .task(id: model.revealRowID) { if let id = model.revealRowID { await Task.yield(); scroll.scrollTo(id, anchor: .center) } }
             #if canImport(UIKit)
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
-                if let focus = model.focus { scroll.scrollTo("\(focus.rowID)/\(focus.field.rawValue)", anchor: .center) }
+                if let focus = model.focus { scroll.scrollTo("\(focus.rowID)/\(focus.field.rawValue)", anchor: textSize.isAccessibilitySize ? .bottom : .center) }
             }
             #endif
             .onChange(of: model.hasSavedFirstSet) { _, hasSaved in
@@ -210,10 +221,10 @@ struct TrainingDayView: View {
                 showsFirstSetConfirmation = false
             }
             .onChange(of: day) { _, _ in
+                weightEntry = TrainingWeightEntrySettings()
                 showsFirstSetConfirmation = false
                 showingSearch = false
                 searchAfterDismissal = nil
-                entryNavigationTarget = nil
                 pendingNavigation = nil
                 presentedSheet = nil
                 planContext = nil
@@ -228,9 +239,7 @@ struct TrainingDayView: View {
             .onChange(of: model.focus?.id) { _, _ in reconcilePendingNavigation() }
             .onChange(of: model.canRetrySave) { _, _ in reconcilePendingNavigation() }
             .onChange(of: model.errorMessage) { _, _ in reconcilePendingNavigation() }
-            .onChange(of: model.exercise?.id) { _, id in
-                if let id, entryNavigationTarget == id { scroll.scrollTo("active-exercise", anchor: .top) }
-                entryNavigationTarget = nil
+            .onChange(of: model.exercise?.id) { _, _ in
                 pendingNavigation = nil
                 planContext = nil
             }
@@ -360,7 +369,7 @@ struct TrainingDayView: View {
         }
     }
 
-    @ViewBuilder private var workoutExercises: some View {
+    @ViewBuilder private func workoutExercises(_ scroll: ScrollViewProxy) -> some View {
         if model.tabs.isEmpty {
             HStack {
                 Text("Exercises").font(NotebookTypography.heading(17, relativeTo: .headline)).accessibilityAddTraits(.isHeader)
@@ -370,23 +379,22 @@ struct TrainingDayView: View {
             }
         } else {
             TrainingWorkoutExerciseList(exercises: model.tabs, selectedID: model.exercise?.id, select: { id in
-                guard showingSearch || id != model.exercise?.id else { return }
+                if id == model.exercise?.id {
+                    if showingSearch { showingSearch = false }
+                    return true
+                }
                 pendingNavigation = nil
+                guard model.selectExercise(id) else { return false }
                 showingSearch = false
-                model.selectExercise(id)
+                if stripScrolledPast { scroll.scrollTo("active-exercise", anchor: .top) }
+                return true
             }, add: { addExerciseButton })
         }
     }
     private var addExerciseButton: some View {
-        let layout = textSize >= .accessibility3
-            ? AnyLayout(VStackLayout(spacing: 0))
-            : AnyLayout(HStackLayout(spacing: 5))
-        return Button { open(.addExercise) } label: {
-            layout {
-                Image(systemName: "plus").font(.caption.weight(.semibold)).accessibilityHidden(true)
-                Text("Add").font(.subheadline.weight(.semibold))
-            }
-            .frame(minWidth: 44, minHeight: 46).contentShape(Rectangle())
+        Button { open(.addExercise) } label: {
+            Image(systemName: "plus").font(.body.weight(.medium))
+                .frame(width: 44, height: 46).contentShape(Rectangle())
         }
         .foregroundStyle(NotebookStyle.clay)
         .disabled(showingSearch)
@@ -398,22 +406,18 @@ struct TrainingDayView: View {
         let layout = textSize >= .xxxLarge
             ? AnyLayout(VStackLayout(alignment: .leading, spacing: 0))
             : AnyLayout(HStackLayout(spacing: 4))
-        return VStack(alignment: .leading, spacing: 0) {
-            Text(exercise.displayName).font(NotebookTypography.heading(24, relativeTo: .title2))
-                .fixedSize(horizontal: false, vertical: true).accessibilityAddTraits(.isHeader)
-            layout {
-                TrainingPlanSummary(model: model) {
-                    pendingNavigation = nil
-                    planContext = TrainingMetadataContext(day: day, exerciseID: exercise.id, rowIDs: model.rows.map(\.id))
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                HStack(spacing: 4) {
-                    progressButton(exercise)
-                    unitToggle
-                    workoutOptions
-                }
+        return layout {
+            TrainingPlanSummary(model: model) {
+                pendingNavigation = nil
+                planContext = TrainingMetadataContext(day: day, exerciseID: exercise.id, rowIDs: model.rows.map(\.id))
             }
-        }.padding(.top, 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            HStack(spacing: 4) {
+                progressButton(exercise)
+                unitToggle
+                workoutOptions
+            }
+        }
     }
 
     private var workoutOptions: some View {

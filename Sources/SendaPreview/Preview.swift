@@ -583,6 +583,7 @@ struct SendaPreview {
         try render(TrainingNotebookView(model: model), to: directory.appendingPathComponent("senda-trends.png"))
         try render(TrainingNotebookView(model: model), to: directory.appendingPathComponent("senda-trends-compact.png"), width: 320, height: 568)
         try render(TrainingNotebookView(model: model), to: directory.appendingPathComponent("senda-trends-accessibility-compact.png"), width: 320, height: 568, textSize: .accessibility3)
+        _ = model.setTrackedStrengthExercises(["bench", "deadlift"])
         try render(TrainingTrendsView(model: model), to: directory.appendingPathComponent("senda-trends-full.png"), height: 2200)
         try render(TrainingTrendsView(model: model), to: directory.appendingPathComponent("senda-trends-full-compact.png"), width: 320, height: 2600)
         model.progressRange = .oneMonth
@@ -596,6 +597,7 @@ struct SendaPreview {
         let bodyweight = try TrainingNotebookModel(repository: MemoryJournalRepository(journal: bodyweightJournal),
             isSample: true, now: { date })
         guard bodyweight.selectSection(.trends) else { throw CocoaError(.coderInvalidValue) }
+        _ = bodyweight.setTrackedStrengthExercises(["push-up", "pull-up"])
         try render(TrainingTrendsView(model: bodyweight), to: directory.appendingPathComponent("senda-trends-bodyweight-full.png"), height: 1700)
         try render(TrainingTrendsView(model: bodyweight, showsAllTimeRecords: true), to: directory.appendingPathComponent("senda-records-bodyweight.png"), width: 320, height: 1900)
 
@@ -610,6 +612,7 @@ struct SendaPreview {
         let oneDay = try TrainingNotebookModel(repository: MemoryJournalRepository(journal: oneDayJournal),
             isSample: true, now: { date })
         guard oneDay.selectSection(.trends) else { throw CocoaError(.coderInvalidValue) }
+        _ = oneDay.setTrackedStrengthExercises(["squat"])
         try render(TrainingNotebookView(model: oneDay), to: directory.appendingPathComponent("senda-trends-one-day-compact.png"), width: 320, height: 568)
         try render(TrainingTrendsView(model: oneDay), to: directory.appendingPathComponent("senda-trends-one-day-full.png"), height: 1200)
         try render(TrainingTrendsView(model: oneDay), to: directory.appendingPathComponent("senda-trends-accessibility-full.png"), width: 320, height: 1400, textSize: .accessibility3)
@@ -622,6 +625,7 @@ struct SendaPreview {
         let comparison = try TrainingNotebookModel(repository: MemoryJournalRepository(journal: comparisonJournal),
             isSample: true, now: { date })
         guard comparison.selectSection(.trends) else { throw CocoaError(.coderInvalidValue) }
+        _ = comparison.setTrackedStrengthExercises(["bench"])
         try render(TrainingTrendsView(model: comparison),
             to: directory.appendingPathComponent("senda-trends-comparison-accessibility-full.png"),
             width: 320, height: 1600, textSize: .accessibility3)
@@ -642,6 +646,7 @@ struct SendaPreview {
         _ = try fallbackJournal.record(DraftBatch(exerciseID: "deadlift", sets: [SetValues(weight: 22500, reps: 5)]), at: today.date())
         let fallback = try TrainingNotebookModel(repository: MemoryJournalRepository(journal: fallbackJournal), isSample: true, now: { date })
         fallback.progressRange = .oneMonth
+        _ = fallback.setTrackedStrengthExercises(["bench"])
         try render(TrainingTrendsView(model: fallback, showsAllTimeRecords: false, strengthExerciseID: "bench"),
             to: directory.appendingPathComponent("senda-strength-range-fallback.png"), width: 320, height: 1200)
         let longExercise = Exercise(id: "custom-strength-long", name: "Single-arm alternating dumbbell overhead press", shortName: "Single-arm alternating dumbbell overhead press", startingWeight: 2000)
@@ -651,6 +656,7 @@ struct SendaPreview {
         }
         let longRepository = try MemoryJournalRepository(snapshot: JournalSnapshot(journal: longJournal, customExercises: [longExercise]))
         let longModel = try TrainingNotebookModel(repository: longRepository, isSample: true, now: { date })
+        _ = longModel.setTrackedStrengthExercises([longExercise.id])
         try render(TrainingTrendsView(model: longModel), to: directory.appendingPathComponent("senda-strength-long-name.png"), width: 320, height: 1300)
         try render(TrainingTrendsView(model: longModel), to: directory.appendingPathComponent("senda-strength-long-name-accessibility.png"), width: 320, height: 1800, textSize: .accessibility3)
 

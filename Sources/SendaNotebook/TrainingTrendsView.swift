@@ -2,6 +2,10 @@ import SwiftUI
 import SendaDomain
 import SendaLogger
 
+private enum TrendsDestination: Hashable {
+    case records
+}
+
 /// Recorded training across the notebook. Opening history preserves the current workout.
 public struct TrainingTrendsView: View {
     @Bindable private var model: TrainingNotebookModel
@@ -9,8 +13,11 @@ public struct TrainingTrendsView: View {
     @Environment(BodyMeasurementsModel.self) private var bodyMeasurements: BodyMeasurementsModel?
     @State private var showsBodyMeasurements = false
     @State private var showAllBests = false
-    @State private var showsAllTimeRecords = false
+    @State private var navigationPath: [TrendsDestination] = []
     @State private var strengthExerciseID: String?
+
+    @State private var showsTracking = false
+    @State private var showsTrackedExercises = false
 
     public init(model: TrainingNotebookModel) {
         self.model = model
@@ -18,24 +25,40 @@ public struct TrainingTrendsView: View {
 
     @_spi(Preview) public init(model: TrainingNotebookModel, showsAllTimeRecords: Bool, strengthExerciseID: String? = nil) {
         self.model = model
-        _showsAllTimeRecords = State(initialValue: showsAllTimeRecords)
+        _navigationPath = State(initialValue: showsAllTimeRecords ? [.records] : [])
         _strengthExerciseID = State(initialValue: strengthExerciseID)
     }
 
     public var body: some View {
+        NavigationStack(path: $navigationPath) {
+            overview
+                .navigationTitle("Trends")
+                #if os(iOS)
+                .toolbar(.hidden, for: .navigationBar)
+                #endif
+                .navigationDestination(for: TrendsDestination.self) { destination in
+                    switch destination {
+                    case .records: TrainingRecordsView(model: model)
+                    }
+                }
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) { errorRecovery }
+        .tint(NotebookStyle.clay)
+    }
+
+    private var overview: some View {
         let trends = model.snapshot.trends(range: model.progressRange, through: model.today,
             calendar: model.calendar, exercises: model.exercises)
         let hasHistory = !model.snapshot.journal.batches.isEmpty
-        ScrollView {
+        return ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 heading(hasHistory: hasHistory)
                 if bodyMeasurements != nil { bodyMeasurementsButton }
-                if hasHistory && showsAllTimeRecords { allTimeRecords }
                 window(trends)
+                strengthProgress(trends)
                 if trends.setCount == 0 {
                     emptyState(hasHistory: hasHistory)
                 } else {
-                    strengthProgress(trends)
                     performance(trends)
                     if !trends.recentBests.isEmpty { recordedBests(trends) }
                 }
@@ -53,7 +76,6 @@ public struct TrainingTrendsView: View {
         .clipped()
         .scrollDismissesKeyboard(.interactively)
         .scrollIndicators(.never)
-        .safeAreaInset(edge: .bottom, spacing: 0) { errorRecovery }
         .background(NotebookStyle.ivory)
         .foregroundStyle(NotebookStyle.ink)
         .tint(NotebookStyle.clay)
@@ -151,31 +173,16 @@ public struct TrainingTrendsView: View {
         .accessibilityIdentifier("trends-period-summary")
     }
 
-    private var allTimeRecords: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("All-time records")
-                .font(NotebookTypography.heading(22, relativeTo: .title2))
-                .accessibilityAddTraits(.isHeader)
-                .fixedSize(horizontal: false, vertical: true)
-            TrainingRecordsSection(model: model)
-            rule
-        }
-    }
-
     private var recordsButton: some View {
-        Button { showsAllTimeRecords.toggle() } label: {
-            HStack(spacing: 6) {
-                Text("Records").font(.body.weight(showsAllTimeRecords ? .semibold : .medium))
-                    .fixedSize(horizontal: false, vertical: true)
-                Image(systemName: showsAllTimeRecords ? "chevron.up" : "chevron.down")
-                    .font(.caption).accessibilityHidden(true)
-            }
-            .frame(minWidth: 44, minHeight: 44, alignment: .leading).contentShape(Rectangle())
+        NavigationLink(value: TrendsDestination.records) {
+            Text("Records")
+                .font(.body.weight(.medium))
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(minWidth: 44, minHeight: 44, alignment: .leading)
+                .contentShape(Rectangle())
         }
         .foregroundStyle(NotebookStyle.clay)
         .accessibilityLabel("All-time records")
-        .accessibilityValue(showsAllTimeRecords ? "Expanded" : "Collapsed")
-        .accessibilityHint("Show or hide personal records for all dates")
         .accessibilityIdentifier("trends-records-toggle")
     }
 
@@ -213,48 +220,91 @@ public struct TrainingTrendsView: View {
         "\(week.trainingDayCount) training \(week.trainingDayCount == 1 ? "day" : "days") · \(week.setCount) \(week.setCount == 1 ? "set" : "sets")"
     }
 
-    @ViewBuilder
     private func strengthProgress(_ trends: TrainingTrends) -> some View {
-        if let summary = trends.exerciseSummaries.first(where: { $0.exerciseID == strengthExerciseID })
-            ?? trends.exerciseSummaries.first {
-            let exercise = model.exercise(summary.exerciseID)
-            VStack(alignment: .leading, spacing: 12) {
+        let tracked = model.trackedStrengthExerciseIDs
+        let trackedSet = Set(tracked)
+        let inRange = Set(trends.exerciseSummaries.map(\.exerciseID))
+        let current = strengthExerciseID.flatMap { trackedSet.contains($0) ? $0 : nil }
+            ?? tracked.first(where: inRange.contains) ?? tracked.first
+        return VStack(alignment: .leading, spacing: 8) {
+            let layout = textSize >= .xxxLarge
+                ? AnyLayout(VStackLayout(alignment: .leading, spacing: 0))
+                : AnyLayout(HStackLayout(spacing: 12))
+            layout {
                 Text("Strength progress")
                     .font(NotebookTypography.heading(22, relativeTo: .title2))
                     .accessibilityAddTraits(.isHeader)
                     .fixedSize(horizontal: false, vertical: true)
-                Menu {
-                    ForEach(trends.exerciseSummaries) { option in
-                        let selected = option.exerciseID == summary.exerciseID
-                        let name = model.exercise(option.exerciseID).displayName
-                        Button { strengthExerciseID = option.exerciseID } label: {
-                            if selected { Label(name, systemImage: "checkmark") }
-                            else { Text(name) }
-                        }
-                        .accessibilityAddTraits(selected ? .isSelected : [])
-                        .accessibilityIdentifier("trends-strength-exercise-\(option.exerciseID)")
-                    }
-                } label: {
-                    HStack(spacing: 12) {
-                        Text(exercise.displayName).font(.body.weight(.semibold))
-                            .fixedSize(horizontal: false, vertical: true)
-                        Spacer(minLength: 0)
-                        Image(systemName: "chevron.down").font(.system(size: 12)).accessibilityHidden(true)
-                    }
-                    .foregroundStyle(NotebookStyle.clay)
-                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                    .contentShape(Rectangle())
+                if !tracked.isEmpty {
+                    if textSize < .xxxLarge { Spacer(minLength: 0) }
+                    trackingButton(empty: false)
                 }
-                .accessibilityLabel("Exercise")
-                .accessibilityValue(exercise.displayName)
-                .accessibilityIdentifier("trends-strength-picker")
-                TrendsStrengthTimeline(summary: summary, exercise: exercise,
-                    unit: model.workspace.preferredUnit, calendar: model.calendar,
-                    openHistory: { model.openProgress(for: exercise.id) })
-                    .id(summary.exerciseID)
-                rule
+            }
+            if let current {
+                let exercise = model.exercise(current)
+                if tracked.count > 1 {
+                    Button { showsTrackedExercises = true } label: {
+                        HStack(spacing: 12) {
+                            Text(exercise.displayName).font(.body.weight(.semibold))
+                                .fixedSize(horizontal: false, vertical: true)
+                            Spacer(minLength: 0)
+                            Image(systemName: "chevron.down").font(.caption).accessibilityHidden(true)
+                        }
+                        .foregroundStyle(NotebookStyle.clay)
+                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                        .contentShape(Rectangle())
+                    }
+                    .accessibilityLabel("Tracked exercise")
+                    .accessibilityValue(exercise.displayName)
+                    .accessibilityIdentifier("trends-strength-picker")
+                } else {
+                    Text(exercise.displayName).font(.body.weight(.semibold))
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityLabel("Tracked exercise")
+                        .accessibilityValue(exercise.displayName)
+                        .accessibilityIdentifier("trends-strength-picker")
+                }
+                if let summary = trends.exerciseSummaries.first(where: { $0.exerciseID == current }) {
+                    TrendsStrengthTimeline(summary: summary, exercise: exercise,
+                        unit: model.workspace.preferredUnit, calendar: model.calendar,
+                        openHistory: { model.openProgress(for: current) })
+                        .id(current)
+                } else {
+                    Text("No recorded sets for this exercise in this period.")
+                        .font(.subheadline).foregroundStyle(NotebookStyle.quiet)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            } else {
+                Text("No exercises tracked yet.")
+                    .font(.subheadline).foregroundStyle(NotebookStyle.quiet)
+                    .fixedSize(horizontal: false, vertical: true)
+                trackingButton(empty: true)
+            }
+            rule
+        }
+        .onChange(of: current, initial: true) { _, id in strengthExerciseID = id }
+        .sheet(isPresented: $showsTracking) {
+            StrengthTrackingPicker(model: model, close: { showsTracking = false })
+        }
+        .sheet(isPresented: $showsTrackedExercises) {
+            TrackedExerciseChooser(model: model, current: current, inRange: inRange) { id in
+                if let id { strengthExerciseID = id }
+                showsTrackedExercises = false
             }
         }
+    }
+
+    private func trackingButton(empty: Bool) -> some View {
+        Button { showsTracking = true } label: {
+            Text(empty ? "Add exercises or workouts" : "Edit tracking")
+                .font(.body.weight(.medium))
+                .foregroundStyle(NotebookStyle.clay)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(minWidth: 44, minHeight: 44, alignment: .leading)
+                .contentShape(Rectangle())
+        }
+        .accessibilityIdentifier("trends-strength-manage")
+        .disabled(model.canRetrySave)
     }
 
     private func performance(_ trends: TrainingTrends) -> some View {

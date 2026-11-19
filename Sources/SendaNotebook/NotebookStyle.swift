@@ -42,7 +42,11 @@ enum NotebookStyle {
     static let todayFill = pair(terracotta.opacity(0.07), selectedBrown)
     static let primaryFill = pair(terracotta, rgb(0x89442D))
     static let onPrimary = pair(paper, rgb(0xFFF8EE))
+    static let inputSurface = pair(rgb(0xEDE6DA), rgb(0x392F28))
     static let typeFill = pair(terracotta.opacity(0.06), rgb(0x3A3029))
+
+    static let tabEdgeShadow = pair(charcoal.opacity(0.32), .black.opacity(0.80))
+    static let tabEdgeHighlight = pair(.white.opacity(0.75), paper.opacity(0.15))
 
     static let dockSelectionFill = pair(terracotta.opacity(0.12), selectedBrown)
     static let dockSelectionText = pair(charcoal, peach)

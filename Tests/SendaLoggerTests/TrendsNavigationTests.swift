@@ -50,6 +50,50 @@ import SendaPersistence
         _ = model.snapshot.trends(range: model.progressRange, through: model.today, calendar: model.calendar, exercises: model.exercises)
         #expect(model.snapshot == before && store.writes == writes)
     }
+    @Test func trackingStartsEmptyInOlderNotebooksAndPersistsUntilCleared() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("senda-tracking-\(UUID()).json")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let store = FileJournalRepository(url: url)
+        let original = try TrainingNotebookModel(repository: store)
+        try enter(original, weight: "31.", reps: "8")
+        let bytes = try Data(contentsOf: url)
+        #expect(!String(decoding: bytes, as: UTF8.self).contains("trackedStrengthExerciseIDs"))
+
+        let model = try TrainingNotebookModel(repository: FileJournalRepository(url: url))
+        #expect(model.trackedStrengthExerciseIDs.isEmpty)
+        let before = model.workspace
+        #expect(model.setTrackedStrengthExercises(["squat", "bench", "squat", " "]))
+        #expect(model.workspace.days == before.days && model.focus == before.focus && model.journal.batches.isEmpty)
+        let reopened = try TrainingNotebookModel(repository: FileJournalRepository(url: url))
+        #expect(reopened.trackedStrengthExerciseIDs == ["squat", "bench"])
+        let backup = try NotebookBackupCodec.decode(reopened.backupData())
+        #expect(backup.snapshot.training?.trackedStrengthExerciseIDs == ["squat", "bench"])
+        #expect(reopened.setTrackedStrengthExercises([]))
+        let cleared = try TrainingNotebookModel(repository: FileJournalRepository(url: url))
+        #expect(cleared.trackedStrengthExerciseIDs.isEmpty)
+    }
+    @Test func trackingFollowsRenamedAndArchivedExercises() throws {
+        let store = MemoryJournalRepository(), model = try TrainingNotebookModel(repository: store)
+        try #require(model.createLibraryExercise(named: "Garage lift", group: .back, equipment: .cable))
+        let id = try #require(model.snapshot.customExercises?.first?.id)
+        try #require(model.setTrackedStrengthExercises([id]))
+        try #require(model.updateCustomExercise(id, named: "Porch pull", group: .back, equipment: .cable))
+        try #require(model.archiveCustomExercise(id))
+        let reopened = try TrainingNotebookModel(repository: store)
+        #expect(reopened.trackedStrengthExerciseIDs == [id])
+        #expect(reopened.exercise(id).name == "Porch pull" && reopened.exercise(id).isArchived)
+    }
+    @Test func trackingSaveFailureKeepsPreviousSelectionAndRetriesOriginalChanges() throws {
+        let store = TrendsNavigationFailureStore(), model = try TrainingNotebookModel(repository: store)
+        store.reject = true
+        #expect(!model.setTrackedStrengthExercises(["bench"]))
+        #expect(model.trackedStrengthExerciseIDs.isEmpty && model.canRetrySave)
+        #expect(!model.setTrackedStrengthExercises(["squat"]))
+        store.reject = false
+        #expect(model.retrySave() && model.trackedStrengthExerciseIDs == ["bench"])
+        let writes = store.writes
+        #expect(model.setTrackedStrengthExercises(["bench", "bench"]) && store.writes == writes)
+    }
     @Test func historyFromTrendsReturnsWithoutMovingCurrentWorkout() throws {
         let model = try TrainingNotebookModel(repository: MemoryJournalRepository())
         try enter(model); #expect(model.selectSection(.trends))

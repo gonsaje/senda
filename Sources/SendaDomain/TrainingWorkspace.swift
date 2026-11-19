@@ -115,15 +115,19 @@ public struct TrainingWorkspace: Codable, Equatable, Sendable {
     public var undo: TrainingUndo?
     public var legacyExerciseIDs: [String]?
     public var workoutTemplates: [WorkoutTemplate]?
+    public var trackedStrengthExerciseIDs: [String]?
     public init(visibleWeek: TrainingDay, selectedDay: TrainingDay? = nil, preferredUnit: WeightUnit = .pounds,
                 days: [String: DayWorkout] = [:], focus: TrainingFocus? = nil, undo: TrainingUndo? = nil,
-                legacyExerciseIDs: [String]? = nil, workoutTemplates: [WorkoutTemplate]? = nil) {
+                legacyExerciseIDs: [String]? = nil, workoutTemplates: [WorkoutTemplate]? = nil,
+                trackedStrengthExerciseIDs: [String]? = nil) {
         self.visibleWeek = visibleWeek; self.selectedDay = selectedDay; self.preferredUnit = preferredUnit
         self.days = days; self.focus = focus; self.undo = undo; self.legacyExerciseIDs = legacyExerciseIDs
         self.workoutTemplates = workoutTemplates
+        self.trackedStrengthExerciseIDs = trackedStrengthExerciseIDs
     }
     private enum CodingKeys: String, CodingKey {
         case visibleWeek, selectedDay, preferredUnit, days, focus, undo, legacyExerciseIDs, workoutTemplates
+        case trackedStrengthExerciseIDs
     }
 
     /// The file writer reuses unchanged encoded days; backups use the same metadata with every day inline.
@@ -139,6 +143,7 @@ public struct TrainingWorkspace: Codable, Equatable, Sendable {
             try fields.encodeIfPresent(workspace.undo, forKey: .undo)
             try fields.encodeIfPresent(workspace.legacyExerciseIDs, forKey: .legacyExerciseIDs)
             try fields.encodeIfPresent(workspace.workoutTemplates, forKey: .workoutTemplates)
+            try fields.encodeIfPresent(workspace.trackedStrengthExerciseIDs, forKey: .trackedStrengthExerciseIDs)
         }
     }
 

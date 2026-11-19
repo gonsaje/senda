@@ -46,8 +46,9 @@ public struct TrainingNotebookView: View {
             }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            let isTypingInWorkout = model.section == .log && model.selectedDay != nil && isSoftwareKeyboardVisible
-            if !model.backupRecoveryRequired && !isTypingInWorkout {
+            let workoutInputIsVisible = model.section == .log && model.selectedDay != nil
+                && (model.focus != nil || isSoftwareKeyboardVisible)
+            if !model.backupRecoveryRequired && !workoutInputIsVisible {
                 TrainingDock(model: model)
             }
         }
