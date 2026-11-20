@@ -6,6 +6,7 @@ struct BodyMeasurementTrendChart: View {
     let metric: BodyMetric
     /// Measurements are ordered newest first, as returned by BodyMeasurementsModel.
     let readings: [BodyMeasurement]
+    let precedingWeight: BodyMeasurement?
     let days: ClosedRange<TrainingDay>
     let comparison: ExerciseProgress?
     let exercise: Exercise?
@@ -13,31 +14,27 @@ struct BodyMeasurementTrendChart: View {
     let calendar: Calendar
     @Environment(\.dynamicTypeSize) private var textSize
 
-    private struct Sample: Identifiable {
-        var id: TrainingDay { day }
-        let day: TrainingDay
-        let date: Date
-        let value: Double
-        let spokenValue: String
+    private func measurementSample(_ reading: BodyMeasurement) -> MeasurementTrendSample {
+        let day = TrainingDay(reading.displayDate(in: calendar), calendar: calendar)
+        return MeasurementTrendSample(day: day, date: day.date(in: calendar),
+            value: metric.displayValue(reading.value, unit: unit), spokenValue: metric.formattedValue(reading.value, unit: unit))
     }
 
-    private var measurementSamples: [Sample] {
+    private var measurementSamples: [MeasurementTrendSample] {
         var seen: Set<TrainingDay> = []
         return readings.compactMap { reading in
-            let day = TrainingDay(reading.displayDate(in: calendar), calendar: calendar)
-            guard reading.metric == metric, days.contains(day), seen.insert(day).inserted else { return nil }
-            return Sample(day: day, date: day.date(in: calendar), value: metric.displayValue(reading.value, unit: unit),
-                          spokenValue: metric.formattedValue(reading.value, unit: unit))
+            let sample = measurementSample(reading)
+            return seen.insert(sample.day).inserted ? sample : nil
         }.reversed()
     }
 
-    private var strengthSamples: [Sample] {
+    private var strengthSamples: [MeasurementTrendSample] {
         guard let comparison, let exercise else { return [] }
         return comparison.sessions.compactMap { session in
             guard days.contains(session.day) else { return nil }
             let set = session.bestSet.values
             let amount = comparison.metric == .reps ? Double(set.reps) : NSDecimalNumber(decimal: unit.amount(for: set.weight)).doubleValue
-            return Sample(day: session.day, date: session.day.date(in: calendar), value: amount,
+            return MeasurementTrendSample(day: session.day, date: session.day.date(in: calendar), value: amount,
                           spokenValue: ProgressFormatting.set(set, exercise: exercise, unit: unit))
         }
     }
@@ -49,19 +46,32 @@ struct BodyMeasurementTrendChart: View {
 
     var body: some View {
         let bodySamples = measurementSamples, strength = strengthSamples
+        let prior = precedingWeight.map(measurementSample)
+        let weightSpans = metric == .weight ? WeightTrendSpan.make(
+            daily: bodySamples, preceding: prior, domain: dateDomain, singleDay: days.lowerBound == days.upperBound) : []
+        let hasBodyValues = !bodySamples.isEmpty || !weightSpans.isEmpty
         VStack(alignment: .leading, spacing: 10) {
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: 12) {
-                    if !bodySamples.isEmpty { seriesLabel(strength: false).fixedSize(horizontal: true, vertical: false) }
-                    if !bodySamples.isEmpty && !strength.isEmpty { Spacer(minLength: 0) }
+                    if hasBodyValues { seriesLabel(strength: false).fixedSize(horizontal: true, vertical: false) }
+                    if hasBodyValues && !strength.isEmpty { Spacer(minLength: 0) }
                     if !strength.isEmpty { seriesLabel(strength: true).fixedSize(horizontal: true, vertical: false) }
                 }
                 VStack(alignment: .leading, spacing: 4) {
-                    if !bodySamples.isEmpty { seriesLabel(strength: false) }
+                    if hasBodyValues { seriesLabel(strength: false) }
                     if !strength.isEmpty { seriesLabel(strength: true) }
                 }
             }
-            chart(bodySamples, strength)
+            chart(bodySamples, strength, weightSpans: weightSpans)
+            if metric == .weight, let latest = bodySamples.last ?? prior {
+                let date = ProgressFormatting.date(latest.day, format: "MMM d, yyyy", calendar: calendar)
+                Text("Last weigh-in · \(latest.spokenValue) on \(date)")
+                    .font(.caption).foregroundStyle(NotebookStyle.quiet)
+                if weightSpans.contains(where: \.isReference) {
+                    Text("The dotted line uses this weigh-in as a reference.")
+                        .font(.caption).foregroundStyle(NotebookStyle.quiet)
+                }
+            }
             if bodySamples.count < readings.count {
                 Text("Latest reading per day").font(.caption).foregroundStyle(NotebookStyle.quiet)
             }
@@ -79,17 +89,29 @@ struct BodyMeasurementTrendChart: View {
         .font(.caption.weight(.medium))
     }
 
-    private func chart(_ bodySamples: [Sample], _ strength: [Sample]) -> some View {
-        let sharedWeightAxis = metric == .weight && comparison?.metric == .weight && !bodySamples.isEmpty && !strength.isEmpty
-        let bodyValues = bodySamples.map(\.value)
+    private func chart(_ bodySamples: [MeasurementTrendSample], _ strength: [MeasurementTrendSample], weightSpans: [WeightTrendSpan]) -> some View {
+        let hasBodyValues = !bodySamples.isEmpty || !weightSpans.isEmpty
+        let sharedWeightAxis = metric == .weight && comparison?.metric == .weight && hasBodyValues && !strength.isEmpty
+        let bodyValues = weightSpans.isEmpty ? bodySamples.map(\.value) : weightSpans.map(\.value)
         let strengthValues = strength.map(\.value)
         let bodyScale = MeasurementTrendAxis(values: sharedWeightAxis ? bodyValues + strengthValues : bodyValues,
                                             upperLimit: metric == .bodyFat ? 100 : nil)
         let strengthScale = sharedWeightAxis ? bodyScale : MeasurementTrendAxis(values: strengthValues, wholeNumbers: comparison?.metric == .reps)
         var titles: [String] = []
-        if !bodySamples.isEmpty { titles.append(metric.title) }
+        if hasBodyValues { titles.append(metric.title) }
         if !strength.isEmpty, let exercise { titles.append("\(exercise.displayName) top sets") }
         return Chart {
+            ForEach(weightSpans) { span in
+                let y = bodyScale.position(of: span.value)
+                RuleMark(xStart: .value("Start", span.start), xEnd: .value("End", span.end), y: .value(metric.title, y))
+                    .lineStyle(StrokeStyle(lineWidth: 2, dash: span.isReference ? [2, 4] : []))
+                    .foregroundStyle(NotebookStyle.clay).accessibilityHidden(true)
+                if let previous = span.previousValue, previous != span.value {
+                    RuleMark(x: .value("Date", span.start), yStart: .value("Previous", bodyScale.position(of: previous)), yEnd: .value("Weight", y))
+                        .lineStyle(StrokeStyle(lineWidth: 2))
+                        .foregroundStyle(NotebookStyle.clay).accessibilityHidden(true)
+                }
+            }
             marks(bodySamples, scale: bodyScale, strength: false)
             marks(strength, scale: strengthScale, strength: true)
         }
@@ -106,7 +128,7 @@ struct BodyMeasurementTrendChart: View {
             }
         }
         .chartYAxis {
-            if !bodySamples.isEmpty {
+            if hasBodyValues {
                 AxisMarks(position: .leading, values: bodyScale.positions) { mark in
                     AxisGridLine().foregroundStyle(NotebookStyle.rule)
                     if let position = mark.as(Double.self) {
@@ -115,8 +137,8 @@ struct BodyMeasurementTrendChart: View {
                 }
             }
             if !strength.isEmpty && !sharedWeightAxis {
-                AxisMarks(position: bodySamples.isEmpty ? .leading : .trailing, values: strengthScale.positions) { mark in
-                    if bodySamples.isEmpty { AxisGridLine().foregroundStyle(NotebookStyle.rule) }
+                AxisMarks(position: hasBodyValues ? .trailing : .leading, values: strengthScale.positions) { mark in
+                    if !hasBodyValues { AxisGridLine().foregroundStyle(NotebookStyle.rule) }
                     if let position = mark.as(Double.self) {
                         AxisValueLabel { Text(strengthScale.label(at: position)).foregroundStyle(NotebookStyle.olive) }
                     }
@@ -130,11 +152,11 @@ struct BodyMeasurementTrendChart: View {
         .accessibilityIdentifier("body-measurements-chart")
     }
 
-    @ChartContentBuilder private func marks(_ samples: [Sample], scale: MeasurementTrendAxis, strength: Bool) -> some ChartContent {
+    @ChartContentBuilder private func marks(_ samples: [MeasurementTrendSample], scale: MeasurementTrendAxis, strength: Bool) -> some ChartContent {
         let title = strength ? strengthTitle : metric.title
         let color = strength ? NotebookStyle.olive : NotebookStyle.clay
         ForEach(samples) { sample in
-            if samples.count > 1 {
+            if samples.count > 1 && (strength || metric != .weight) {
                 LineMark(x: .value("Date", sample.date), y: .value(title, scale.position(of: sample.value)),
                          series: .value("Series", strength ? "Top set" : "Measurement"))
                     .lineStyle(StrokeStyle(lineWidth: 2, dash: strength ? [5, 3] : []))
@@ -163,6 +185,49 @@ struct BodyMeasurementTrendChart: View {
     }
 
     private var dateFormat: String { dateDomain.upperBound.timeIntervalSince(dateDomain.lowerBound) > 365 * 86_400 ? "MMM yy" : "MMM d" }
+}
+
+struct MeasurementTrendSample: Identifiable {
+    var id: TrainingDay { day }
+    let day: TrainingDay
+    let date: Date
+    let value: Double
+    let spokenValue: String
+}
+
+struct WeightTrendSpan: Identifiable {
+    var id: Date { start }
+    let start: Date
+    let end: Date
+    let value: Double
+    let previousValue: Double?
+    let isReference: Bool
+
+    /// Daily readings are chronological. Only real weigh-ins receive dots on the chart.
+    static func make(daily: [MeasurementTrendSample], preceding: MeasurementTrendSample?,
+                     domain: ClosedRange<Date>, singleDay: Bool = false) -> [Self] {
+        if singleDay {
+            guard let weight = daily.last ?? preceding else { return [] }
+            return [Self(start: domain.lowerBound, end: domain.upperBound, value: weight.value, previousValue: nil, isReference: false)]
+        }
+        var spans: [Self] = []
+        let start = domain.lowerBound
+        let firstDate = daily.first?.date ?? domain.upperBound
+        var previousValue: Double?
+        if let preceding, firstDate > start {
+            spans.append(Self(start: start, end: firstDate, value: preceding.value, previousValue: nil, isReference: false))
+            previousValue = preceding.value
+        } else if preceding == nil, daily.count == 1, let only = daily.first, firstDate > start {
+            // A dated reference helps compare a lone weigh-in even when it falls on the last day.
+            spans.append(Self(start: start, end: firstDate, value: only.value, previousValue: nil, isReference: true))
+        }
+        for (index, sample) in daily.enumerated() {
+            let end = index + 1 < daily.count ? daily[index + 1].date : domain.upperBound
+            spans.append(Self(start: sample.date, end: end, value: sample.value, previousValue: previousValue, isReference: false))
+            previousValue = sample.value
+        }
+        return spans
+    }
 }
 
 /// Charts shares one plot area. Each side maps its labeled real units onto that area's height.

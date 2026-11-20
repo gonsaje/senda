@@ -5,13 +5,15 @@ public struct WorkoutTemplate: Codable, Identifiable, Equatable, Sendable {
     public let name: String
     public let exerciseIDs: [String]
     public let exercisePlans: [String: ExercisePlan]
+    public let supersets: [SupersetPlan]?
 
     public init(id: String = UUID().uuidString.lowercased(), name: String, exerciseIDs: [String],
-                exercisePlans: [String: ExercisePlan] = [:]) {
+                exercisePlans: [String: ExercisePlan] = [:], supersets: [SupersetPlan]? = nil) {
         self.id = id
         self.name = Self.cleanName(name)
         self.exerciseIDs = exerciseIDs
         self.exercisePlans = exercisePlans
+        self.supersets = supersets?.isEmpty == true ? nil : supersets
     }
 
     public func validated(against knownExerciseIDs: Set<String>) throws -> Self {
@@ -27,6 +29,7 @@ public struct WorkoutTemplate: Codable, Identifiable, Equatable, Sendable {
               exercisePlans.values.allSatisfy({ (try? $0.validated()) != nil }) else {
             throw WorkoutTemplateError.invalidPlan
         }
+        try SupersetPlan.validate(supersets ?? [], order: exerciseIDs)
         return self
     }
 

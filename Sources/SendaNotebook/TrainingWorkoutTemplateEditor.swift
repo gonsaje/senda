@@ -23,6 +23,15 @@ struct TrainingWorkoutTemplateEditor: View {
         var name: String
         var exerciseIDs: [String]
         var plans: [String: ExercisePlan]
+        var supersets: [SupersetPlan]
+        var groups: [[String]] { SupersetOrder.groups(exerciseIDs, plans: supersets) }
+
+        mutating func moveGroup(at index: Int, by offset: Int) {
+            var reordered = groups
+            guard reordered.indices.contains(index + offset) else { return }
+            reordered.swapAt(index, index + offset)
+            exerciseIDs = reordered.flatMap { $0 }
+        }
     }
 
     init(model: TrainingNotebookModel, template: WorkoutTemplate?, isEditing: Bool, copiesCurrentDay: Bool,
@@ -35,7 +44,9 @@ struct TrainingWorkoutTemplateEditor: View {
         // Keep existing template references available to remove in the editor.
         let ids = isEditing ? sourceIDs : sourceIDs.filter { !model.exercise($0).isArchived }
         let planSource = template?.exercisePlans ?? (copiesCurrentDay ? model.workout?.exercisePlans : nil) ?? [:]
-        let initial = Draft(name: template?.name ?? "", exerciseIDs: ids, plans: planSource.filter { ids.contains($0.key) })
+        let pairs = template?.supersets ?? (copiesCurrentDay ? model.supersets.map(\.plan) : [])
+        let initial = Draft(name: template?.name ?? "", exerciseIDs: ids, plans: planSource.filter { ids.contains($0.key) },
+                            supersets: pairs.filter { ids.contains($0.first) && ids.contains($0.second) })
         original = initial
         _draft = State(initialValue: initial)
         _templateID = State(initialValue: template?.id ?? UUID().uuidString.lowercased())
@@ -140,8 +151,8 @@ struct TrainingWorkoutTemplateEditor: View {
                         .accessibilityAddTraits(.isHeader)
                         .padding(.bottom, 10)
                     WorkoutLibraryRule()
-                    ForEach(Array(draft.exerciseIDs.enumerated()), id: \.element) { index, id in
-                        exerciseRow(model.exercise(id), at: index)
+                    ForEach(draft.exerciseIDs, id: \.self) { id in
+                        exerciseRow(model.exercise(id))
                         WorkoutLibraryRule()
                     }
                 }
@@ -161,10 +172,20 @@ struct TrainingWorkoutTemplateEditor: View {
         }
     }
 
-    private func exerciseRow(_ exercise: Exercise, at index: Int) -> some View {
-        HStack(alignment: .center, spacing: 10) {
+    private func exerciseRow(_ exercise: Exercise) -> some View {
+        let groups = draft.groups
+        let groupIndex = groups.firstIndex { $0.contains(exercise.id) } ?? 0
+        let paired = groups.filter { $0.count == 2 }
+        let pairIndex = paired.firstIndex { $0.contains(exercise.id) }
+        return HStack(alignment: .center, spacing: 10) {
             VStack(alignment: .leading, spacing: 4) {
-                Text(exercise.name).font(.body.weight(.semibold))
+                HStack(spacing: 6) {
+                    if let pairIndex {
+                        let code = SupersetMembership.letter(at: pairIndex) + (paired[pairIndex].first == exercise.id ? "1" : "2")
+                        Text(code).font(.caption.bold()).foregroundStyle(NotebookStyle.clay)
+                    }
+                    Text(exercise.name).font(.body.weight(.semibold))
+                }
                 if exercise.isArchived {
                     Text("Removed from library").font(.caption).foregroundStyle(NotebookStyle.quiet)
                 } else if model.snapshot.customExercises?.contains(where: { $0.id == exercise.id }) == true {
@@ -180,21 +201,22 @@ struct TrainingWorkoutTemplateEditor: View {
                     Label(draft.plans[exercise.id] == nil ? "Add set target" : "Edit set target", systemImage: "target")
                 }
                 .accessibilityIdentifier("workout-template-plan-\(exercise.id)")
-                if index > 0 {
-                    Button { draft.exerciseIDs.swapAt(index, index - 1) } label: {
-                        Label("Move up", systemImage: "arrow.up")
+                if groupIndex > 0 {
+                    Button { draft.moveGroup(at: groupIndex, by: -1) } label: {
+                        Label(pairIndex == nil ? "Move up" : "Move superset up", systemImage: "arrow.up")
                     }
                     .accessibilityIdentifier("workout-template-move-up-\(exercise.id)")
                 }
-                if index < draft.exerciseIDs.count - 1 {
-                    Button { draft.exerciseIDs.swapAt(index, index + 1) } label: {
-                        Label("Move down", systemImage: "arrow.down")
+                if groupIndex < groups.count - 1 {
+                    Button { draft.moveGroup(at: groupIndex, by: 1) } label: {
+                        Label(pairIndex == nil ? "Move down" : "Move superset down", systemImage: "arrow.down")
                     }
                     .accessibilityIdentifier("workout-template-move-down-\(exercise.id)")
                 }
                 Button(role: .destructive) {
                     draft.exerciseIDs.removeAll { $0 == exercise.id }
                     draft.plans[exercise.id] = nil
+                    draft.supersets.removeAll { $0.exerciseIDs.contains(exercise.id) }
                 } label: { Label("Remove exercise", systemImage: "minus.circle") }
                 .accessibilityIdentifier("workout-template-remove-\(exercise.id)")
             } label: {
@@ -308,7 +330,8 @@ struct TrainingWorkoutTemplateEditor: View {
 
     private func save() {
         guard pending == nil else { return }
-        let workout = WorkoutTemplate(id: templateID, name: draft.name, exerciseIDs: draft.exerciseIDs, exercisePlans: draft.plans)
+        let workout = WorkoutTemplate(id: templateID, name: draft.name, exerciseIDs: draft.exerciseIDs, exercisePlans: draft.plans,
+                                      supersets: draft.supersets.isEmpty ? nil : draft.supersets)
         pending = workout
         if model.saveWorkout(workout) {
             completePendingSave()

@@ -1337,6 +1337,46 @@ final class LoggerUITests: XCTestCase {
     }
 
     @MainActor
+    func testAppAppearanceOverridesAndReturnsToThePhoneSetting() async throws {
+        let device = XCUIDevice.shared
+        let originalAppearance = device.appearance
+        defer { device.appearance = originalAppearance }
+        device.appearance = .light
+        let app = launch()
+        let ivory = [247, 243, 235], espresso = [37, 31, 26]
+        func openSettings() {
+            tap("dock-profile", in: app)
+            tap("profile-settings", in: app)
+        }
+        func choose(_ name: String) {
+            tap("profile-appearance", in: app)
+            app.buttons[name].tap()
+        }
+
+        openSettings()
+        XCTAssertEqual(element("profile-appearance", in: app).value as? String, "System")
+        choose("Dark")
+        try await expectPaper(espresso, in: app, capture: "Appearance · Dark", sheet: true)
+        tap("close-profile-settings", in: app)
+        tap("dock-library", in: app)
+        try await expectPaper(espresso, in: app)
+        app.terminate()
+        app.launch()
+        let intro = app.descendants(matching: .any).matching(identifier: "senda-launch-intro").firstMatch
+        XCTAssertTrue(intro.waitForNonExistence(timeout: 5))
+        try await expectPaper(espresso, in: app)
+        openSettings()
+        XCTAssertEqual(element("profile-appearance", in: app).value as? String, "Dark")
+        device.appearance = .dark
+        choose("Light")
+        try await expectPaper(ivory, in: app, sheet: true)
+        choose("System")
+        try await expectPaper(espresso, in: app, sheet: true)
+        device.appearance = .light
+        try await expectPaper(ivory, in: app, sheet: true)
+    }
+
+    @MainActor
     func testAllSectionsAndSheetsFollowPhoneAppearance() async throws {
         let device = XCUIDevice.shared
         let originalAppearance = device.appearance
@@ -1346,66 +1386,104 @@ final class LoggerUITests: XCTestCase {
         let app = launch(extra: ["--sample-data"])
         let ivory = [247, 243, 235]
         let espresso = [37, 31, 26]
-        let context = CIContext()
-        let sRGB = try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB))
-
-        func expectPaper(_ expected: [Int], capture title: String? = nil, sheet: Bool = false,
-                         file: StaticString = #filePath, line: UInt = #line) async throws {
-            let deadline = ContinuousClock.now + .seconds(5)
-            var actual = [Int]()
-            repeat {
-                let shot = app.screenshot()
-                let image = CIImage(cgImage: try XCTUnwrap(shot.image.cgImage))
-                // The sheet's paper starts inside the screen edge on some iPhones.
-                let x = sheet ? floor(image.extent.width * 0.055) : 3
-                let sample = CGRect(x: x, y: floor(image.extent.midY), width: 1, height: 1)
-                var pixel = [UInt8](repeating: 0, count: 4)
-                context.render(image, toBitmap: &pixel, rowBytes: 4, bounds: sample, format: .RGBA8, colorSpace: sRGB)
-                actual = pixel.prefix(3).map(Int.init)
-                if zip(actual, expected).allSatisfy({ abs($0.0 - $0.1) <= 2 }) {
-                    if let title {
-                        let attachment = XCTAttachment(screenshot: shot)
-                        attachment.name = title
-                        attachment.lifetime = .keepAlways
-                        self.add(attachment)
-                    }
-                    return
-                }
-                try await Task.sleep(for: .milliseconds(100))
-            } while ContinuousClock.now < deadline
-            XCTFail("Expected page RGB \(expected), found \(actual)", file: file, line: line)
-        }
-
-        try await expectPaper(ivory, capture: "Week · Light")
+        try await expectPaper(ivory, in: app, capture: "Week · Light")
         device.appearance = .dark
-        try await expectPaper(espresso, capture: "Week · Brown")
+        try await expectPaper(espresso, in: app, capture: "Week · Brown")
         tap("dock-library", in: app)
         XCTAssertTrue(element("library-workouts", in: app).isHittable)
-        try await expectPaper(espresso, capture: "Library · Brown")
+        try await expectPaper(espresso, in: app, capture: "Library · Brown")
         tap("dock-profile", in: app)
         XCTAssertTrue(element("profile-settings", in: app).isHittable)
-        try await expectPaper(espresso, capture: "Profile · Brown")
+        try await expectPaper(espresso, in: app, capture: "Profile · Brown")
         tap("dock-trends", in: app)
         XCTAssertTrue(element("trends-strength-manage", in: app).isHittable)
-        try await expectPaper(espresso, capture: "Trends · Brown")
+        try await expectPaper(espresso, in: app, capture: "Trends · Brown")
         tap("trends-strength-manage", in: app)
         XCTAssertTrue(element("trends-track-cancel", in: app).isHittable)
-        try await expectPaper(espresso, capture: "Track strength · Brown", sheet: true)
+        try await expectPaper(espresso, in: app, capture: "Track strength · Brown", sheet: true)
         device.appearance = .light
-        try await expectPaper(ivory, capture: "Track strength · Light", sheet: true)
+        try await expectPaper(ivory, in: app, capture: "Track strength · Light", sheet: true)
         tap("trends-track-cancel", in: app)
-        try await expectPaper(ivory)
+        try await expectPaper(ivory, in: app)
         tap("dock-log", in: app)
         XCTAssertTrue(element("week-summary", in: app).exists)
         device.appearance = .dark
-        try await expectPaper(espresso)
+        try await expectPaper(espresso, in: app)
 
         tap(todayRowID(), in: app)
         XCTAssertTrue(app.buttons["last-reference"].waitForExistence(timeout: 3))
         XCTAssertTrue(element("row-1-weight", in: app).exists)
-        try await expectPaper(espresso, capture: "Active workout · Brown")
+        try await expectPaper(espresso, in: app, capture: "Active workout · Brown")
         device.appearance = .light
-        try await expectPaper(ivory, capture: "Active workout · Light")
+        try await expectPaper(ivory, in: app, capture: "Active workout · Light")
+    }
+
+    @MainActor
+    func testProgramBlocksPreviewAndScheduleToAnActiveSuperset() {
+        let app = launch()
+        tap("dock-library", in: app)
+        tap("library-programs", in: app)
+        tap("program-senda-strength-cycle", in: app)
+        XCTAssertTrue(app.staticTexts["Strength cycle"].exists)
+        attach("Strength cycle preview", app)
+        let preview = app.buttons["program-week-preview"]
+        XCTAssertTrue(preview.waitForExistence(timeout: 4))
+        preview.tap()
+        app.buttons["Week 5"].firstMatch.tap()
+        XCTAssertTrue(preview.label.contains("Week 5") || (preview.value as? String)?.contains("Week 5") == true)
+        tap("schedule-program", in: app)
+        let today = app.buttons[todayRowID()]
+        XCTAssertTrue(today.waitForExistence(timeout: 5))
+        XCTAssertTrue(today.label.contains("Strength cycle"))
+        today.tap()
+        XCTAssertTrue(element("scheduled-program-context", in: app).exists)
+        tap("all-exercises", in: app)
+        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "Superset A")).firstMatch.exists)
+    }
+
+    @MainActor
+    func testAuthorProgramOnPhoneAndKeepItAcrossRelaunch() {
+        let app = launch()
+        tap("dock-library", in: app)
+        tap("library-programs", in: app)
+        tap("create-training-program", in: app)
+        let name = app.textFields["program-editor-name"]
+        name.tap()
+        name.typeText("Coach rotation\n")
+        app.buttons["Coach and sources"].tap()
+        let coach = app.textFields["Coach’s name"]
+        coach.tap()
+        coach.typeText("Alex Coach\n")
+        let credential = app.textFields["Credentials, e.g. CSCS"]
+        credential.tap()
+        credential.typeText("CSCS\n")
+        app.navigationBars.buttons["BackButton"].tap()
+        tap("program-add-block", in: app)
+        tap("program-add-session", in: app)
+        tap("program-add-exercises", in: app)
+        let search = app.textFields["program-exercise-search"]
+        search.tap()
+        search.typeText("bench\n")
+        tap("program-pick-bench", in: app)
+        tap("program-exercises-done", in: app)
+        XCTAssertTrue(app.navigationBars["Edit workout"].waitForExistence(timeout: 5))
+        app.navigationBars.buttons["BackButton"].tap()
+        XCTAssertTrue(app.navigationBars["Edit block"].waitForExistence(timeout: 5))
+        app.navigationBars.buttons["BackButton"].tap()
+        tap("save-training-program", in: app)
+        XCTAssertTrue(app.staticTexts["Coach rotation"].waitForExistence(timeout: 5))
+        app.buttons["Coaching notes and sources"].tap()
+        XCTAssertTrue(app.staticTexts["Author · Alex Coach"].exists)
+        XCTAssertTrue(app.staticTexts["Author-provided credentials · CSCS"].exists)
+        attach("Authored program with credentials", app)
+        app.terminate()
+        app.launch()
+        let library = app.buttons["dock-library"]
+        let ready = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hittable == true"), object: library)
+        XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 12), .completed)
+        library.tap()
+        tap("library-programs", in: app)
+        XCTAssertTrue(app.buttons.containing(NSPredicate(format: "label CONTAINS %@", "Coach rotation")).firstMatch.waitForExistence(timeout: 5))
     }
 
     @MainActor
@@ -1437,7 +1515,10 @@ final class LoggerUITests: XCTestCase {
                 XCTAssertLessThanOrEqual(day.frame.maxY, dock.frame.minY, "\(state): \(day.identifier) overlaps the dock")
             }
             XCTAssertTrue(element("week-muscles", in: app).isHittable)
-            XCTAssertTrue(app.buttons[todayRowID()].isHittable)
+            let today = app.buttons[todayRowID()]
+            XCTAssertTrue(today.isHittable)
+            XCTAssertEqual(today.frame.minX, week.frame.minX, accuracy: 0.5)
+            XCTAssertEqual(today.frame.maxX, week.frame.maxX, accuracy: 0.5)
             let firstDay = days.firstMatch
             let firstDayFrame = firstDay.frame
             week.swipeUp()
@@ -2013,6 +2094,129 @@ final class LoggerUITests: XCTestCase {
         XCTAssertEqual(selectedExercise(in: app).label, "Bench")
         tap("row-1-weight", in: app)
         XCTAssertEqual(element("set-input", in: app).value as? String, "31.")
+    }
+
+    @MainActor
+    func testSupersetPairingOrderManualRoundsAndRestSurviveRelaunch() {
+        let app = launch()
+        func logSet(_ row: Int) {
+            tap("row-\(row)-weight", in: app)
+            app.buttons["input-increase"].tap()
+            app.buttons["input-next"].tap()
+            app.buttons["input-increase"].tap()
+        }
+        func largeTextRestAction(_ id: String) -> XCUIElement {
+            let target = app.buttons[id]
+            let dock = app.otherElements["app-dock"]
+            let strip = app.scrollViews["workout-exercises"]
+            let origin = app.coordinate(withNormalizedOffset: .zero)
+            // Drag in the vertical workout content, clear of the horizontal tabs and bottom dock.
+            for _ in 0..<14 {
+                let bottom = dock.frame.minY - 12
+                let top = strip.frame.minY <= 65 ? strip.frame.maxY + 8 : app.frame.minY + 65
+                let targetY = target.frame.midY
+                if target.isHittable && targetY > top && targetY < bottom { break }
+                let start = targetY < top ? top + 16 : bottom - 16
+                let distance = min(225, max(56, abs(targetY - (top + bottom) / 2)), (bottom - top) * 0.7)
+                let end = start + (targetY < top ? distance : -distance)
+                let x = app.frame.midX
+                origin.withOffset(CGVector(dx: x, dy: start)).press(forDuration: 0.05,
+                    thenDragTo: origin.withOffset(CGVector(dx: x, dy: end)), withVelocity: .slow,
+                    thenHoldForDuration: 0.1)
+            }
+            XCTAssertTrue(target.isHittable, id)
+            return target
+        }
+        _ = openDay(0, in: app)
+        add("Bench", id: "bench", in: app)
+        add("Cable row", id: "cable-row", in: app)
+        tap("all-exercises", in: app)
+        tap("create-superset", in: app)
+        XCTAssertFalse(app.buttons["pair-superset"].isEnabled)
+        tap("superset-pick-cable-row", in: app)
+        tap("superset-pick-bench", in: app)
+        attach("Pairing two exercises", app)
+        tap("pair-superset", in: app)
+        tap("start-superset-cable-row", in: app)
+        XCTAssertEqual(selectedExercise(in: app).identifier, "exercise-cable-row")
+        XCTAssertFalse(element("superset-advance", in: app).isEnabled)
+        logSet(1)
+        tap("input-done", in: app)
+        tap("workout-options", in: app)
+        XCTAssertTrue(app.buttons["new-set"].exists)
+        XCTAssertTrue(app.buttons["repeat-set"].exists)
+        app.buttons["all-exercises"].tap()
+        app.buttons["close-day-exercises"].tap()
+        tap("exercise-bench", in: app)
+        tap("superset-return", in: app)
+        XCTAssertEqual(selectedExercise(in: app).identifier, "exercise-cable-row")
+        tap("superset-advance", in: app)
+        XCTAssertEqual(selectedExercise(in: app).identifier, "exercise-bench")
+        logSet(1)
+        tap("input-superset-advance", in: app)
+        tap("superset-pause-timer", in: app)
+        let paused = element("superset-countdown", in: app).label
+        attach("Rest between rounds", app)
+        app.terminate()
+        app.launchArguments += ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
+        app.launch()
+        XCTAssertEqual(element("superset-countdown", in: app).label, paused)
+        largeTextRestAction("superset-extend-timer").tap()
+        XCTAssertNotEqual(element("superset-countdown", in: app).label, paused)
+        XCTAssertTrue(largeTextRestAction("superset-next-round").isHittable)
+        attach("Rest actions at Largest Text", app)
+        app.terminate()
+        app.launchArguments.removeLast(2)
+        app.launch()
+        let intro = app.descendants(matching: .any).matching(identifier: "senda-launch-intro").firstMatch
+        XCTAssertTrue(intro.waitForNonExistence(timeout: 5))
+        for _ in 0..<5 where app.buttons["superset-shorten-timer"].isEnabled {
+            tap("superset-shorten-timer", in: app)
+        }
+        XCTAssertEqual(element("superset-countdown", in: app).label, "0 seconds remaining")
+        XCTAssertEqual(selectedExercise(in: app).identifier, "exercise-bench")
+        XCTAssertEqual(app.buttons["superset-next-round"].label, "Start round 2")
+        tap("superset-extend-timer", in: app)
+        if app.buttons["superset-resume-timer"].exists { tap("superset-resume-timer", in: app) }
+        XCTAssertEqual(app.buttons["superset-next-round"].label, "Skip rest & start round 2")
+        tap("superset-next-round", in: app)
+        XCTAssertEqual(selectedExercise(in: app).identifier, "exercise-cable-row")
+        XCTAssertTrue(element("row-2-reps", in: app).exists)
+        XCTAssertTrue(element("row-1-weight", in: app).label.contains("2.5 lb"))
+        XCTAssertFalse(element("superset-advance", in: app).isEnabled)
+        for _ in 0..<2 {
+            logSet(2)
+            tap("input-superset-advance", in: app)
+        }
+        XCTAssertTrue(element("day-exercises-title", in: app).exists)
+        XCTAssertTrue(element("start-superset-cable-row", in: app).label.contains("Review"))
+    }
+
+    @MainActor
+    func testAllExercisesDragReordersTabsAndPreservesSelectionOnRelaunch() {
+        let app = launch()
+        _ = openDay(0, in: app)
+        add("Bench", id: "bench", in: app)
+        add("Cable row", id: "cable-row", in: app)
+        tap("all-exercises", in: app)
+        tap("day-exercises-reorder", in: app)
+        let bench = app.cells.containing(.staticText, identifier: "reorder-exercise-bench").firstMatch
+        let row = app.cells.containing(.staticText, identifier: "reorder-exercise-cable-row").firstMatch
+        XCTAssertTrue(bench.waitForExistence(timeout: 5))
+        XCTAssertTrue(row.exists)
+        let grip = row.buttons.matching(NSPredicate(format: "label BEGINSWITH[c] %@", "Reorder")).firstMatch
+        let start = grip.exists ? grip.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            : row.coordinate(withNormalizedOffset: CGVector(dx: 0.91, dy: 0.5))
+        start.press(forDuration: 0.4, thenDragTo: bench.coordinate(withNormalizedOffset: CGVector(dx: 0.91, dy: 0.25)),
+                    withVelocity: .slow, thenHoldForDuration: 0.3)
+        tap("day-exercises-reorder", in: app)
+        XCTAssertLessThan(element("day-exercise-cable-row", in: app).frame.minY,
+                          element("day-exercise-bench", in: app).frame.minY)
+        tap("close-day-exercises", in: app)
+        app.terminate()
+        app.launch()
+        XCTAssertEqual(selectedExercise(in: app).identifier, "exercise-cable-row")
+        XCTAssertLessThan(element("exercise-cable-row", in: app).frame.minX, element("exercise-bench", in: app).frame.minX)
     }
 
     @MainActor
@@ -3758,6 +3962,36 @@ final class LoggerUITests: XCTestCase {
             return false // Preserve every audit failure; the handler records diagnostics only.
         }
     }
+
+    @MainActor private func expectPaper(_ expected: [Int], in app: XCUIApplication, capture title: String? = nil, sheet: Bool = false,
+                     file: StaticString = #filePath, line: UInt = #line) async throws {
+        let context = CIContext()
+        let sRGB = try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB))
+        let deadline = ContinuousClock.now + .seconds(5)
+        var actual = [Int]()
+        repeat {
+            let shot = app.screenshot()
+            let image = CIImage(cgImage: try XCTUnwrap(shot.image.cgImage))
+            // The sheet's paper starts inside the screen edge on some iPhones.
+            let x = sheet ? floor(image.extent.width * 0.055) : 3
+            let sample = CGRect(x: x, y: floor(image.extent.midY), width: 1, height: 1)
+            var pixel = [UInt8](repeating: 0, count: 4)
+            context.render(image, toBitmap: &pixel, rowBytes: 4, bounds: sample, format: .RGBA8, colorSpace: sRGB)
+            actual = pixel.prefix(3).map(Int.init)
+            if zip(actual, expected).allSatisfy({ abs($0.0 - $0.1) <= 2 }) {
+                if let title {
+                    let attachment = XCTAttachment(screenshot: shot)
+                    attachment.name = title
+                    attachment.lifetime = .keepAlways
+                    self.add(attachment)
+                }
+                return
+            }
+            try await Task.sleep(for: .milliseconds(100))
+        } while ContinuousClock.now < deadline
+        XCTFail("Expected page RGB \(expected), found \(actual)", file: file, line: line)
+    }
+
 
     @MainActor private func assertProfileDestinations(in app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
         for id in ["profile-settings", "add-strength-goal"] {

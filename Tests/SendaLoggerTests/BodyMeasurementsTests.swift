@@ -8,6 +8,25 @@ import Testing
 struct BodyMeasurementsTests {
     private let today = Date(timeIntervalSince1970: 1_794_996_000)
 
+    @Test func periodKeepsOnlyTheMostRecentPriorWeightOutOfHistory() throws {
+        let model = BodyMeasurementsModel(repository: InMemoryBodyRepository())
+        let calendar = Calendar.current
+        let start = try TrainingDay("2026-11-10")
+        let end = try start.adding(days: 5)
+        let prior = try start.adding(days: -1)
+        try model.add([.weight: 72], on: try prior.adding(days: -1).date(in: calendar))
+        try model.add([.weight: 74, .waist: 87], on: prior.date(in: calendar))
+        try model.add([.weight: 75], on: end.date(in: calendar))
+        try model.add([.weight: 80], on: try end.adding(days: 1).date(in: calendar))
+        let window = model.period(for: .weight, in: start...end, calendar: calendar)
+        #expect(window.readings.map(\.value) == [75])
+        #expect(window.precedingWeight?.value == 74)
+        #expect(model.period(for: .waist, in: start...end, calendar: calendar).precedingWeight == nil)
+        let before = try prior.adding(days: -5)
+        let empty = model.period(for: .weight, in: before...before, calendar: calendar)
+        #expect(empty.readings.isEmpty && empty.precedingWeight == nil)
+    }
+
     @Test func parsesMeasurementsAndConvertsBetweenEntryUnits() throws {
         let weight = try #require(BodyMetric.weight.canonicalValue(from: "180.25", unit: .pounds))
         let waist = try #require(BodyMetric.waist.canonicalValue(from: "32,5", unit: .pounds))

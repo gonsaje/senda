@@ -270,6 +270,7 @@ private struct TrainingProfileSettingsIndex: View {
     let close: () -> Void
     @State private var destination: Destination?
     @State private var sampleWorkoutsStatus: String?
+    @AppStorage(NotebookAppearance.preferenceKey) private var appearance: NotebookAppearance = .system
     @Environment(\.dynamicTypeSize) private var textSize
 
     var body: some View {
@@ -330,6 +331,19 @@ private struct TrainingProfileSettingsIndex: View {
                     }
                     .accessibilityElement(children: .combine)
                     .accessibilityIdentifier("profile-weight-units")
+                    profileRule
+                    Menu {
+                        Picker("Appearance", selection: $appearance) {
+                            ForEach(NotebookAppearance.allCases, id: \.self) { option in
+                                Text(option.title).tag(option)
+                            }
+                        }
+                    } label: {
+                        destinationRow(title: "Appearance", detail: appearance.title, opensMenu: true)
+                    }
+                    .accessibilityLabel("Appearance")
+                    .accessibilityValue(appearance.title)
+                    .accessibilityIdentifier("profile-appearance")
                     profileRule
                     Button { destination = .backup } label: {
                         destinationRow(title: "Workout recovery", detail: "Save or restore a backup file")
@@ -408,7 +422,7 @@ private struct TrainingProfileSettingsIndex: View {
         TrainingAccessibility.announce(message)
     }
 
-    private func destinationRow(title: String, detail: String) -> some View {
+    private func destinationRow(title: String, detail: String, opensMenu: Bool = false) -> some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 5) {
                 Text(title).font(.body.weight(.medium))
@@ -416,7 +430,7 @@ private struct TrainingProfileSettingsIndex: View {
             }
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
-            profileChevron
+            profileChevron.rotationEffect(.degrees(opensMenu ? 90 : 0))
         }
         .frame(minHeight: 44)
         .padding(.vertical, 12)

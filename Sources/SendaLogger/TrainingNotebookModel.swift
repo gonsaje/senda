@@ -92,7 +92,7 @@ public enum TrainingRowStatus: Equatable, Sendable { case empty, unfinished, rec
     public private(set) var hasSavedFirstSet: Bool
     public private(set) var latestWorkoutSetWrite: TrainingPerformanceReference?
     public private(set) var errorMessage: String?
-    public private(set) var revealRowID: UUID?
+    public internal(set) var revealRowID: UUID?
     public private(set) var section: TrainingSection = .log
     public private(set) var landingResetID: UInt = 0
     public var isProgressPresented = false
@@ -135,7 +135,7 @@ public enum TrainingRowStatus: Equatable, Sendable { case empty, unfinished, rec
     public let isSample: Bool
     public let calendar: Calendar
     @ObservationIgnored private let repository: any JournalRepository
-    @ObservationIgnored private let now: () -> Date
+    @ObservationIgnored let now: () -> Date
     @ObservationIgnored private var lastWritten: JournalSnapshot
     private struct PendingSave {
         let checked: ValidatedJournalSnapshot
@@ -513,6 +513,9 @@ public enum TrainingRowStatus: Equatable, Sendable { case empty, unfinished, rec
             if kind == .dropSet, rows[location.index].dropGroupID == nil { rows[location.index].dropGroupID = UUID() }
         }
         state.training!.days[location.day]!.rows[location.exerciseID] = rows
+        if state.training!.selectedDay?.rawValue != location.day {
+            state.training!.days[location.day]?.reconcileSupersetRows()
+        }
     }
     private func rowLocation(_ rowID: UUID, in state: JournalSnapshot) throws -> (day: String, exerciseID: String, index: Int) {
         for (day, workout) in state.training!.days {
@@ -532,7 +535,7 @@ public enum TrainingRowStatus: Equatable, Sendable { case empty, unfinished, rec
     public var undoLabel: String? {
         switch workspace.undo {
         case .repeated, .repeatedGroup: "Set repeated"
-        case .deleted, .deletedGroup: "Set removed"
+        case .deleted, .deletedGroup, .deletedSupersetSet: "Set removed"
         case .removedFromWorkout(_, .exercise, _, _): "Exercise deleted"
         case .removedFromWorkout(_, .workout, _, _): "Workout reset"
         case nil: nil
@@ -692,8 +695,8 @@ public enum TrainingRowStatus: Equatable, Sendable { case empty, unfinished, rec
             let visible = Set(workspace.days[day.rawValue]?.exerciseIDs ?? [])
             let allowed = availableWorkoutExerciseIDs(template.exerciseIDs, on: day)
             guard !allowed.isEmpty else { throw WorkoutTemplateError.unavailableExercise }
-            if selectedDay == day, allowed.allSatisfy(visible.contains) { return true }
-            return addExercises(allowed, plansFrom: template.exercisePlans,
+            if selectedDay == day, allowed.allSatisfy(visible.contains), template.supersets?.isEmpty != false { return true }
+            return addExercises(allowed, plansFrom: template.exercisePlans, supersets: template.supersets ?? [],
                                 preserveExistingRows: true, on: day)
         } catch {
             errorMessage = error.localizedDescription
@@ -723,7 +726,8 @@ public enum TrainingRowStatus: Equatable, Sendable { case empty, unfinished, rec
             errorMessage = WorkoutTemplateError.unavailableExercise.localizedDescription
             return false
         }
-        return addExercises(allowed, plansFrom: source.exercisePlans ?? [:], preserveExistingRows: true, on: destination)
+        return addExercises(allowed, plansFrom: source.exercisePlans ?? [:], supersets: source.supersets?.map(\.plan) ?? [],
+                            preserveExistingRows: true, on: destination)
     }
     public func availableWorkoutExerciseIDs(_ sourceIDs: [String], on day: TrainingDay) -> [String] {
         let existing = Set(workspace.days[day.rawValue]?.exerciseIDs ?? [])
@@ -804,7 +808,7 @@ public enum TrainingRowStatus: Equatable, Sendable { case empty, unfinished, rec
         guard let day = selectedDay, availableWorkoutExerciseIDs(ids, on: day).count == ids.count else { return false }
         return addExercises(ids, plansFrom: nil)
     }
-    private func addExercises(_ ids: [String], plansFrom source: [String: ExercisePlan]?,
+    private func addExercises(_ ids: [String], plansFrom source: [String: ExercisePlan]?, supersets: [SupersetPlan] = [],
                               preserveExistingRows: Bool = false, on destination: TrainingDay? = nil) -> Bool {
         guard ids.allSatisfy({ id in exercises.contains { $0.id == id } }) else { return false }
         var seen = Set<String>()
@@ -827,6 +831,10 @@ public enum TrainingRowStatus: Equatable, Sendable { case empty, unfinished, rec
                 if !preserveExistingRows || workout.rows[id] == nil {
                     ensureRows(for: id, on: day, in: &workout, workspace: state.training!, plansFrom: source)
                 }
+            }
+            for plan in supersets where plan.exerciseIDs.allSatisfy(ordered.contains) {
+                let occupied = Set((workout.supersets ?? []).flatMap { $0.plan.exerciseIDs })
+                if occupied.isDisjoint(with: plan.exerciseIDs) { try workout.pair(plan) }
             }
             if let firstNew { workout.selectedExerciseID = firstNew }
             state.training!.days[day.rawValue] = workout; state.training!.undo = nil
@@ -917,10 +925,19 @@ public enum TrainingRowStatus: Equatable, Sendable { case empty, unfinished, rec
             state.training!.days[day.rawValue]!.selectedExerciseID = id; state.training!.undo = nil
         }
     }
+    @discardableResult public func setExerciseOrder(_ ids: [String], on day: TrainingDay) -> Bool {
+        guard selectedDay == day, let current = workout?.exerciseIDs,
+              ids.count == current.count, Set(ids) == Set(current) else { return false }
+        return commit(synchronizeInput: false) { state in
+            state.training!.days[day.rawValue]!.exerciseIDs = ids
+        }
+    }
+
     @discardableResult public func removeExercise(_ id: String) -> Bool {
         commit { state in
             try finalize(&state)
             guard let day = state.training!.selectedDay, var workout = state.training!.days[day.rawValue] else { throw TrainingError.invalidDay }
+            workout.removeSuperset(containing: id)
             workout.exerciseIDs.removeAll { $0 == id }
             if workout.selectedExerciseID == id { workout.selectedExerciseID = workout.exerciseIDs.first }
             state.training!.days[day.rawValue] = workout; state.training!.undo = nil
@@ -1019,7 +1036,7 @@ public enum TrainingRowStatus: Equatable, Sendable { case empty, unfinished, rec
         }
     }
     @discardableResult public func finishEditing() -> Bool { commit { try finalize(&$0) } }
-    private func finalize(_ state: inout JournalSnapshot) throws {
+    func finalize(_ state: inout JournalSnapshot) throws {
         try synchronizeFocusedSet(&state, normalizeText: true)
         state.training!.focus = nil
     }
@@ -1119,7 +1136,18 @@ public enum TrainingRowStatus: Equatable, Sendable { case empty, unfinished, rec
             let row = rows.remove(at: index)
             let removal = try row.performedSetID.map { try state.journal.removeSet($0) }
             state.training!.days[day.rawValue]!.rows[id] = rows
-            state.training!.undo = .deleted(day: day, exerciseID: id, index: index, row: row, removal: removal)
+            if let group = state.training!.days[day.rawValue]!.supersets?.first(where: { $0.rowIDs.contains(rowID) }) {
+                var workout = state.training!.days[day.rawValue]!
+                workout.reconcileSupersetRows()
+                let previousIDs = Set(rows.map(\.id))
+                let generated = workout.rows[id]?.first { !previousIDs.contains($0.id) }
+                let context = SupersetSetUndo(original: group, generatedRowID: generated?.id)
+                state.training!.days[day.rawValue] = workout
+                state.training!.undo = .deletedSupersetSet(day: day, exerciseID: id, index: index, row: row,
+                                                          removal: removal, superset: context)
+            } else {
+                state.training!.undo = .deleted(day: day, exerciseID: id, index: index, row: row, removal: removal)
+            }
         }
     }
     @discardableResult public func deleteDropStage(_ rowID: UUID) -> Bool {
@@ -1146,7 +1174,8 @@ public enum TrainingRowStatus: Equatable, Sendable { case empty, unfinished, rec
                 guard let index = rows.firstIndex(where: { $0.id == rowID }), let set = rows[index].performedSetID else { throw TrainingError.missingRow }
                 _ = try state.journal.removeSet(set); rows.remove(at: index)
                 state.training!.days[day.rawValue]!.rows[id] = rows
-            case .deleted(let day, let id, let index, let row, let removal):
+            case .deleted(let day, let id, let index, let row, let removal),
+                 .deletedSupersetSet(let day, let id, let index, let row, let removal, _):
                 if let removal { _ = try state.journal.restoreSet(removal) }
                 var restored = row
                 var workout = state.training!.days[day.rawValue]!
@@ -1162,6 +1191,7 @@ public enum TrainingRowStatus: Equatable, Sendable { case empty, unfinished, rec
                 }
                 var rows = workout.rows[id]!
                 rows.insert(restored, at: min(index, rows.count)); workout.rows[id] = rows
+                if let context = undo.supersetSetUndo { try context.restore(in: &workout, exerciseID: id, rowID: row.id) }
                 state.training!.days[day.rawValue] = workout
             case .repeatedGroup(let day, let id, let rowIDs):
                 let selected = Set(rowIDs)
@@ -1377,7 +1407,7 @@ public enum TrainingRowStatus: Equatable, Sendable { case empty, unfinished, rec
         }, update)
     }
 
-    private func commit(recover: Bool = false, synchronizeInput: Bool = true, onSuccess: (() -> Void)? = nil,
+    func commit(recover: Bool = false, synchronizeInput: Bool = true, onSuccess: (() -> Void)? = nil,
                         _ update: (inout JournalSnapshot) throws -> Void) -> Bool {
         guard !backupRecoveryRequired else { errorMessage = NotebookBackupWorkflowError.recoveryRequired.localizedDescription; return false }
         var candidate = snapshot
@@ -1389,12 +1419,21 @@ public enum TrainingRowStatus: Equatable, Sendable { case empty, unfinished, rec
             // Their pending transaction includes the matching performed-set update.
             recoveryCandidate = candidate
             if synchronizeInput { try synchronizeFocusedSet(&candidate) }
-            // A later edit to this day supersedes the whole-workout undo snapshot.
-            if case .removedFromWorkout(let day, _, _, _)? = candidate.training?.undo,
+            // A later edit to this day supersedes undo that would restore old workout or round state.
+            if let day = candidate.training?.undo?.invalidatedByWorkoutEditOn,
                candidate.training?.undo == snapshot.training?.undo,
                candidate.training?.days[day.rawValue] != snapshot.training?.days[day.rawValue] {
                 candidate.training?.undo = nil
                 recoveryCandidate.training?.undo = nil
+            }
+            if let day = candidate.training?.selectedDay?.rawValue,
+               candidate.training?.days[day]?.supersets?.isEmpty == false,
+               candidate.training?.days[day]?.rows != snapshot.training?.days[day]?.rows {
+                candidate.training?.days[day]?.reconcileSupersetRows()
+            }
+            if snapshot.training?.programEnrollments != nil, snapshot.training?.undo != candidate.training?.undo {
+                candidate.training?.discardUnusedProgramEnrollments()
+                recoveryCandidate.training?.discardUnusedProgramEnrollments()
             }
             checked = try ValidatedJournalSnapshot(candidate)
         }

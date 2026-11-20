@@ -46,6 +46,7 @@ struct TrainingDayView: View {
     @State private var stripScrolledPast = false
     @State private var measuredFocusLayout: TrainingFocusedRowLayout?
     @State private var showsFirstSetConfirmation = false
+    @State private var awaitingSupersetFinish: UUID?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dynamicTypeSize) private var textSize
 
@@ -81,6 +82,10 @@ struct TrainingDayView: View {
                     } else {
                         emptyDayNavigation(isFirstWorkout: isFirstWorkout).id("day-header")
                     }
+                    if let session = model.programSession(on: day) {
+                        ScheduledProgramContext(session: session, model: model)
+                    }
+                    if textSize.isAccessibilitySize { supersetStatus }
                     Section {
                         VStack(alignment: .leading, spacing: 8) {
                             if showingSearch {
@@ -96,7 +101,8 @@ struct TrainingDayView: View {
                                         showHistory: { open(.sheet(.history(exercise.id))) })
                                 }
                                 TrainingSetRows(model: model, records: model.workoutPersonalRecords,
-                                                beginInteraction: { pendingNavigation = nil }).id("\(day.rawValue)/\(exercise.id)")
+                                                beginInteraction: { pendingNavigation = nil }, advanceSuperset: advanceSuperset,
+                                                showExercises: { open(.sheet(.exercises)) }).id("\(day.rawValue)/\(exercise.id)")
                                 if let best = model.personalBest {
                                     TrainingPersonalBest(model: model, best: best, beginNavigation: { pendingNavigation = nil })
                                 }
@@ -112,7 +118,7 @@ struct TrainingDayView: View {
                         .padding(.top, 8)
                     } header: {
                         if hasExercises {
-                            workoutExercises(scroll)
+                            VStack(alignment: .leading, spacing: 0) { workoutExercises(scroll) }
                                 .background(NotebookStyle.ivory)
                         }
                     }
@@ -131,9 +137,8 @@ struct TrainingDayView: View {
                             .padding(.bottom, model.focus == nil ? 12 : 0)
                     }
                     if let focus = model.focus {
-                        TrainingInputDock(model: model, focus: focus, weightEntry: $weightEntry, beginInteraction: {
-                            pendingNavigation = nil
-                        }).id(focus.id)
+                        TrainingInputDock(model: model, focus: focus, weightEntry: $weightEntry,
+                                          beginInteraction: { pendingNavigation = nil }, advanceSuperset: advanceSuperset).id(focus.id)
                     }
                     else if model.errorMessage == nil, let label = model.undoLabel {
                         Button {
@@ -192,6 +197,14 @@ struct TrainingDayView: View {
                 TrainingPlanEditor(model: model, context: context, close: { planContext = nil })
             }
             .modifier(TrainingWorkoutRemovalConfirmation(model: model, request: $removalRequest))
+            .onChange(of: model.supersets) { previous, _ in
+                guard model.selectedDay == day else { return }
+                announceSupersetTransition(from: previous)
+                guard let id = awaitingSupersetFinish,
+                      model.supersets.first(where: { $0.id == id })?.phase == .finished else { return }
+                awaitingSupersetFinish = nil
+                open(.sheet(.exercises))
+            }
             .onPreferenceChange(TrainingFocusedRowPreference.self) { layout in
                 measuredFocusLayout = layout
             }
@@ -223,6 +236,7 @@ struct TrainingDayView: View {
                 showsFirstSetConfirmation = false
             }
             .onChange(of: day) { _, _ in
+                awaitingSupersetFinish = nil
                 weightEntry = TrainingWeightEntrySettings()
                 showsFirstSetConfirmation = false
                 removalRequest = nil
@@ -253,6 +267,7 @@ struct TrainingDayView: View {
                 planContext = nil
             }
             .onChange(of: model.section) { _, _ in
+                awaitingSupersetFinish = nil
                 pendingNavigation = nil
                 showingSearch = false
                 searchAfterDismissal = nil
@@ -268,6 +283,30 @@ struct TrainingDayView: View {
                 exerciseID: model.exercise?.id, rowIDs: model.rows.map(\.id))
         }
     }
+    private func announceSupersetTransition(from previous: [WorkoutSuperset]) {
+        guard let id = model.exercise?.id, let member = model.supersetMemberships[id],
+              let old = previous.first(where: { $0.id == member.group.id }),
+              old.phase != member.group.phase || old.completedTurns != member.group.completedTurns else { return }
+        switch member.group.phase {
+        case .working:
+            TrainingAccessibility.announce("\(member.status). \(member.code(for: id)), \(model.exercise(id).displayName).")
+        case .resting:
+            TrainingAccessibility.announce(member.status + (member.group.timer == nil ? "." : ". Rest timer started."))
+        case .finished:
+            TrainingAccessibility.announce("\(member.title) complete.")
+        case .ready: break
+        }
+    }
+
+    private func advanceSuperset(_ id: UUID) {
+        pendingNavigation = nil
+        if let group = model.supersets.first(where: { $0.id == id }),
+           group.round == group.plan.rounds, group.currentExerciseID == group.plan.second {
+            awaitingSupersetFinish = id
+        }
+        if !model.advanceSuperset(id) && !model.canRetrySave { awaitingSupersetFinish = nil }
+    }
+
     private func presentPendingNavigation() {
         guard let request = pendingNavigation else { return }
         pendingNavigation = nil
@@ -378,6 +417,25 @@ struct TrainingDayView: View {
         }
     }
 
+    @ViewBuilder private var supersetStatus: some View {
+        if let id = model.exercise?.id, let member = model.supersetMemberships[id] {
+            ViewThatFits(in: .horizontal) {
+                HStack {
+                    Label(member.title, systemImage: "link").font(.subheadline.weight(.semibold))
+                    Spacer(minLength: 8)
+                    Text(member.status).font(.caption).foregroundStyle(NotebookStyle.quiet)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(member.title).font(.subheadline.weight(.semibold))
+                    Text(member.status).font(.caption).foregroundStyle(NotebookStyle.quiet)
+                }
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("workout-superset-status")
+            .padding(.top, 6)
+        }
+    }
+
     @ViewBuilder private func workoutExercises(_ scroll: ScrollViewProxy) -> some View {
         if model.tabs.isEmpty {
             HStack {
@@ -387,7 +445,10 @@ struct TrainingDayView: View {
                 addExerciseButton
             }
         } else {
-            TrainingWorkoutExerciseList(exercises: model.tabs, selectedID: model.exercise?.id, select: { id in
+            let memberships = model.supersetMemberships
+            if !textSize.isAccessibilitySize { supersetStatus }
+            TrainingWorkoutExerciseList(exercises: model.tabs, selectedID: model.exercise?.id,
+                                        memberships: memberships, select: { id in
                 if id == model.exercise?.id {
                     if showingSearch { showingSearch = false }
                     return true
@@ -615,6 +676,8 @@ struct TrainingSetRows: View {
     @Bindable var model: TrainingNotebookModel
     let records: [UUID: TrainingWorkoutRecord]
     var beginInteraction: () -> Void = {}
+    var advanceSuperset: (UUID) -> Void
+    var showExercises: () -> Void
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dynamicTypeSize) private var textSize
@@ -647,12 +710,19 @@ struct TrainingSetRows: View {
                 }
             }
             // Preserve each action's identity when Larger Text changes the layout.
-            setActionsLayout {
-                newSetButton
-                Spacer(minLength: usesStackedRows ? 0 : 8)
-                repeatButton
-            }.frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.top, 14)
+            if let id = model.exercise?.id, let member = model.supersetMemberships[id] {
+                TrainingSupersetControls(model: model, member: member, advance: advanceSuperset, showExercises: showExercises)
+                    .padding(.top, 8)
+            }
+            if let id = model.exercise?.id, model.supersetMemberships[id]?.group.phase != .working,
+               model.supersetMemberships[id]?.group.phase != .resting {
+                setActionsLayout {
+                    newSetButton
+                    Spacer(minLength: usesStackedRows ? 0 : 8)
+                    repeatButton
+                }.frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, 14)
+            }
         }
         .background {
             GeometryReader { geometry in
@@ -994,6 +1064,13 @@ struct TrainingSetRows: View {
         let status = model.focus?.rowID == row.id ? nil : model.rowStatus(for: row)
         let hint = status.flatMap { $0 == .empty ? nil : completionHint(row) }
         VStack(alignment: .leading, spacing: 3) {
+            if let exercise = model.exercise, let member = model.supersetMemberships[exercise.id],
+               member.group.phase == .working, member.group.currentRowID == row.id {
+                Text("Round \(member.group.round) · \(member.code(for: exercise.id))")
+                    .font(.caption.weight(.semibold)).foregroundStyle(NotebookStyle.clay)
+                    .padding(.bottom, 4)
+                    .accessibilityLabel("Current superset set, round \(member.group.round), \(member.code(for: exercise.id))")
+            }
             if let record = records[row.id], let exercise = model.exercise,
                row.pendingCorrection != true, row.parsed(for: exercise) == record.values {
                 recordMark(record, row: row, exercise: exercise)

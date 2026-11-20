@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import SendaDomain
 import SendaPersistence
 import SendaLogger
@@ -28,6 +29,7 @@ struct SendaApp: App {
 
 private struct JournalRootView: View {
     @Binding var showsLaunchIntro: Bool
+    @AppStorage(NotebookAppearance.preferenceKey) private var appearance: NotebookAppearance = .system
     @Environment(\.scenePhase) private var scenePhase
     @State private var session: TrainingSession?
     @State private var automaticBackup: NotebookAutomaticBackup?
@@ -49,6 +51,7 @@ private struct JournalRootView: View {
         .background(NotebookStyle.ivory)
         .foregroundStyle(NotebookStyle.ink)
         .tint(NotebookStyle.clay)
+        .background { WindowAppearance(appearance: appearance).allowsHitTesting(false).accessibilityHidden(true) }
         .task { if session == nil && openingError == nil { openJournal() } }
         .onChange(of: scenePhase) { _, phase in
             if phase == .background { showsLaunchIntro = false }
@@ -119,5 +122,36 @@ private struct JournalRootView: View {
             StrengthGoal(exerciseID: "deadlift", target: SetValues(weight: 21_500, reps: 5))
         ]))
         return TrainingSession(repository: repository, isSample: true, profileRepository: profile)
+    }
+}
+
+/// Applying the override to this window also updates sheets already presented above the notebook.
+private struct WindowAppearance: UIViewRepresentable {
+    let appearance: NotebookAppearance
+
+    func makeUIView(context: Context) -> AppearanceView { AppearanceView() }
+
+    func updateUIView(_ view: AppearanceView, context: Context) {
+        view.style = switch appearance {
+        case .system: .unspecified
+        case .light: .light
+        case .dark: .dark
+        }
+    }
+
+    final class AppearanceView: UIView {
+        var style: UIUserInterfaceStyle = .unspecified {
+            didSet { applyToWindow() }
+        }
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            applyToWindow()
+        }
+
+        private func applyToWindow() {
+            guard let window, window.overrideUserInterfaceStyle != style else { return }
+            window.overrideUserInterfaceStyle = style
+        }
     }
 }

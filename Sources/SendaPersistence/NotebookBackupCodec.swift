@@ -18,12 +18,11 @@ public struct NotebookArchive: Codable, Equatable, Sendable {
               snapshot.journal.batches.allSatisfy({ notebookDateRange.contains($0.recordedAt.timeIntervalSince1970) }) else {
             throw NotebookBackupError.invalidBackup
         }
-        if case .deleted(_, _, _, _, let removal)? = snapshot.training?.undo, let removal {
-            guard notebookDateRange.contains(removal.batch.recordedAt.timeIntervalSince1970) else {
+        switch snapshot.training?.undo {
+        case .deleted(_, _, _, _, let removal), .deletedSupersetSet(_, _, _, _, let removal, _):
+            if let removal, !notebookDateRange.contains(removal.batch.recordedAt.timeIntervalSince1970) {
                 throw NotebookBackupError.invalidBackup
             }
-        }
-        switch snapshot.training?.undo {
         case .deletedGroup(_, _, _, _, let removal), .removedFromWorkout(_, _, _, let removal):
             guard removal.batches.allSatisfy({ notebookDateRange.contains($0.batch.recordedAt.timeIntervalSince1970) }) else {
                 throw NotebookBackupError.invalidBackup
@@ -39,7 +38,7 @@ public struct NotebookArchive: Codable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case format, version, createdAt, snapshot, profile, workoutTemplateCount
-        case archivedCustomExerciseCount, customExerciseSetupCount
+        case archivedCustomExerciseCount, customExerciseSetupCount, structuredTraining
     }
 
     /// Backups require the library even when it is empty: a missing library must not silently erase names.
@@ -69,14 +68,19 @@ public struct NotebookArchive: Codable, Equatable, Sendable {
                 throw NotebookBackupError.incompatibleFormat
             }
             let version = try box.decode(Int.self, forKey: .version)
-            guard (1...9).contains(version) else { throw NotebookBackupError.unsupportedVersion(version) }
+            guard (1...10).contains(version) else { throw NotebookBackupError.unsupportedVersion(version) }
             let payload = try box.decode(SnapshotPayload.self, forKey: .snapshot)
             if version == 7, payload.training.workoutTemplates?.isEmpty != false {
                 throw NotebookBackupError.invalidBackup
             }
             let snapshot = payload.snapshot
-            if version == 9 {
-                guard snapshot.archivedCustomExerciseCount > 0,
+            let structures = StructuredTrainingCounts(payload.training)
+            if version == 10 {
+                guard !structures.isEmpty, try box.decode(StructuredTrainingCounts.self, forKey: .structuredTraining) == structures
+                else { throw NotebookBackupError.invalidBackup }
+            } else if !structures.isEmpty { throw NotebookBackupError.invalidBackup }
+            if version >= 9 {
+                guard (version > 9 || snapshot.archivedCustomExerciseCount > 0),
                       try box.decode(Int.self, forKey: .archivedCustomExerciseCount) == snapshot.archivedCustomExerciseCount,
                       try box.decode(Int.self, forKey: .customExerciseSetupCount) == snapshot.customExerciseSetupCount
                 else { throw NotebookBackupError.invalidBackup }
@@ -101,7 +105,9 @@ public struct NotebookArchive: Codable, Equatable, Sendable {
         var box = encoder.container(keyedBy: CodingKeys.self)
         try box.encode("senda-backup", forKey: .format)
         let archived = archive.snapshot.archivedCustomExerciseCount
-        let version = if archived > 0 { 9 }
+        let structures = StructuredTrainingCounts(archive.snapshot.training)
+        let version = if !structures.isEmpty { 10 }
+            else if archived > 0 { 9 }
             else if archive.snapshot.hasCustomExerciseSetups { 8 }
             else if archive.snapshot.training?.workoutTemplates?.isEmpty == false { 7 }
             else if !archive.profile.weeklyMuscleTargets.isEmpty { 6 }
@@ -111,7 +117,8 @@ public struct NotebookArchive: Codable, Equatable, Sendable {
         if version >= 8 {
             try box.encode(archive.snapshot.training?.workoutTemplates?.count ?? 0, forKey: .workoutTemplateCount)
         }
-        if version == 9 {
+        if version == 10 { try box.encode(structures, forKey: .structuredTraining) }
+        if version >= 9 {
             try box.encode(archived, forKey: .archivedCustomExerciseCount)
             try box.encode(archive.snapshot.customExerciseSetupCount, forKey: .customExerciseSetupCount)
         }

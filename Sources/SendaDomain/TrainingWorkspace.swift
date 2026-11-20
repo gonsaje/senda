@@ -85,11 +85,14 @@ public struct DayWorkout: Codable, Equatable, Sendable {
     public var rows: [String: [TrainingRow]]
     public var unit: WeightUnit
     public var exercisePlans: [String: ExercisePlan]?
+    public var programSession: ScheduledProgramReference?
+    public var supersets: [WorkoutSuperset]?
     public init(exerciseIDs: [String] = [], selectedExerciseID: String? = nil,
                 rows: [String: [TrainingRow]] = [:], unit: WeightUnit = .pounds,
-                exercisePlans: [String: ExercisePlan]? = nil) {
+                exercisePlans: [String: ExercisePlan]? = nil, supersets: [WorkoutSuperset]? = nil) {
         self.exerciseIDs = exerciseIDs; self.selectedExerciseID = selectedExerciseID; self.rows = rows; self.unit = unit
         self.exercisePlans = exercisePlans
+        self.supersets = supersets
     }
 }
 /// A removal affects the selected date's workout, including any hidden exercise rows.
@@ -105,6 +108,7 @@ public enum TrainingWorkoutRemoval: Codable, Equatable, Sendable {
         case .exercise(let id):
             guard original.rows[id] != nil else { throw TrainingError.missingRow }
             var remaining = original
+            remaining.removeSuperset(containing: id)
             remaining.rows[id] = nil
             remaining.exercisePlans?[id] = nil
             if remaining.exercisePlans?.isEmpty == true { remaining.exercisePlans = nil }
@@ -114,6 +118,7 @@ public enum TrainingWorkoutRemoval: Codable, Equatable, Sendable {
                     remaining.selectedExerciseID = remaining.exerciseIDs.dropFirst(index).first ?? remaining.exerciseIDs.last
                 }
             }
+            if remaining.rows.isEmpty { remaining.programSession = nil }
             return remaining
         }
     }
@@ -134,8 +139,21 @@ public enum TrainingUndo: Codable, Equatable, Sendable {
     case removedFromWorkout(day: TrainingDay, target: TrainingWorkoutRemoval, original: DayWorkout, removal: RemovedTrainingSets)
     case repeated(day: TrainingDay, exerciseID: String, rowID: UUID)
     case deleted(day: TrainingDay, exerciseID: String, index: Int, row: TrainingRow, removal: RemovedTrainingSet?)
+    case deletedSupersetSet(day: TrainingDay, exerciseID: String, index: Int, row: TrainingRow, removal: RemovedTrainingSet?, superset: SupersetSetUndo)
     case repeatedGroup(day: TrainingDay, exerciseID: String, rowIDs: [UUID])
     case deletedGroup(day: TrainingDay, exerciseID: String, index: Int, rows: [TrainingRow], removal: RemovedTrainingSets)
+
+    package var supersetSetUndo: SupersetSetUndo? {
+        if case let .deletedSupersetSet(_, _, _, _, _, superset) = self { return superset }
+        return nil
+    }
+
+    package var invalidatedByWorkoutEditOn: TrainingDay? {
+        switch self {
+        case let .removedFromWorkout(day, _, _, _), let .deletedSupersetSet(day, _, _, _, _, _): day
+        default: nil
+        }
+    }
 }
 public struct TrainingWorkspace: Codable, Equatable, Sendable {
     public var visibleWeek: TrainingDay
@@ -145,6 +163,8 @@ public struct TrainingWorkspace: Codable, Equatable, Sendable {
     public var focus: TrainingFocus?
     public var undo: TrainingUndo?
     public var legacyExerciseIDs: [String]?
+    public var programs: [TrainingProgram]?
+    public var programEnrollments: [ProgramEnrollment]?
     public var workoutTemplates: [WorkoutTemplate]?
     public var trackedStrengthExerciseIDs: [String]?
     public init(visibleWeek: TrainingDay, selectedDay: TrainingDay? = nil, preferredUnit: WeightUnit = .pounds,
@@ -158,7 +178,7 @@ public struct TrainingWorkspace: Codable, Equatable, Sendable {
     }
     private enum CodingKeys: String, CodingKey {
         case visibleWeek, selectedDay, preferredUnit, days, focus, undo, legacyExerciseIDs, workoutTemplates
-        case trackedStrengthExerciseIDs
+        case trackedStrengthExerciseIDs, programs, programEnrollments
     }
 
     /// The file writer reuses unchanged encoded days; backups use the same metadata with every day inline.
@@ -173,6 +193,8 @@ public struct TrainingWorkspace: Codable, Equatable, Sendable {
             try fields.encodeIfPresent(workspace.focus, forKey: .focus)
             try fields.encodeIfPresent(workspace.undo, forKey: .undo)
             try fields.encodeIfPresent(workspace.legacyExerciseIDs, forKey: .legacyExerciseIDs)
+            try fields.encodeIfPresent(workspace.programs, forKey: .programs)
+            try fields.encodeIfPresent(workspace.programEnrollments, forKey: .programEnrollments)
             try fields.encodeIfPresent(workspace.workoutTemplates, forKey: .workoutTemplates)
             try fields.encodeIfPresent(workspace.trackedStrengthExerciseIDs, forKey: .trackedStrengthExerciseIDs)
         }
@@ -191,6 +213,7 @@ public struct TrainingWorkspace: Codable, Equatable, Sendable {
         guard Set(legacy).count == legacy.count, legacy.allSatisfy({ !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && $0.count <= 80 }) else { throw TrainingError.invalidWorkspace }
         let exercisesByID = Dictionary(exercises.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let known = Set(exercisesByID.keys).union(journal.batches.map(\.exerciseID)).union(legacy)
+        let enrollments = try validatePrograms(knownExercises: known)
         var templateIDs = Set<UUID>()
         var templateNames = Set<String>()
         for workout in workoutTemplates ?? [] {
@@ -212,10 +235,18 @@ public struct TrainingWorkspace: Codable, Equatable, Sendable {
         var rowIDs = Set<UUID>(), links = Set<UUID>(), actions = Set<UUID>(), groupIDs = Set<UUID>()
         guard try visibleWeek.week().first == visibleWeek else { throw TrainingError.invalidWorkspace }
         for (key, day) in days {
-            _ = try TrainingDay(key)
+            let date = try TrainingDay(key)
+            if let session = day.programSession {
+                try session.validate(day: date, enrollments: enrollments)
+            }
             guard Set(day.exerciseIDs).count == day.exerciseIDs.count,
                   day.exerciseIDs.allSatisfy({ known.contains($0) && day.rows[$0] != nil }),
                   day.selectedExerciseID.map(day.exerciseIDs.contains) ?? day.exerciseIDs.isEmpty else { throw TrainingError.invalidWorkspace }
+            if let groups = day.supersets {
+                guard Set(groups.map(\.id)).count == groups.count else { throw TrainingError.invalidWorkspace }
+                try SupersetPlan.validate(groups.map(\.plan), order: day.exerciseIDs)
+                for group in groups { try group.validate(in: day) }
+            }
             for (exercise, plan) in day.exercisePlans ?? [:] {
                 guard day.rows[exercise] != nil else { throw TrainingError.invalidWorkspace }
                 _ = try plan.validated()
@@ -273,7 +304,8 @@ public struct TrainingWorkspace: Codable, Equatable, Sendable {
                 _ = try restored.validated(against: restoredJournal, exercises: exercises)
             case .repeated(let day, let exercise, let rowID):
                 guard let row = days[day.rawValue]?.rows[exercise]?.first(where: { $0.id == rowID }), row.performedSetID != nil else { throw TrainingError.invalidWorkspace }
-            case .deleted(let day, let exercise, let index, let row, let removal):
+            case .deleted(let day, let exercise, let index, let row, let removal),
+                 .deletedSupersetSet(let day, let exercise, let index, let row, let removal, _):
                 guard let rows = days[day.rawValue]?.rows[exercise], index >= 0, index <= rows.count,
                       !rowIDs.contains(row.id), !actions.contains(row.actionID),
                       row.weight.count <= 64, row.reps.count <= 64,
@@ -284,7 +316,8 @@ public struct TrainingWorkspace: Codable, Equatable, Sendable {
                     _ = try restoredJournal.restoreSet(removal)
                     _ = try restoredJournal.validated()
                 } else if row.performedSetID != nil || row.pendingCorrection == true { throw TrainingError.invalidWorkspace }
-                try validateRestoredRows([row], on: day, exerciseID: exercise, at: index, journal: restoredJournal, exercises: exercises)
+                try validateRestoredRows([row], on: day, exerciseID: exercise, at: index, journal: restoredJournal,
+                                         exercises: exercises, superset: undo.supersetSetUndo)
             case .repeatedGroup(let day, let exercise, let ids):
                 guard !ids.isEmpty, Set(ids).count == ids.count,
                       let rows = days[day.rawValue]?.rows[exercise],
@@ -309,7 +342,7 @@ public struct TrainingWorkspace: Codable, Equatable, Sendable {
     }
 
     private func validateRestoredRows(_ deleted: [TrainingRow], on day: TrainingDay, exerciseID: String, at index: Int,
-                                      journal: Journal, exercises: [Exercise]) throws {
+                                      journal: Journal, exercises: [Exercise], superset: SupersetSetUndo? = nil) throws {
         var restored = self
         restored.undo = nil
         var workout = restored.days[day.rawValue]!
@@ -325,6 +358,11 @@ public struct TrainingWorkspace: Codable, Equatable, Sendable {
             workout.unit = originalUnit; converted = deleted
         }
         workout.rows[exerciseID]!.insert(contentsOf: converted, at: index)
+        if let superset {
+            // Undo is available with the editor closed. Its generated replacement may currently have focus.
+            restored.focus = nil
+            try superset.restore(in: &workout, exerciseID: exerciseID, rowID: deleted[0].id)
+        }
         restored.days[day.rawValue] = workout
         _ = try restored.validated(against: journal, exercises: exercises)
     }

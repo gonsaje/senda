@@ -28,7 +28,8 @@ struct BodyMeasurementsView: View {
     private var calendar: Calendar { notebook.calendar }
 
     var body: some View {
-        let readings = model.readings(for: metric, in: days, calendar: calendar)
+        let period = model.period(for: metric, in: days, calendar: calendar)
+        let readings = period.readings
         let exercise = comparisonID.map { notebook.exercise($0) }
         let progress = exercise.map { notebook.snapshot.progress(for: $0, in: days, calendar: calendar) }
         ScrollView {
@@ -48,15 +49,15 @@ struct BodyMeasurementsView: View {
                 }
                 comparisonButton(exercise)
                 healthStatus(hasImportedReadings: model.hasHealthReadings(for: metric))
-                if readings.isEmpty {
+                if readings.isEmpty && period.precedingWeight == nil {
                     Text(model.hasReadings(for: metric)
                          ? "No \(metric.title.lowercased()) readings in this period."
                          : "No \(metric.title.lowercased()) readings")
                         .font(.body.weight(.medium))
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                if !readings.isEmpty || progress?.sessions.isEmpty == false {
-                    BodyMeasurementTrendChart(metric: metric, readings: readings, days: days,
+                if !readings.isEmpty || period.precedingWeight != nil || progress?.sessions.isEmpty == false {
+                    BodyMeasurementTrendChart(metric: metric, readings: readings, precedingWeight: period.precedingWeight, days: days,
                         comparison: progress, exercise: exercise, unit: unit, calendar: calendar)
                 }
                 if let exercise, progress?.sessions.isEmpty == true {

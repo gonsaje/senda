@@ -145,14 +145,17 @@ struct TrainingWeekView: View {
                     TrainingWeekLayout(availableHeight: viewport.size.height - 30, expandsRows: !textSize.isAccessibilitySize) {
                         TrainingWeekNavigation(model: model, week: week, training: training,
                             showCalendar: { sheet = .calendar }, showMuscles: { sheet = .muscles })
+                            .weekContentColumn()
                         ForEach(week, id: \.self) { day in
                             dayRow(day, weekdayLabels: weekdayLabels)
                         }
                     }
-                    if let error = model.errorMessage { TrainingSaveError(model: model, message: error) }
+                    if let error = model.errorMessage {
+                        TrainingSaveError(model: model, message: error).weekContentColumn()
+                    }
                 }
-                .padding(.horizontal, 20).padding(.top, 10).padding(.bottom, 20)
-                .frame(maxWidth: 560).frame(maxWidth: .infinity)
+                .padding(.top, 10).padding(.bottom, 20)
+                .buttonStyle(WeekButtonStyle())
                 .disabled(swipe.isHorizontal)
             }
             .scrollBounceBehavior(.basedOnSize, axes: .vertical)
@@ -192,7 +195,9 @@ struct TrainingWeekView: View {
         let summary = model.summary(for: day)
         let unfinished = model.unfinishedSetCount(for: day)
         let isToday = day == model.today
-        let exerciseCount = model.workspace.days[day.rawValue]?.exerciseIDs.count ?? 0
+        let workout = model.workspace.days[day.rawValue]
+        let program = workout?.programSession
+        let exerciseCount = workout?.exerciseIDs.count ?? 0
         let action: String
         let symbol: String
         if unfinished > 0 {
@@ -209,7 +214,8 @@ struct TrainingWeekView: View {
         let dateLabel = isToday ? "Today, \(date)" : date
         let setLabel = "\(summary.setCount) \(summary.setCount == 1 ? "set" : "sets")"
         let needsValues = "\(unfinished) \(unfinished == 1 ? "set needs" : "sets need") values"
-        var detail = [summary.weekFocus ?? action]
+        var detail = [summary.weekFocus ?? program?.sessionTitle ?? action]
+        if let program { detail.append("\(program.programTitle), week \(program.week)") }
         if unfinished > 0 {
             detail.append(needsValues)
             if summary.weekFocus != nil { detail.append(action) }
@@ -225,13 +231,18 @@ struct TrainingWeekView: View {
                     if isToday && (summary.setCount > 0 || exerciseCount > 0 || unfinished > 0) {
                         Text("Today").font(.caption.weight(.semibold)).foregroundStyle(NotebookStyle.clay)
                     }
-                    if let focus = summary.weekFocus {
+                    if let focus = summary.weekFocus ?? program?.sessionTitle {
                         Text(focus).font(.callout.weight(.semibold))
                             .fixedSize(horizontal: false, vertical: true)
                     } else {
                         Label(action, systemImage: symbol)
                             .font(.callout.weight(isToday ? .semibold : .regular))
                             .foregroundStyle(unfinished > 0 ? NotebookStyle.clay : (isToday ? NotebookStyle.ink : NotebookStyle.quiet))
+                    }
+                    if let program, unfinished == 0 {
+                        Text("\(program.programTitle) · Week \(program.week)")
+                            .font(.caption).foregroundStyle(NotebookStyle.quiet)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                     if unfinished > 0 {
                         Text(summary.setCount > 0 ? "\(needsValues) · Continue" : needsValues)
@@ -253,15 +264,31 @@ struct TrainingWeekView: View {
             .padding(.horizontal, 8)
             .padding(.vertical, textSize.isAccessibilitySize ? 10 : 3)
             .frame(minHeight: 54, maxHeight: .infinity)
-            .background(isToday ? NotebookStyle.todayFill : .clear, in: RoundedRectangle(cornerRadius: 8))
-            .contentShape(Rectangle())
             .overlay(alignment: .bottom) {
                 Rectangle().fill(NotebookStyle.rule).frame(height: 0.5)
                     .allowsHitTesting(false).accessibilityHidden(true)
             }
+            .weekContentColumn()
+            .background(isToday ? NotebookStyle.todayFill : .clear)
+            .contentShape(Rectangle())
         }
         .accessibilityLabel(([dateLabel, setLabel] + detail).joined(separator: ", "))
         .accessibilityIdentifier("day-\(day.rawValue)")
+    }
+}
+
+private extension View {
+    func weekContentColumn() -> some View {
+        padding(.horizontal, 20)
+            .frame(maxWidth: 560, alignment: .leading)
+            .frame(maxWidth: .infinity)
+    }
+}
+
+/// A horizontal swipe cancels pending taps while the other controls retain their contrast.
+private struct WeekButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label.opacity(configuration.isPressed ? 0.65 : 1)
     }
 }
 

@@ -3,6 +3,20 @@ import SwiftUI
 import SendaDomain
 import SendaLogger
 
+public enum NotebookAppearance: String, CaseIterable {
+    case system, light, dark
+
+    public static let preferenceKey = "senda.appearance"
+
+    var title: String {
+        switch self {
+        case .system: "System"
+        case .light: "Light"
+        case .dark: "Dark"
+        }
+    }
+}
+
 public enum NotebookStyle {
     private struct AdaptiveColor: ShapeStyle, Hashable {
         let light: Color

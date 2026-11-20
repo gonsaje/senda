@@ -7,6 +7,7 @@ struct TrainingInputDock: View {
     let focus: TrainingFocus
     @Binding var weightEntry: TrainingWeightEntrySettings
     var beginInteraction: () -> Void = {}
+    var advanceSuperset: (UUID) -> Void
     @FocusState private var typing: Bool
     @AccessibilityFocusState(for: .voiceOver) private var editorFocused: Bool
     @Environment(\.dynamicTypeSize) private var textSize
@@ -78,6 +79,21 @@ struct TrainingInputDock: View {
                         .accessibilityLabel("Edit reps")
                         .accessibilityHint("Edit reps for \(setContext.lowercased())")
                         .accessibilityIdentifier("input-next")
+                    } else if let member = model.supersetMemberships[focus.exerciseID], member.group.phase == .working,
+                              member.group.currentRowID == focus.rowID {
+                        Button {
+                            beginInteraction()
+                            advanceSuperset(member.group.id)
+                        } label: {
+                            Text(member.group.currentExerciseID == member.group.plan.first ? "Next lift" :
+                                 member.group.round == member.group.plan.rounds ? "Finish superset" : "Finish round")
+                                .font(.subheadline.weight(.semibold))
+                                .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+                        }
+                        .foregroundStyle(NotebookStyle.clay)
+                        .accessibilityLabel(member.advanceTitle(in: model))
+                        .accessibilityIdentifier("input-superset-advance")
+                        .disabled(!model.canAdvanceSuperset(member.group.id))
                     } else if isLastRow {
                         Button {
                             beginInteraction()

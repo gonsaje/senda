@@ -8,6 +8,11 @@ import SendaPersistence
     func read() async throws -> [BodyMeasurement]
 }
 
+public struct BodyMeasurementPeriod {
+    public let readings: [BodyMeasurement]
+    public let precedingWeight: BodyMeasurement?
+}
+
 @Observable @MainActor public final class BodyMeasurementsModel {
     private let repository: any BodyMeasurementsRepository
     private let health: (any BodyMeasurementsHealthSource)?
@@ -37,22 +42,34 @@ import SendaPersistence
     /// Newest first. Manual entries retain their chosen civil date when the reader travels.
     public func readings(for metric: BodyMetric, in days: ClosedRange<TrainingDay>? = nil,
                          calendar: Calendar = .current) -> [BodyMeasurement] {
+        period(for: metric, in: days, calendar: calendar).readings
+    }
+
+    /// Only an actual weigh-in before the first day can seed the weight chart.
+    /// History always contains just the readings taken during the requested period.
+    public func period(for metric: BodyMetric, in days: ClosedRange<TrainingDay>?,
+                       calendar: Calendar = .current) -> BodyMeasurementPeriod {
+        typealias Entry = (reading: BodyMeasurement, displayDate: Date)
+        func newer(_ lhs: Entry, than rhs: Entry) -> Bool {
+            if lhs.displayDate != rhs.displayDate { return lhs.displayDate > rhs.displayDate }
+            if lhs.reading.date != rhs.reading.date { return lhs.reading.date > rhs.reading.date }
+            return lhs.reading.id.uuidString < rhs.reading.id.uuidString
+        }
+
         let firstDay = days.map { calendar.startOfDay(for: $0.lowerBound.date(in: calendar)) }
         let endDay = days.map { $0.upperBound.date(in: calendar) }
-        return (manualReadings + healthReadings)
-            .filter { $0.metric == metric }
-            .map { (reading: $0, displayDate: $0.displayDate(in: calendar)) }
-            .filter { entry in
-                guard let firstDay, let endDay else { return true }
-                return entry.displayDate >= firstDay &&
-                    calendar.compare(entry.displayDate, to: endDay, toGranularity: .day) != .orderedDescending
+        var visible: [Entry] = []
+        var previous: Entry?
+        for reading in manualReadings + healthReadings where reading.metric == metric {
+            let entry: Entry = (reading, reading.displayDate(in: calendar))
+            if let endDay, calendar.compare(entry.displayDate, to: endDay, toGranularity: .day) == .orderedDescending { continue }
+            if let firstDay, entry.displayDate < firstDay {
+                if metric == .weight && (previous.map { newer(entry, than: $0) } ?? true) { previous = entry }
+            } else {
+                visible.append(entry)
             }
-            .sorted {
-                if $0.displayDate != $1.displayDate { return $0.displayDate > $1.displayDate }
-                if $0.reading.date != $1.reading.date { return $0.reading.date > $1.reading.date }
-                return $0.reading.id.uuidString < $1.reading.id.uuidString
-            }
-            .map(\.reading)
+        }
+        return BodyMeasurementPeriod(readings: visible.sorted(by: newer).map(\.reading), precedingWeight: previous?.reading)
     }
 
     public func hasReadings(for metric: BodyMetric) -> Bool {

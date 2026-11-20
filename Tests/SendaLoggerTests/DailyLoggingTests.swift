@@ -290,6 +290,44 @@ import SendaPersistence
         #expect(m.summary(for: day).setCount == 1)
     }
 
+    @Test func reorderingWorkoutTabsKeepsHiddenExercisesSetsAndTargetsAcrossRelaunch() throws {
+        let store = MemoryJournalRepository(), m = try model(store)
+        #expect(m.openDay(day))
+        try record(m, exercise: "squat")
+        #expect(m.removeExercise("squat"))
+        try record(m, exercise: "bench")
+        #expect(m.setPlan(ExercisePlan(workingSets: 3, minimumReps: 6, maximumReps: 8), for: "bench"))
+        #expect(m.addExercises(["row", "deadlift"]))
+        #expect(m.selectExercise("row"))
+        let original = try #require(m.workout)
+        let journal = m.journal
+        let newOrder = ["deadlift", "bench", "row"]
+        #expect(m.setExerciseOrder(newOrder, on: day))
+        let reopened = try model(store)
+        var expected = original
+        expected.exerciseIDs = newOrder
+        #expect(reopened.workout == expected)
+        #expect(reopened.indexedExercises(on: day).map(\.id) == newOrder + ["squat"])
+        #expect(reopened.journal == journal)
+        #expect(!reopened.setExerciseOrder(["squat", "row", "bench"], on: day))
+        #expect(!reopened.setExerciseOrder(["row", "row", "bench"], on: day))
+        #expect(!reopened.setExerciseOrder(newOrder, on: try day.adding(days: -1)))
+        #expect(reopened.workout == expected)
+    }
+
+    @Test func failedExerciseReorderKeepsTheSavedOrderAndRetriesOnce() throws {
+        let store = DailyFailureStore(), m = try model(store)
+        #expect(m.openDay(day))
+        #expect(m.addExercises(["bench", "row"]))
+        let original = m.snapshot
+        store.reject = true
+        #expect(!m.setExerciseOrder(["row", "bench"], on: day))
+        #expect(m.canRetrySave && m.snapshot == original)
+        store.reject = false
+        #expect(m.retrySave())
+        #expect(try model(store).tabs.map(\.id) == ["row", "bench"])
+    }
+
     @Test func reusableWorkoutsAreStrictlyEarlierRecordedDaysWithInclusiveStructureOrder() throws {
         let m = try model(), prior = try day.adding(days: -1), older = try day.adding(days: -3), future = try day.adding(days: 1)
         #expect(m.openDay(older)); try record(m, exercise: "squat")

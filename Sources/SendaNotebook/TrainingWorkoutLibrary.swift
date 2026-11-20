@@ -12,6 +12,7 @@ struct TrainingWorkoutLibrary: View {
     @State private var search = ""
     @State private var selection: Selection?
     @State private var editor: EditorRequest?
+    @State private var showsPrograms = false
     @State private var confirmsDeletion = false
     @State private var pending: PendingAction?
     @Environment(\.dynamicTypeSize) private var textSize
@@ -82,7 +83,7 @@ struct TrainingWorkoutLibrary: View {
             switch self {
             case .edit(let workout): workout
             case .copy(let workout): WorkoutTemplate(name: workout.name, exerciseIDs: workout.exerciseIDs,
-                exercisePlans: workout.exercisePlans)
+                exercisePlans: workout.exercisePlans, supersets: workout.supersets)
             case .new, .currentDay: nil
             }
         }
@@ -142,6 +143,9 @@ struct TrainingWorkoutLibrary: View {
         } message: {
             Text("Workouts you’ve logged will stay in your journal.")
         }
+        .sheet(isPresented: $showsPrograms) {
+            TrainingProgramLibrary(model: model)
+        }
         .sheet(item: $editor) { request in
             TrainingWorkoutTemplateEditor(model: model, template: request.original,
                 isEditing: request.isEditing, copiesCurrentDay: request.copiesCurrentDay, close: { editor = nil }, saved: { workout in
@@ -198,6 +202,18 @@ struct TrainingWorkoutLibrary: View {
         VStack(alignment: .leading, spacing: 16) {
             if embedded {
                 TrainingLibraryHeader(model: model)
+                Button { showsPrograms = true } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: "calendar")
+                        Text("Programs").font(.body.weight(.semibold))
+                        Spacer()
+                        Image(systemName: "chevron.right").font(.caption)
+                    }
+                    .frame(minHeight: 44).contentShape(Rectangle())
+                }
+                .foregroundStyle(NotebookStyle.clay)
+                .accessibilityHint("Browse, create, or schedule a training program")
+                .accessibilityIdentifier("library-programs")
             } else {
                 HStack(alignment: .center, spacing: 12) {
                     heading("Workout library").frame(maxWidth: .infinity, alignment: .leading)

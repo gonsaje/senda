@@ -5,10 +5,12 @@ import SendaLogger
 struct TrainingWorkoutExerciseList<Add: View>: View {
     let exercises: [Exercise]
     let selectedID: String?
+    let memberships: [String: SupersetMembership]
     let select: (String) -> Bool
     @ViewBuilder let add: () -> Add
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.layoutDirection) private var layoutDirection
+    @Environment(\.dynamicTypeSize) private var textSize
     @FocusState private var keyboardExercise: String?
     @Namespace private var underline
     @State private var viewportWidth: CGFloat = .infinity
@@ -87,11 +89,19 @@ struct TrainingWorkoutExerciseList<Add: View>: View {
     private func tab(_ exercise: Exercise) -> some View {
         let selected = exercise.id == selectedID
         let font = NotebookTypography.heading(18, relativeTo: .headline)
+        let layout = textSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 0))
+            : AnyLayout(HStackLayout(spacing: 5))
         return Button { _ = select(exercise.id) } label: {
             // Reserve both label widths so changing weight never moves another tab.
-            ZStack(alignment: .leading) {
-                Text(exercise.displayName).font(font.weight(.regular)).opacity(selected ? 0 : 1)
-                Text(exercise.displayName).font(font).opacity(selected ? 1 : 0)
+            layout {
+                if let member = memberships[exercise.id] {
+                    Text(member.code(for: exercise.id)).font(.caption.bold()).foregroundStyle(NotebookStyle.clay)
+                }
+                ZStack(alignment: .leading) {
+                    Text(exercise.displayName).font(font.weight(.regular)).opacity(selected ? 0 : 1)
+                    Text(exercise.displayName).font(font).opacity(selected ? 1 : 0)
+                }
             }
             .fixedSize(horizontal: false, vertical: true)
             .multilineTextAlignment(.leading)
@@ -109,7 +119,7 @@ struct TrainingWorkoutExerciseList<Add: View>: View {
             }
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(exercise.displayName)
+        .accessibilityLabel([memberships[exercise.id]?.code(for: exercise.id), exercise.displayName].compactMap { $0 }.joined(separator: ", "))
         .accessibilityAddTraits(selected ? [.isSelected, .isHeader] : [])
         .accessibilityIdentifier("exercise-\(exercise.id)")
         .focused($keyboardExercise, equals: exercise.id)
@@ -156,6 +166,23 @@ struct TrainingWorkoutOptions: View {
                 Label("All \(model.indexedExercises(on: day).count) exercises", systemImage: "list.bullet")
             }
             .accessibilityIdentifier("all-exercises")
+            if let id = model.exercise?.id, let group = model.supersetMemberships[id]?.group,
+               group.phase == .working || group.phase == .resting {
+                Section("Sets") {
+                    Button {
+                        beginNavigation()
+                        model.newSet()
+                    } label: { Label("New set", systemImage: "plus") }
+                    .accessibilityIdentifier("new-set")
+                    if model.canRepeat {
+                        Button {
+                            beginNavigation()
+                            if model.repeatLastSet() { TrainingAccessibility.announce("Set repeated and saved.") }
+                        } label: { Label("Repeat last set", systemImage: "repeat") }
+                        .accessibilityIdentifier("repeat-set")
+                    }
+                }
+            }
             if !model.tabs.isEmpty {
                 Button(action: chooseWorkout) {
                     Label("Choose workout", systemImage: "list.bullet.rectangle")

@@ -13,6 +13,32 @@ extension JournalSnapshot {
     }
 }
 
+/// Included only in the new file format; older app versions will refuse to overwrite
+/// content they cannot represent. Counts catch missing optional collections on import.
+struct StructuredTrainingCounts: Codable, Equatable {
+    var programs = 0
+    var enrollments = 0
+    var scheduledSessions = 0
+    var supersets = 0
+    var templatePairs = 0
+
+    init(_ training: TrainingWorkspace?) {
+        guard let training else { return }
+        programs = training.programs?.count ?? 0
+        enrollments = training.programEnrollments?.count ?? 0
+        templatePairs = (training.workoutTemplates ?? []).reduce(0) { $0 + ($1.supersets?.count ?? 0) }
+        for day in training.days.values { include(day) }
+        if case let .removedFromWorkout(_, _, original, _)? = training.undo { include(original) }
+    }
+
+    private mutating func include(_ day: DayWorkout) {
+        if day.programSession != nil { scheduledSessions += 1 }
+        supersets += day.supersets?.count ?? 0
+    }
+
+    var isEmpty: Bool { self == Self(nil) }
+}
+
 @MainActor public final class FileJournalRepository: JournalRepository {
     private var encoder = JournalFileEncoder()
     private let url: URL
@@ -35,6 +61,7 @@ extension JournalSnapshot {
         let workoutTemplateCount: Int?
         let archivedCustomExerciseCount: Int?
         let customExerciseSetupCount: Int?
+        let structuredTraining: StructuredTrainingCounts?
     }
 
     private struct WriteHeader: Encodable {
@@ -46,6 +73,7 @@ extension JournalSnapshot {
         let workoutTemplateCount: Int?
         let archivedCustomExerciseCount: Int?
         let customExerciseSetupCount: Int?
+        let structuredTraining: StructuredTrainingCounts?
     }
 
     public func loadSnapshot() throws -> JournalSnapshot {
@@ -54,7 +82,7 @@ extension JournalSnapshot {
         catch let error as CocoaError where error.code == .fileReadNoSuchFile { return JournalSnapshot() }
         let decoder = JSONDecoder()
         let version = try decoder.decode(Header.self, from: data).version
-        guard (1...10).contains(version) else { throw StorageError.unsupportedVersion(version) }
+        guard (1...11).contains(version) else { throw StorageError.unsupportedVersion(version) }
         let envelope = try decoder.decode(Envelope.self, from: data)
         if version >= 3, envelope.customExercises == nil { throw StorageError.missingExerciseLibrary }
         if version >= 4 {
@@ -65,8 +93,11 @@ extension JournalSnapshot {
         }
         let snapshot = JournalSnapshot(journal: envelope.journal, workspace: version == 1 ? nil : envelope.workspace,
             customExercises: version >= 3 ? envelope.customExercises : nil, training: version >= 4 ? envelope.training : nil, legacyBase: version >= 4 ? envelope.legacyBase : nil)
-        if version == 10 {
-            guard snapshot.archivedCustomExerciseCount > 0,
+        let structures = StructuredTrainingCounts(snapshot.training)
+        guard version == 11 ? (!structures.isEmpty && envelope.structuredTraining == structures) : structures.isEmpty
+        else { throw StorageError.incompleteStructuredTraining }
+        if version >= 10 {
+            guard (version > 10 || snapshot.archivedCustomExerciseCount > 0),
                   envelope.archivedCustomExerciseCount == snapshot.archivedCustomExerciseCount
             else { throw StorageError.invalidExerciseArchive }
             guard envelope.customExerciseSetupCount == snapshot.customExerciseSetupCount
@@ -88,15 +119,18 @@ extension JournalSnapshot {
     public func saveValidatedSnapshot(_ checked: ValidatedJournalSnapshot) throws {
         let snapshot = checked.snapshot
         let archived = snapshot.archivedCustomExerciseCount
-        let version = if archived > 0 { 10 }
+        let structures = StructuredTrainingCounts(snapshot.training)
+        let version = if !structures.isEmpty { 11 }
+            else if archived > 0 { 10 }
             else if snapshot.hasCustomExerciseSetups { 9 }
             else if snapshot.training?.workoutTemplates?.isEmpty == false { 8 }
             else { 7 }
         let header = WriteHeader(version: version, workspace: snapshot.workspace,
             customExercises: snapshot.customExercises ?? [], trainingEnabled: snapshot.training != nil, legacyBase: snapshot.legacyBase,
             workoutTemplateCount: version >= 9 ? snapshot.training?.workoutTemplates?.count ?? 0 : nil,
-            archivedCustomExerciseCount: version == 10 ? archived : nil,
-            customExerciseSetupCount: version == 10 ? snapshot.customExerciseSetupCount : nil)
+            archivedCustomExerciseCount: version >= 10 ? archived : nil,
+            customExerciseSetupCount: version >= 10 ? snapshot.customExerciseSetupCount : nil,
+            structuredTraining: version == 11 ? structures : nil)
         let data = try encoder.encode(header, journal: snapshot.journal, training: snapshot.training)
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try writer(data, url)
@@ -110,6 +144,7 @@ public enum StorageError: LocalizedError, Equatable {
     case missingWorkoutTemplates
     case missingExerciseSetups
     case invalidExerciseArchive
+    case incompleteStructuredTraining
     public var errorDescription: String? {
         switch self {
         case .unsupportedVersion(let version):
@@ -122,6 +157,8 @@ public enum StorageError: LocalizedError, Equatable {
             "This journal is missing its saved workouts."
         case .missingExerciseSetups:
             "This journal is missing its custom exercise gym and equipment details."
+        case .incompleteStructuredTraining:
+            "This journal is missing program or superset data."
         case .invalidExerciseArchive:
             "The journal’s archived exercises could not be read. The journal file has been left untouched."
         }
