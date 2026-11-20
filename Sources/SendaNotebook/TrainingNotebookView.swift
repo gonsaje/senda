@@ -184,7 +184,7 @@ struct TrainingWeekView: View {
                 TrainingMonthCalendar(model: model,
                     initialDay: week.contains(model.today) ? model.today : model.workspace.visibleWeek)
             case .muscles:
-                TrainingWeekMusclesView(training: training, targets: model.profile.details.weeklyMuscleTargets,
+                TrainingWeekMusclesView(training: training, profile: model.profile,
                     exerciseName: { model.exercise($0).displayName })
             }
         }

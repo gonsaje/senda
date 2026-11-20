@@ -7,8 +7,11 @@ public struct TrainingDayExerciseList: View {
     private let day: TrainingDay
     private let close: () -> Void
     private let add: () -> Void
+    private let chooseWorkout: () -> Void
+    private let saveTemplate: () -> Void
     @State private var reordering = false
     @State private var pairing = false
+    @State private var editingGroupID: UUID?
     @State private var selectedPair: [String] = []
     @State private var rounds = 2
     @State private var restSeconds = 60
@@ -16,7 +19,9 @@ public struct TrainingDayExerciseList: View {
     @State private var pendingExerciseID: String?
     @State private var removalRequest: TrainingWorkoutRemovalRequest?
 
-    public init(model: TrainingNotebookModel, day: TrainingDay, close: @escaping () -> Void, add: @escaping () -> Void) {
+    public init(model: TrainingNotebookModel, day: TrainingDay, close: @escaping () -> Void, add: @escaping () -> Void,
+                chooseWorkout: @escaping () -> Void = {}, saveTemplate: @escaping () -> Void = {}) {
+        self.chooseWorkout = chooseWorkout; self.saveTemplate = saveTemplate
         self.model = model; self.day = day; self.close = close; self.add = add
     }
 
@@ -25,7 +30,8 @@ public struct TrainingDayExerciseList: View {
 
     public var body: some View {
         Group {
-            if pairing { pairPicker }
+            if let editingGroupID, let group = model.supersets.first(where: { $0.id == editingGroupID }) { editPair(group) }
+            else if pairing { pairPicker }
             else if reordering { reorderList }
             else { exerciseList }
         }
@@ -34,6 +40,14 @@ public struct TrainingDayExerciseList: View {
                 TrainingSaveError(model: model, message: error, retrySucceeded: completePendingSelection)
                     .padding(.horizontal, 24).padding(.vertical, 12).frame(maxWidth: 560).frame(maxWidth: .infinity)
                     .background(NotebookStyle.ivory)
+            } else if let label = model.undoLabel {
+                Button {
+                    if model.undoChange() { TrainingAccessibility.announce("Change undone.") }
+                } label: {
+                    Text("\(label) · Undo").font(.subheadline.weight(.medium))
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                }.foregroundStyle(NotebookStyle.clay).background(NotebookStyle.ivory)
+                    .accessibilityIdentifier("day-exercises-undo")
             }
         }
         .modifier(TrainingWorkoutRemovalConfirmation(model: model, request: $removalRequest))
@@ -62,7 +76,7 @@ public struct TrainingDayExerciseList: View {
                     Text("\(TrainingText.date(day, format: "EEEE, MMM d")) · \(exercises.count) exercises")
                         .font(.subheadline).foregroundStyle(NotebookStyle.quiet)
                     if exercises.contains(where: { !visibleIDs.contains($0.id) }) {
-                        Text("Hidden tabs keep their sets and input. Choose one to show its tab again.")
+                        Text("Tap a hidden exercise to show it again. Paired tabs return together.")
                             .font(.callout).foregroundStyle(NotebookStyle.quiet).fixedSize(horizontal: false, vertical: true)
                     }
                 }
@@ -132,7 +146,7 @@ public struct TrainingDayExerciseList: View {
                             .foregroundStyle(NotebookStyle.ink).fixedSize(horizontal: false, vertical: true)
                         Text(countLabel(count)).font(.caption.monospacedDigit()).foregroundStyle(NotebookStyle.quiet)
                         if hidden {
-                            Text(count == 0 ? "Hidden tab · Input retained" : "Hidden tab · Sets retained")
+                            Text(member != nil ? "Show both tabs" : count == 0 ? "Hidden tab · Input retained" : "Hidden tab · Sets retained")
                                 .font(.caption).foregroundStyle(NotebookStyle.clay).fixedSize(horizontal: false, vertical: true)
                         }
                     }.frame(maxWidth: .infinity, alignment: .leading)
@@ -145,19 +159,30 @@ public struct TrainingDayExerciseList: View {
                 .contentShape(Rectangle())
             }
             .accessibilityLabel("\(member.map { $0.code(for: exercise.id) + ", " } ?? "")\(exercise.displayName), \(countLabel(count))\(hidden ? ", Hidden tab, retained work" : "")")
-            .accessibilityHint(hidden ? "Restore its tab and open retained sets and input" : "Open exercise")
+            .accessibilityHint(hidden ? (member != nil ? "Show both tabs and open this exercise" : "Show this tab and open its sets") : "Open exercise")
             .accessibilityAddTraits(selected ? .isSelected : [])
             .accessibilityIdentifier("day-exercise-\(exercise.id)")
-            Button(role: .destructive) {
-                cancelPendingSelection()
-                removalRequest = TrainingWorkoutRemovalRequest(target: .exercise(exercise.id), day: day)
+            Menu {
+                if !hidden {
+                    Button {
+                        cancelPendingSelection()
+                        _ = model.removeExercise(exercise.id)
+                    } label: {
+                        Label(member == nil ? "Hide tab" : "Hide both tabs", systemImage: "eye.slash")
+                    }.accessibilityIdentifier("hide-exercise-\(exercise.id)")
+                }
+                Button(role: .destructive) {
+                    cancelPendingSelection()
+                    removalRequest = TrainingWorkoutRemovalRequest(target: .exercise(exercise.id), day: day)
+                } label: {
+                    Label("Delete exercise", systemImage: "trash")
+                }.accessibilityIdentifier("day-delete-\(exercise.id)")
             } label: {
-                Image(systemName: "trash")
-                    .frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+                Image(systemName: "ellipsis").frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
             }
-            .foregroundStyle(NotebookStyle.quiet)
-            .accessibilityLabel("Delete \(exercise.displayName) from this workout")
-            .accessibilityIdentifier("day-delete-\(exercise.id)")
+            .menuStyle(.borderlessButton).menuIndicator(.hidden).foregroundStyle(NotebookStyle.quiet)
+            .accessibilityLabel("Options for \(exercise.displayName)")
+            .accessibilityIdentifier("exercise-options-\(exercise.id)")
         }
     }
 
@@ -167,21 +192,33 @@ public struct TrainingDayExerciseList: View {
             HStack(spacing: 8) {
                 Label(member.title, systemImage: "link").font(.headline)
                 Spacer()
-                Button("Unpair") { cancelPendingSelection(); _ = model.unlinkSuperset(group.id) }
-                    .font(.subheadline).foregroundStyle(NotebookStyle.clay)
-                    .frame(minHeight: 44)
-                    .accessibilityLabel("Unpair \(member.title)")
-                    .accessibilityHint("Keep both exercises and their sets")
+                Menu {
+                    if group.phase != .finished {
+                        Button("Rounds and rest") {
+                            cancelPendingSelection()
+                            rounds = group.plan.rounds
+                            restSeconds = group.plan.restSeconds
+                            editingGroupID = group.id
+                        }.accessibilityIdentifier("edit-superset-\(group.plan.first)")
+                    }
+                    Button("Unpair exercises") { cancelPendingSelection(); _ = model.unlinkSuperset(group.id) }
+                        .accessibilityHint("Keep both exercises and their sets")
+                        .accessibilityIdentifier("unpair-superset-\(group.plan.first)")
+                } label: {
+                    Text("Edit").font(.subheadline.weight(.medium)).frame(minWidth: 44, minHeight: 44)
+                }
+                .menuStyle(.borderlessButton).menuIndicator(.hidden).foregroundStyle(NotebookStyle.clay)
+                .accessibilityLabel("Edit \(member.title)").accessibilityIdentifier("superset-options-\(group.plan.first)")
             }
             HStack {
                 Text(member.status).font(.subheadline).foregroundStyle(NotebookStyle.quiet)
                 Spacer()
-                Button {
+                SupersetStartButton(model: model, group: group, start: { rowID in
                     cancelPendingSelection()
                     pendingExerciseID = group.phase == .finished ? group.plan.first : group.currentExerciseID
-                    let saved = group.phase == .finished ? model.selectExercise(group.plan.first) : model.startSuperset(group.id)
+                    let saved = group.phase == .finished ? model.addExercise(group.plan.first) : model.startSuperset(group.id, counting: rowID)
                     if saved { completePendingSelection() } else if !model.canRetrySave { pendingExerciseID = nil }
-                } label: {
+                }) {
                     Text(group.phase == .ready ? "Start superset" : group.phase == .finished ? "Review superset" : "Resume superset")
                         .multilineTextAlignment(.trailing)
                         .font(.subheadline.weight(.semibold)).frame(minHeight: 44)
@@ -223,7 +260,7 @@ public struct TrainingDayExerciseList: View {
                         Rectangle().fill(NotebookStyle.rule).frame(height: 0.5)
                     }
                 }
-                options
+                options(minimumRounds: 1)
                 Button(action: createPair) {
                     Text(selectedPair.count == 2 ? "Pair exercises" : "Select two exercises")
                         .font(.body.weight(.semibold)).frame(maxWidth: .infinity, minHeight: 46)
@@ -244,33 +281,48 @@ public struct TrainingDayExerciseList: View {
         return SupersetMembership.letter(at: preceding)
     }
 
-    private var options: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 16) { roundPicker; Spacer(); restPicker }.fixedSize(horizontal: true, vertical: false)
-            VStack(alignment: .leading, spacing: 0) { roundPicker; restPicker }
+    private func editPair(_ group: WorkoutSuperset) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                Button("Cancel", action: cancelPairing).frame(minHeight: 44).foregroundStyle(NotebookStyle.clay)
+                Text("Rounds and rest").font(NotebookTypography.heading(32)).accessibilityAddTraits(.isHeader)
+                Text(group.plan.exerciseIDs.map { model.exercise($0).displayName }.joined(separator: " · "))
+                    .font(.subheadline).foregroundStyle(NotebookStyle.quiet)
+                options(minimumRounds: group.minimumRounds)
+                if group.timer != nil {
+                    Text("The new rest length applies after the next round.").font(.caption).foregroundStyle(NotebookStyle.quiet)
+                }
+                Button {
+                    pendingPair = SupersetPlan(first: group.plan.first, second: group.plan.second, rounds: rounds, restSeconds: restSeconds)
+                    if model.updateSuperset(group.id, rounds: rounds, restSeconds: restSeconds) { finishPairingIfSaved() }
+                    else if !model.canRetrySave { pendingPair = nil }
+                } label: {
+                    Text("Save changes").font(.body.weight(.semibold)).frame(maxWidth: .infinity, minHeight: 46)
+                }
+                .buttonStyle(SupersetPrimaryStyle()).disabled(model.canRetrySave)
+                .accessibilityIdentifier("save-superset-settings")
+            }.padding(.horizontal, 24).padding(.vertical, 12).frame(maxWidth: 560).frame(maxWidth: .infinity)
+        }
+    }
+
+    private func options(minimumRounds: Int) -> some View {
+        VStack(spacing: 0) {
+            Stepper(value: $rounds, in: minimumRounds...20) {
+                optionLabel("Rounds", value: String(rounds))
+            }.accessibilityIdentifier("superset-rounds")
+            Divider()
+            Stepper(value: $restSeconds, in: 0...3600, step: 15) {
+                optionLabel("Rest after round", value: restSeconds == 0 ? "Off" : Duration.seconds(restSeconds).formatted(.time(pattern: .minuteSecond)))
+            }.accessibilityIdentifier("superset-rest")
         }.disabled(model.canRetrySave)
     }
 
-    private var roundPicker: some View {
-        HStack {
-            Text("Rounds").font(.subheadline)
-            Picker("Rounds", selection: $rounds) {
-                ForEach(1...4, id: \.self) { Text("\($0)").tag($0) }
-            }.labelsHidden().pickerStyle(.menu).frame(minHeight: 44)
-                .accessibilityIdentifier("superset-rounds")
+    private func optionLabel(_ title: String, value: String) -> some View {
+        ViewThatFits(in: .horizontal) {
+            HStack { Text(title); Text(value).fontWeight(.semibold) }
+            VStack(alignment: .leading) { Text(title); Text(value).fontWeight(.semibold) }
         }
-    }
-
-    private var restPicker: some View {
-        HStack {
-            Text("Rest after round").font(.subheadline)
-            Picker("Rest after round", selection: $restSeconds) {
-                ForEach([0, 15, 30, 60, 90, 120], id: \.self) { seconds in
-                    Text(seconds == 0 ? "Off" : Duration.seconds(seconds).formatted(.time(pattern: .minuteSecond))).tag(seconds)
-                }
-            }.labelsHidden().pickerStyle(.menu).frame(minHeight: 44)
-                .accessibilityIdentifier("superset-rest")
-        }
+        .font(.subheadline).monospacedDigit().frame(minHeight: 44)
     }
 
     private func createPair() {
@@ -285,12 +337,14 @@ public struct TrainingDayExerciseList: View {
         guard let pendingPair, !model.canRetrySave, model.supersets.contains(where: { $0.plan == pendingPair }) else { return }
         self.pendingPair = nil
         pairing = false
+        editingGroupID = nil
     }
 
     private func cancelPairing() {
         if pendingPair != nil && model.canRetrySave { _ = model.cancelPendingAction() }
         pendingPair = nil
         pairing = false
+        editingGroupID = nil
     }
 
     private var navigation: some View {
@@ -300,6 +354,25 @@ public struct TrainingDayExerciseList: View {
             }
             .accessibilityIdentifier("close-day-exercises")
             Spacer()
+            if !reordering {
+                Menu {
+                    if !model.tabs.isEmpty {
+                        Button(action: chooseWorkout) { Label("Choose workout", systemImage: "list.bullet.rectangle") }
+                            .accessibilityIdentifier("choose-workout")
+                        Button(action: saveTemplate) { Label("Save as template", systemImage: "bookmark") }
+                            .accessibilityIdentifier("day-save-template")
+                    }
+                    Button(role: .destructive) {
+                        cancelPendingSelection()
+                        removalRequest = TrainingWorkoutRemovalRequest(target: .workout, day: day)
+                    } label: { Label("Reset workout", systemImage: "arrow.counterclockwise") }
+                    .accessibilityIdentifier("reset-current-workout")
+                } label: {
+                    Image(systemName: "ellipsis.circle").frame(minWidth: 44, minHeight: 44)
+                }
+                .menuStyle(.borderlessButton).menuIndicator(.hidden)
+                .accessibilityLabel("Workout actions").accessibilityIdentifier("workout-options")
+            }
             if reorderGroups.count > 1 || reordering {
                 Button {
                     cancelPendingSelection()
@@ -381,7 +454,7 @@ public struct TrainingDayExerciseList: View {
     }
 
     private func cancelPendingListAction() {
-        if pairing { cancelPairing() }
+        if pairing || editingGroupID != nil { cancelPairing() }
         if reordering && model.canRetrySave { _ = model.cancelPendingAction() }
         cancelPendingSelection()
     }

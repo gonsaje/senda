@@ -15,6 +15,33 @@ import SendaPersistence
         #expect(model.selectInput(row.id, field: .weight)); model.typeInput(weight, focus: try #require(model.focus))
         #expect(model.selectInput(row.id, field: .reps)); model.typeInput(reps, focus: try #require(model.focus))
     }
+    @Test func manualReadingsFollowFullRestoreAndPreRestoreCopyButSurviveOlderBackups() throws {
+        let source = try notebook()
+        let empty = try NotebookBackupCodec.decode(source.backupData())
+        #expect(empty.manualMeasurements == [])
+        let date = Date(timeIntervalSince1970: 1_780_000_000)
+        try source.bodyMeasurements.add([.weight: 72, .waist: 82, .bodyFat: 20], on: date)
+        let full = try NotebookBackupCodec.decode(source.backupData())
+        #expect(full.manualMeasurements?.count == 3)
+
+        let target = try notebook()
+        try target.bodyMeasurements.add([.weight: 80], on: date)
+        let before = try target.backupArchive().manualMeasurements
+        #expect(target.restoreBackup(full))
+        #expect(target.bodyMeasurements.readings(for: .weight).first?.value == 72)
+        #expect(try target.backupArchive().manualMeasurements == full.manualMeasurements)
+        let previous = try NotebookBackupCodec.decode(#require(try target.previousBackupData()))
+        #expect(previous.manualMeasurements == before)
+
+        let older = NotebookArchive(snapshot: full.snapshot, profile: full.profile)
+        #expect(target.restoreBackup(older))
+        #expect(try target.backupArchive().manualMeasurements == full.manualMeasurements)
+        #expect(target.restoreBackup(empty))
+        #expect(!target.bodyMeasurements.hasReadings(for: .weight))
+        #expect(target.restoreBackup(previous))
+        #expect(try target.backupArchive().manualMeasurements == before)
+    }
+
     @Test func exportingCapturesUnfinishedInputWithoutFinalizingIt() throws {
         let profile = MemoryProfileRepository(); try profile.save(ProfileDetails(name: "Jae", email: "legacy@example.com"))
         let model = try notebook(profile: profile)
@@ -80,6 +107,30 @@ import SendaPersistence
         #expect(model.saveName(" New name "))
         #expect(try store.load() == ProfileDetails(name: "New name", email: "legacy@example.com"))
     }
+    @Test func unreadableMeasurementFileIsRetainedExactlyAndCanBeReplacedByAFullRestore() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let journalURL = root.appendingPathComponent("journal.json"), profileURL = root.appendingPathComponent("profile.json")
+        let store = FileNotebookRestoreStore(journalURL: journalURL, profileURL: profileURL)
+        let target = try notebook(FileJournalRepository(url: journalURL), profile: FileProfileRepository(url: profileURL), restore: store)
+        let directory = root.appendingPathComponent("BodyMeasurements")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let damaged = Data("unreadable measurements".utf8)
+        try damaged.write(to: directory.appendingPathComponent("measurements.json"))
+        #expect(throws: (any Error).self) { try target.backupData() }
+        #expect(try target.backupArchive(includingManualMeasurements: false).manualMeasurements == nil)
+
+        let source = try notebook()
+        try source.bodyMeasurements.add([.waist: 80], on: .now)
+        let full = try source.backupArchive()
+        #expect(target.restoreBackup(full))
+        #expect(target.bodyMeasurements.readings(for: .waist).first?.value == 80)
+        let raw = try #require(try target.previousOriginalFilesData())
+        let envelope = try #require(JSONSerialization.jsonObject(with: raw) as? [String: Any])
+        let file = try #require(envelope["measurements"] as? [String: Any])
+        #expect(Data(base64Encoded: try #require(file["contents"] as? String)) == damaged)
+    }
+
     @Test func unreadableProfileCannotExportAnIncompleteFullBackup() throws {
         let profile = BackupWorkflowFailureProfile()
         let target = try notebook(profile: profile)
@@ -169,6 +220,7 @@ import SendaPersistence
     func save(_ details: ProfileDetails) throws { throw CocoaError(.fileWriteUnknown) }
 }
 @MainActor private final class BackupWorkflowRestoreStore: NotebookRestoreStore {
+    let measurementsRepository: any BodyMeasurementsRepository = MemoryBodyMeasurementsRepository()
     var recoveryCalls = 0, restoreCalls = 0
     var rejectRecovery = false, rejectRestore = false
     func recoverInterruptedRestore() throws {

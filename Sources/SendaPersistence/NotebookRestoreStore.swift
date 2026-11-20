@@ -1,8 +1,9 @@
 import Foundation
 import SendaDomain
 
-/// Restores a complete notebook while protecting the pair of journal/profile files.
+/// Restores a complete notebook while protecting the journal, profile, and manual measurement files.
 @MainActor public protocol NotebookRestoreStore {
+    var measurementsRepository: any BodyMeasurementsRepository { get }
     func recoverInterruptedRestore() throws
     func restore(_ archive: NotebookArchive, current: NotebookArchive?) throws
     func previousBackupData() throws -> Data?
@@ -29,6 +30,8 @@ public enum NotebookRestoreError: LocalizedError {
 @MainActor public final class FileNotebookRestoreStore: NotebookRestoreStore {
     private let journalURL: URL
     private let profileURL: URL
+    let measurementsURL: URL
+    public let measurementsRepository: any BodyMeasurementsRepository
     private let writer: (Data, URL) throws -> Void
     private let remover: (URL) throws -> Void
     let pendingURL: URL
@@ -37,11 +40,21 @@ public enum NotebookRestoreError: LocalizedError {
 
     public convenience init(journalURL: URL, profileURL: URL) {
         self.init(journalURL: journalURL, profileURL: profileURL,
-            writer: { try $0.write(to: $1, options: .atomic) })
+            writer: { data, url in
+                if url == journalURL || url == profileURL {
+                    try data.write(to: url, options: .atomic)
+                } else {
+                    try FileBodyMeasurementsRepository.protectedWrite(data, url)
+                }
+            })
     }
     init(journalURL: URL, profileURL: URL, writer: @escaping (Data, URL) throws -> Void,
          remover: @escaping (URL) throws -> Void = { try FileManager.default.removeItem(at: $0) }) {
         self.journalURL = journalURL; self.profileURL = profileURL
+        measurementsURL = journalURL.deletingLastPathComponent()
+            .appendingPathComponent("BodyMeasurements", isDirectory: true)
+            .appendingPathComponent("measurements.json")
+        measurementsRepository = FileBodyMeasurementsRepository(url: measurementsURL)
         self.writer = writer; self.remover = remover
         pendingURL = journalURL.appendingPathExtension("restore-pending.json")
         backupURL = journalURL.appendingPathExtension("before-restore.senda.json")
@@ -56,7 +69,7 @@ public enum NotebookRestoreError: LocalizedError {
         if FileManager.default.fileExists(atPath: stagingURL.path) {
             try FileManager.default.removeItem(at: stagingURL)
         }
-        try FileManager.default.createDirectory(at: stagingURL, withIntermediateDirectories: true)
+        try FileBodyMeasurementsRepository.preparePrivateDirectory(stagingURL)
         var present = Set<RestorePart>()
         for part in RestorePart.allCases {
             do {
@@ -68,8 +81,9 @@ public enum NotebookRestoreError: LocalizedError {
         }
         var rawRecovery: Data?
         if previous == nil {
-            let originals = try OriginalPair(journal: capture(stagedURL(for: .journal)),
-                                            profile: capture(stagedURL(for: .profile)))
+            let originals = try OriginalFiles(journal: capture(stagedURL(for: .journal)),
+                                              profile: capture(stagedURL(for: .profile)),
+                                              measurements: capture(stagedURL(for: .measurements)))
             rawRecovery = try JSONEncoder().encode(originals)
         }
         // Even the first restore keeps the current notebook (including any in-memory draft)
@@ -88,14 +102,17 @@ public enum NotebookRestoreError: LocalizedError {
         do {
             try FileProfileRepository(url: profileURL, writer: writer).save(archive.profile)
             try FileJournalRepository(url: journalURL, writer: writer).saveSnapshot(archive.snapshot)
+            if let readings = archive.manualMeasurements {
+                try FileBodyMeasurementsRepository(url: measurementsURL).save(readings, writer: writer)
+            }
             if let previous {
-                try writer(previous, backupURL)
+                try writeRecoveryCopy(previous, to: backupURL)
                 try removeIfPresent(originalsURL)
             } else if let rawRecovery {
-                try writer(rawRecovery, originalsURL)
+                try writeRecoveryCopy(rawRecovery, to: originalsURL)
                 try removeIfPresent(backupURL)
             }
-            // Until removal succeeds, a relaunch rolls back to the original pair.
+            // Until removal succeeds, a relaunch rolls back to the original files.
             try remover(pendingURL)
             discardStaging()
         } catch {
@@ -117,7 +134,8 @@ public enum NotebookRestoreError: LocalizedError {
             if try decoder.decode(RestoreHeader.self, from: data).format == "senda-restore-checkpoint" {
                 let checkpoint = try decoder.decode(RestoreCheckpoint.self, from: data)
                 let stagedNames = try FileManager.default.contentsOfDirectory(atPath: stagingURL.path)
-                guard checkpoint.version == 1,
+                guard (1...2).contains(checkpoint.version),
+                      checkpoint.version == 2 || !checkpoint.present.contains(.measurements),
                       !checkpoint.present.isDisjoint(with: [.backup, .rawBackup]),
                       Set(stagedNames) == Set(checkpoint.present.map(\.rawValue)) else {
                     throw NotebookRestoreError.recoveryRequired
@@ -128,16 +146,18 @@ public enum NotebookRestoreError: LocalizedError {
                     originals[part] = try Data(contentsOf: stagedURL(for: part), options: .mappedIfSafe)
                 }
                 var failed = false
-                for part in RestorePart.allCases {
+                for part in RestorePart.allCases where checkpoint.version == 2 || part != .measurements {
                     do { try restoreFile(at: liveURL(for: part), contents: originals[part]) }
                     catch { failed = true }
                 }
                 guard !failed else { throw NotebookRestoreError.recoveryRequired }
             } else {
                 // Markers from older builds stored only the original live files inline.
-                let live = try decoder.decode(OriginalPair.self, from: data).validated()
+                let live = try decoder.decode(OriginalFiles.self, from: data).validated()
                 var failed = false
-                for (url, file) in [(journalURL, live.journal), (profileURL, live.profile)] {
+                var files = [(journalURL, live.journal), (profileURL, live.profile)]
+                if let measurements = live.measurements { files.append((measurementsURL, measurements)) }
+                for (url, file) in files {
                     do { try restoreFile(at: url, contents: file.contents) }
                     catch { failed = true }
                 }
@@ -158,6 +178,7 @@ public enum NotebookRestoreError: LocalizedError {
         switch part {
         case .journal: journalURL
         case .profile: profileURL
+        case .measurements: measurementsURL
         case .backup: backupURL
         case .rawBackup: originalsURL
         }
@@ -167,11 +188,28 @@ public enum NotebookRestoreError: LocalizedError {
         try? FileManager.default.removeItem(at: stagingURL)
     }
 
+    private func writeRecoveryCopy(_ data: Data, to url: URL) throws {
+        try writer(data, url)
+        #if os(iOS)
+        var resources = URLResourceValues()
+        resources.isExcludedFromBackup = true
+        var localCopy = url
+        try localCopy.setResourceValues(resources)
+        #endif
+    }
+
     private func restoreFile(at url: URL, contents: Data?) throws {
         if try readIfPresent(url) == contents { return }
         if let contents {
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try writer(contents, url)
+            if url == measurementsURL {
+                try FileBodyMeasurementsRepository.preparePrivateDirectory(url.deletingLastPathComponent())
+            }
+            if url == backupURL || url == originalsURL {
+                try writeRecoveryCopy(contents, to: url)
+            } else {
+                try writer(contents, url)
+            }
         } else {
             try removeIfPresent(url)
         }
@@ -190,7 +228,7 @@ public enum NotebookRestoreError: LocalizedError {
     }
     public func previousOriginalFilesData() throws -> Data? {
         guard let data = try readIfPresent(originalsURL) else { return nil }
-        _ = try JSONDecoder().decode(OriginalPair.self, from: data).validated()
+        _ = try JSONDecoder().decode(OriginalFiles.self, from: data).validated()
         return data
     }
     public func originalJournalData() throws -> Data? { try readIfPresent(journalURL) }
@@ -218,7 +256,7 @@ private struct RestoreHeader: Decodable {
 }
 
 private enum RestorePart: String, Codable, CaseIterable {
-    case journal, profile, backup, rawBackup
+    case journal, profile, measurements, backup, rawBackup
 }
 
 private struct RestoreCheckpoint: Codable {
@@ -228,7 +266,7 @@ private struct RestoreCheckpoint: Codable {
 
     init(present: Set<RestorePart>) {
         format = "senda-restore-checkpoint"
-        version = 1
+        version = 2
         self.present = present
     }
 }
@@ -240,17 +278,23 @@ private struct OriginalFile: Codable {
         guard existed == (contents != nil) else { throw NotebookRestoreError.recoveryRequired }
     }
 }
-private struct OriginalPair: Codable {
+private struct OriginalFiles: Codable {
     let format: String
     let version: Int
     let journal: OriginalFile
     let profile: OriginalFile
-    init(journal: OriginalFile, profile: OriginalFile) {
-        format = "senda-restore-recovery"; version = 1
+    let measurements: OriginalFile?
+    init(journal: OriginalFile, profile: OriginalFile, measurements: OriginalFile) {
+        format = "senda-restore-recovery"; version = 2
+        self.measurements = measurements
         self.journal = journal; self.profile = profile
     }
     func validated() throws -> Self {
-        guard format == "senda-restore-recovery", version == 1 else { throw NotebookRestoreError.recoveryRequired }
+        guard format == "senda-restore-recovery",
+              (version == 1 && measurements == nil) || (version == 2 && measurements != nil) else {
+            throw NotebookRestoreError.recoveryRequired
+        }
+        try measurements?.validated()
         try journal.validated(); try profile.validated()
         return self
     }
@@ -259,20 +303,25 @@ private struct OriginalPair: Codable {
 @MainActor public final class MemoryNotebookRestoreStore: NotebookRestoreStore {
     private let repository: any JournalRepository
     private let profileRepository: any ProfileRepository
+    public let measurementsRepository: any BodyMeasurementsRepository
     private var previous: Data?
-    private var pending: (JournalSnapshot, ProfileDetails)?
-    public init(repository: any JournalRepository, profileRepository: any ProfileRepository) {
+    private var pending: (JournalSnapshot, ProfileDetails, [BodyMeasurement]?)?
+    public init(repository: any JournalRepository, profileRepository: any ProfileRepository,
+                measurementsRepository: any BodyMeasurementsRepository = MemoryBodyMeasurementsRepository()) {
+        self.measurementsRepository = measurementsRepository
         self.repository = repository; self.profileRepository = profileRepository
     }
     public func restore(_ archive: NotebookArchive, current: NotebookArchive?) throws {
         let archive = try archive.validated()
         let previousData = try current.map(NotebookBackupCodec.encode)
         try recoverInterruptedRestore()
-        let original = try (repository.loadSnapshot(), profileRepository.load())
+        let measurements = try archive.manualMeasurements.map { _ in try measurementsRepository.load() }
+        let original = try (repository.loadSnapshot(), profileRepository.load(), measurements)
         pending = original
         do {
             try profileRepository.save(archive.profile)
             try repository.saveSnapshot(archive.snapshot)
+            if let readings = archive.manualMeasurements { try measurementsRepository.save(readings) }
             previous = previousData
             pending = nil
         } catch {
@@ -287,6 +336,9 @@ private struct OriginalPair: Codable {
         var failed = false
         do { try repository.saveSnapshot(original.0) } catch { failed = true }
         do { try profileRepository.save(original.1) } catch { failed = true }
+        if let readings = original.2 {
+            do { try measurementsRepository.save(readings) } catch { failed = true }
+        }
         guard !failed else { throw NotebookRestoreError.recoveryRequired }
         pending = nil
     }

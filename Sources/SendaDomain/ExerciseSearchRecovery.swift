@@ -24,7 +24,7 @@ public struct ExerciseSearchRecovery: Equatable, Sendable {
 
         let reason: Reason
         if let excluded = gymFilter.exclusion(for: target) { reason = excluded }
-        else if let group, target.group != group { reason = .differentMuscleGroup(target.group) }
+        else if let group, !target.taggedGroups.contains(group) { reason = .differentMuscleGroup(target.group) }
         else if let equipment, target.equipmentType != equipment { reason = .differentMainEquipment(target.equipmentType) }
         else { return nil }
 
@@ -35,7 +35,7 @@ public struct ExerciseSearchRecovery: Equatable, Sendable {
             for candidate in exercises where candidate.isLibraryChoice && candidate.id != target.id {
                 guard let id = candidate.catalogAliasID ?? candidate.presetID, related.contains(id),
                       !visibleIDs.contains(candidate.id),
-                      group.map({ candidate.group == $0 }) ?? true,
+                      group.map(candidate.taggedGroups.contains) ?? true,
                       equipment.map({ candidate.equipmentType == $0 }) ?? true,
                       gymFilter.matches(candidate) else { continue }
                 available[id] = candidate

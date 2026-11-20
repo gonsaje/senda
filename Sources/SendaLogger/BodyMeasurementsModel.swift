@@ -16,7 +16,7 @@ public struct BodyMeasurementPeriod {
 @Observable @MainActor public final class BodyMeasurementsModel {
     private let repository: any BodyMeasurementsRepository
     private let health: (any BodyMeasurementsHealthSource)?
-    private var manualReadings: [BodyMeasurement] = []
+    private(set) var manualReadings: [BodyMeasurement] = []
     private var healthReadings: [BodyMeasurement] = []
     private var healthRefreshID: UUID?
 

@@ -12,6 +12,7 @@ extension WeeklyMuscleTarget {
 struct TrainingWeeklyMuscleTargetEditor: View {
     private let profile: ProfileModel
     private let target: WeeklyMuscleTarget?
+    private let initialMuscle: MuscleRegion?
     private let availableMuscles: [MuscleRegion]
     private let close: () -> Void
     @State private var muscle: MuscleRegion?
@@ -19,21 +20,23 @@ struct TrainingWeeklyMuscleTargetEditor: View {
     @State private var maximum: String
     @State private var errorMessage: String?
     @State private var confirmsRemoval = false
+    @State private var choosingMuscle = false
     @Environment(\.dynamicTypeSize) private var textSize
 
     init(profile: ProfileModel, target: WeeklyMuscleTarget?, availableMuscles: [MuscleRegion],
-         close: @escaping () -> Void) {
+         initialMuscle: MuscleRegion? = nil, close: @escaping () -> Void) {
         self.profile = profile
         self.target = target
         self.availableMuscles = availableMuscles
         self.close = close
-        _muscle = State(initialValue: target?.muscle)
+        self.initialMuscle = target?.muscle ?? initialMuscle ?? (availableMuscles.count == 1 ? availableMuscles.first : nil)
+        _muscle = State(initialValue: self.initialMuscle)
         _minimum = State(initialValue: target.map { String($0.minimumSets) } ?? "")
         _maximum = State(initialValue: target.map { String($0.maximumSets) } ?? "")
     }
 
     private var hasDraft: Bool {
-        muscle != target?.muscle
+        muscle != initialMuscle
             || minimum != (target.map { String($0.minimumSets) } ?? "")
             || maximum != (target.map { String($0.maximumSets) } ?? "")
     }
@@ -111,30 +114,18 @@ struct TrainingWeeklyMuscleTargetEditor: View {
     private var muscleField: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text("Muscle").font(.subheadline).foregroundStyle(NotebookStyle.quiet)
-            if let target {
-                Text(target.muscle.name)
+            if let fixedMuscle = target?.muscle ?? (availableMuscles.count == 1 ? muscle : nil) {
+                Text(fixedMuscle.name)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(minHeight: 44)
                     .accessibilityIdentifier("weekly-muscle-target-muscle")
             } else {
-                Menu {
-                    ForEach(availableMuscles, id: \.self) { option in
-                        Button {
-                            muscle = option
-                            errorMessage = nil
-                        } label: {
-                            if muscle == option { Label(option.name, systemImage: "checkmark") }
-                            else { Text(option.name) }
-                        }
-                        .accessibilityAddTraits(muscle == option ? .isSelected : [])
-                        .accessibilityIdentifier("weekly-muscle-target-option-\(option.rawValue)")
-                    }
-                } label: {
+                Button { choosingMuscle = true } label: {
                     HStack(spacing: 8) {
                         Text(muscle?.name ?? "Choose muscle")
                             .fixedSize(horizontal: false, vertical: true)
                         Spacer(minLength: 0)
-                        Image(systemName: "chevron.down").font(.caption).accessibilityHidden(true)
+                        Image(systemName: "chevron.right").font(.caption).accessibilityHidden(true)
                     }
                     .foregroundStyle(NotebookStyle.clay)
                     .frame(minHeight: 44)
@@ -143,6 +134,45 @@ struct TrainingWeeklyMuscleTargetEditor: View {
                 .accessibilityLabel("Muscle")
                 .accessibilityValue(muscle?.name ?? "Choose muscle")
                 .accessibilityIdentifier("weekly-muscle-target-muscle")
+                .sheet(isPresented: $choosingMuscle) {
+                    NavigationStack {
+                        List(availableMuscles, id: \.self) { option in
+                            Button {
+                                muscle = option
+                                errorMessage = nil
+                                choosingMuscle = false
+                            } label: {
+                                HStack {
+                                    Text(option.name)
+                                    Spacer()
+                                    if muscle == option {
+                                        Image(systemName: "checkmark").foregroundStyle(NotebookStyle.clay)
+                                            .accessibilityHidden(true)
+                                    }
+                                }
+                                .frame(minHeight: 44)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .listRowBackground(NotebookStyle.ivory)
+                            .accessibilityAddTraits(muscle == option ? .isSelected : [])
+                            .accessibilityIdentifier("weekly-muscle-target-option-\(option.rawValue)")
+                        }
+                        .listStyle(.plain)
+                        .scrollContentBackground(.hidden)
+                        .background(NotebookStyle.ivory)
+                        .navigationTitle("Choose muscle")
+                        #if os(iOS)
+                        .navigationBarTitleDisplayMode(.inline)
+                        #endif
+                        .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { choosingMuscle = false } } }
+                    }
+                    .tint(NotebookStyle.clay)
+                    #if os(iOS)
+                    .presentationDetents(availableMuscles.count <= 5 && textSize < .xxLarge ? [.medium, .large] : [.large])
+                    .presentationDragIndicator(.visible)
+                    #endif
+                }
             }
             rule
         }

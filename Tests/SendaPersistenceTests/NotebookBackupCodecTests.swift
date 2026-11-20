@@ -41,6 +41,36 @@ struct NotebookBackupCodecTests {
 
     private func data(_ object: [String: Any]) throws -> Data { try JSONSerialization.data(withJSONObject: object) }
 
+    @Test func fullBackupRequiresIntactManualReadingsAndRejectsImportedHealthSamples() throws {
+        let old = try archive()
+        let reading = try BodyMeasurement(metric: .weight, value: 75, date: old.createdAt)
+        let full = NotebookArchive(snapshot: old.snapshot, profile: old.profile, manualMeasurements: [reading])
+        let encoded = try object(full)
+        #expect(encoded["version"] as? Int == 11)
+        #expect(try NotebookBackupCodec.decode(data(encoded)) == full)
+        for key in ["manualMeasurements", "manualMeasurementCount"] {
+            var damaged = encoded
+            damaged.removeValue(forKey: key)
+            #expect(throws: NotebookBackupError.invalidBackup) { try NotebookBackupCodec.decode(data(damaged)) }
+        }
+        var truncated = encoded
+        truncated["manualMeasurements"] = []
+        #expect(throws: NotebookBackupError.invalidBackup) { try NotebookBackupCodec.decode(data(truncated)) }
+
+        let health = try BodyMeasurement(metric: .weight, value: 75, date: old.createdAt, source: .appleHealth("Scale"))
+        for invalid in [[reading, reading], [health]] {
+            let invalidArchive = NotebookArchive(snapshot: old.snapshot, profile: old.profile, manualMeasurements: invalid)
+            #expect(throws: NotebookBackupError.invalidBackup) { try NotebookBackupCodec.encode(invalidArchive) }
+            var incoming = encoded
+            incoming["manualMeasurements"] = try JSONSerialization.jsonObject(with: JSONEncoder().encode(invalid))
+            incoming["manualMeasurementCount"] = invalid.count
+            #expect(throws: NotebookBackupError.invalidBackup) { try NotebookBackupCodec.decode(data(incoming)) }
+        }
+        var oldWithMeasurements = try object(old)
+        oldWithMeasurements["manualMeasurements"] = []
+        #expect(throws: NotebookBackupError.invalidBackup) { try NotebookBackupCodec.decode(data(oldWithMeasurements)) }
+    }
+
     @Test func fullBackupRoundTripPreservesIdentityHistoryUnfinishedCorrectionsHiddenRowsAndLegacyEmail() throws {
         let original = try archive()
         let bytes = try NotebookBackupCodec.encode(original)

@@ -95,6 +95,16 @@ struct TrainingProgramEditor: View {
                         ProgramBlockEditor(block: $draft.blocks[b], index: b,
                             maxWeeks: max(1, 52 - draft.weeks + draft.blocks[b].weeks), path: $path)
                     }
+                case let .libraryWorkout(b):
+                    if draft.blocks.indices.contains(b) {
+                        ProgramWorkoutPicker(model: model) { workout in
+                            guard path.last == .libraryWorkout(b), draft.blocks.indices.contains(b),
+                                  let day = draft.blocks[b].firstAvailableDay else { return }
+                            let i = draft.blocks[b].sessions.count
+                            draft.blocks[b].sessions.append(ProgramSession(template: workout, dayOffset: day))
+                            path[path.count - 1] = .session(b, i)
+                        }
+                    }
                 case let .session(b, i):
                     if hasSession(b, i) {
                         ProgramSessionEditor(model: model, session: $draft.blocks[b].sessions[i], block: b, index: i,
@@ -147,7 +157,7 @@ private extension Binding where Value == String? {
 }
 
 private enum ProgramEditorPage: Hashable {
-    case author, block(Int), session(Int, Int), exercises(Int, Int), target(Int, Int, String), pair(Int, Int, String?)
+    case author, block(Int), libraryWorkout(Int), session(Int, Int), exercises(Int, Int), target(Int, Int, String), pair(Int, Int, String?)
 }
 
 private struct ProgramBlockEditor: View {
@@ -155,7 +165,7 @@ private struct ProgramBlockEditor: View {
     let index: Int
     let maxWeeks: Int
     @Binding var path: [ProgramEditorPage]
-    private var freeDay: Int? { (0...6).first { day in !block.sessions.contains { $0.dayOffset == day } } }
+    private var freeDay: Int? { block.firstAvailableDay }
 
     var body: some View {
         Form {
@@ -190,13 +200,52 @@ private struct ProgramBlockEditor: View {
                         let i = block.sessions.count
                         block.sessions.append(ProgramSession(title: "Workout \(i + 1)", dayOffset: freeDay))
                         path.append(.session(index, i))
-                    } label: { Label("Add workout", systemImage: "plus") }
+                    } label: { Label("Add blank workout", systemImage: "plus") }
                     .accessibilityIdentifier("program-add-session")
+                    NavigationLink(value: ProgramEditorPage.libraryWorkout(index)) {
+                        Label("Use library workout", systemImage: "books.vertical")
+                    }.accessibilityIdentifier("program-use-library-workout")
                 }
             } header: { Text("Weekly schedule") } footer: {
                 Text("Day 1 is the program’s start day. This schedule repeats each week of the block.")
             }
         }.navigationTitle("Edit block").programPageStyle()
+    }
+}
+
+private extension ProgramBlock {
+    var firstAvailableDay: Int? { (0...6).first { day in !sessions.contains { $0.dayOffset == day } } }
+}
+
+private struct ProgramWorkoutPicker: View {
+    let model: TrainingNotebookModel
+    let choose: (WorkoutTemplate) -> Void
+    @State private var search = ""
+
+    var body: some View {
+        let personal = model.matchingWorkouts(model.savedWorkouts, query: search)
+        let starters = model.matchingWorkouts(model.starterWorkouts, query: search)
+        List {
+            if !personal.isEmpty { Section("My workouts") { rows(personal) } }
+            if !starters.isEmpty { Section("Starter workouts") { rows(starters) } }
+            if personal.isEmpty && starters.isEmpty { Text("No matching workouts").foregroundStyle(NotebookStyle.quiet) }
+        }
+        .searchable(text: $search, prompt: "Workout or exercise")
+        .navigationTitle("Use library workout")
+        .programPageStyle()
+    }
+
+    private func rows(_ workouts: [WorkoutTemplate]) -> some View {
+        ForEach(workouts) { workout in
+            Button { choose(workout) } label: {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(workout.name).font(.body.weight(.semibold))
+                    let count = workout.exerciseIDs.count
+                    Text("\(count) \(count == 1 ? "exercise" : "exercises")")
+                        .font(.subheadline).foregroundStyle(NotebookStyle.quiet)
+                }.frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            }.accessibilityIdentifier("program-use-\(workout.id)")
+        }
     }
 }
 
@@ -215,7 +264,7 @@ private struct ProgramSessionEditor: View {
     var body: some View {
         Form {
             Section("Workout") {
-                TextField("Workout name", text: $session.title)
+                TextField("Workout name", text: $session.title).accessibilityIdentifier("program-session-name")
                 Picker("Schedule on", selection: $session.dayOffset) {
                     ForEach((0..<7).filter { !otherDays.contains($0) }, id: \.self) { n in
                         Text("Day \(n + 1)").tag(n)
@@ -223,15 +272,22 @@ private struct ProgramSessionEditor: View {
                 }
             }
             Section("Exercises") {
+                if session.exercises.count > 30 {
+                    Text("A program workout can hold 30 exercises. Remove \(session.exercises.count - 30) to save.")
+                        .font(.subheadline).foregroundStyle(NotebookStyle.quiet)
+                }
                 ForEach(session.exercises, id: \.exerciseID) { exercise in
                     let id = exercise.exerciseID
                     HStack {
                         NavigationLink(value: ProgramEditorPage.target(block, index, id)) {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(model.exercise(id).displayName)
+                                if model.exercise(id).isArchived {
+                                    Text("Removed from library").font(.caption).foregroundStyle(NotebookStyle.quiet)
+                                }
                                 Text(ProgramPrescriptionList.target(exercise)).font(.caption).foregroundStyle(NotebookStyle.quiet)
                             }
-                        }
+                        }.accessibilityIdentifier("program-session-exercise-\(id)")
                         Menu {
                             if let n = units.firstIndex(where: { $0.contains(id) }) {
                                 if n > 0 { Button("Move earlier") { moveUnit(n, to: n - 1) } }

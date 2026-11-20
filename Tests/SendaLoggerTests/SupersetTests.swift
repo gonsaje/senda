@@ -69,6 +69,98 @@ import SendaPersistence
         #expect(resumed.summary(for: day).setCount == 4)
     }
 
+    @Test func loggingFirstWorkingSetAfterPairingBindsItWithoutRepeatingEarlierWork() throws {
+        let m = try TrainingNotebookModel(repository: MemoryJournalRepository())
+        try #require(m.openDay(day))
+        try #require(m.addExercises(plan.exerciseIDs))
+        try #require(m.selectExercise("bench"))
+        func log(_ row: UUID) throws {
+            try #require(m.selectInput(row, field: .weight))
+            m.typeInput("100", focus: try #require(m.focus))
+            try #require(m.selectInput(row, field: .reps))
+            m.typeInput("8", focus: try #require(m.focus))
+            try #require(m.finishEditing())
+        }
+        let old = try #require(m.rows.first?.id)
+        try log(old)
+        try #require(m.createSuperset(plan))
+        let id = try #require(m.supersets.first?.id)
+        try log(old)
+        #expect(m.supersets.first?.phase == .ready)
+        try #require(m.newSet())
+        let warmup = try #require(m.rows.last?.id)
+        try #require(m.setKind(.warmup, for: warmup))
+        try log(warmup)
+        #expect(m.supersets.first?.phase == .ready)
+        try #require(m.newSet())
+        let counted = try #require(m.rows.last?.id)
+        try #require(m.setKind(.working, for: counted))
+        try log(counted)
+        #expect(m.supersets.first?.currentRowID == counted)
+        #expect(m.canAdvanceSuperset(id))
+        try #require(m.advanceSuperset(id))
+        #expect(m.exercise?.id == "cable-row" && m.summary(for: day).setCount == 3)
+    }
+
+    @Test func hidingEitherTabKeepsTheWholePairAndUnpairUndoRestoresItsRest() throws {
+        let store = MemoryJournalRepository()
+        let m = try TrainingNotebookModel(repository: store, now: { day.date() })
+        let id = try prepare(m)
+        try #require(m.startSuperset(id))
+        try logTurn(m, id)
+        try logTurn(m, id)
+        let resting = try #require(m.supersets.first)
+        try #require(m.removeExercise("cable-row"))
+        #expect(m.tabs.map(\.id) == ["goblet-squat"] && m.supersets == [resting])
+        #expect(m.indexedExercises(on: day).map(\.id) == ["goblet-squat", "bench", "cable-row"])
+        let reopened = try TrainingNotebookModel(repository: store)
+        try #require(reopened.undoChange())
+        #expect(reopened.tabs.map(\.id) == ["bench", "cable-row", "goblet-squat"] && reopened.exercise?.id == "cable-row")
+        try #require(reopened.removeExercise("bench"))
+        try #require(reopened.addExercise("cable-row"))
+        #expect(reopened.tabs.map(\.id) == ["goblet-squat", "bench", "cable-row"])
+        try #require(reopened.unlinkSuperset(id))
+        let archived = try NotebookBackupCodec.decode(reopened.backupData())
+        #expect(archived.snapshot.training?.undo == reopened.workspace.undo)
+        let resumed = try TrainingNotebookModel(repository: store)
+        try #require(resumed.undoChange())
+        #expect(resumed.supersets == [resting] && resumed.summary(for: day).setCount == 2)
+    }
+
+    @Test func previouslySavedA1RequiresExplicitChoiceAndNeverCountsTwice() throws {
+        let m = try TrainingNotebookModel(repository: MemoryJournalRepository())
+        let first = try prepare(m)
+        try #require(m.startSuperset(first))
+        try enterTurn(m, first)
+        try #require(m.finishEditing())
+        let row = try #require(m.supersets.first?.currentRowID)
+        try #require(m.unlinkSuperset(first))
+        try #require(m.createSuperset(plan))
+        let ready = try #require(m.supersets.first)
+        #expect(m.previousFirstSet(for: ready)?.id == row && !m.canAdvanceSuperset(ready.id))
+        #expect(!m.startSuperset(ready.id, counting: UUID()))
+        try #require(m.startSuperset(ready.id, counting: row))
+        #expect(m.canAdvanceSuperset(ready.id) && m.rows.count == 1)
+        try #require(m.advanceSuperset(ready.id))
+        #expect(m.summary(for: day).setCount == 1 && !m.advanceSuperset(ready.id))
+    }
+
+    @Test func adjustingRemainingRoundsKeepsCurrentRestAndUsesNewDurationNextRound() throws {
+        let m = try TrainingNotebookModel(repository: MemoryJournalRepository(), now: { day.date() })
+        let id = try prepare(m)
+        try #require(m.startSuperset(id))
+        try logTurn(m, id)
+        try logTurn(m, id)
+        let resting = try #require(m.supersets.first)
+        #expect(!m.updateSuperset(id, rounds: 1, restSeconds: 90))
+        try #require(m.updateSuperset(id, rounds: 3, restSeconds: 90))
+        #expect(m.supersets.first?.timer == resting.timer && m.supersets.first?.completedTurns == resting.completedTurns)
+        try #require(m.startNextSupersetRound(id))
+        try logTurn(m, id)
+        try logTurn(m, id)
+        #expect(m.supersets.first?.timer?.remaining(at: day.date()) == 90 && m.summary(for: day).setCount == 4)
+    }
+
     @Test func replacingADeletedOrReclassifiedTurnNeverCountsAnOlderSet() throws {
         let m = try TrainingNotebookModel(repository: MemoryJournalRepository())
         let id = try prepare(m)
@@ -139,7 +231,7 @@ import SendaPersistence
         #expect(m.deleteFromWorkout(.exercise("bench"), on: day))
         #expect(m.supersets.isEmpty)
         #expect(m.undoChange() && m.workout == original)
-        #expect(m.removeExercise("cable-row") && m.supersets.isEmpty)
+        #expect(m.removeExercise("cable-row") && m.supersets.first?.id == id)
         #expect(m.summary(for: day).setCount == 1)
     }
 

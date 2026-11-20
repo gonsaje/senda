@@ -62,6 +62,33 @@ extension TrainingNotebookModel {
     }
 }
 
+struct SupersetStartButton<Label: View>: View {
+    let model: TrainingNotebookModel
+    let group: WorkoutSuperset
+    let start: (UUID?) -> Void
+    @ViewBuilder let label: () -> Label
+    @State private var choosingSet = false
+
+    var body: some View {
+        Button {
+            if model.previousFirstSet(for: group) != nil { choosingSet = true }
+            else { start(nil) }
+        } label: { label() }
+        .confirmationDialog("Start round 1", isPresented: $choosingSet, titleVisibility: .visible) {
+            if let row = model.previousFirstSet(for: group) {
+                Button("Count previous set") { start(row.id) }
+                    .accessibilityIdentifier("superset-count-previous")
+            }
+            Button("Start with a new set") { start(nil) }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            if let row = model.previousFirstSet(for: group), let value = row.parsed(for: model.exercise(group.plan.first)) {
+                Text("\(model.exercise(group.plan.first).displayName) · \(ProgressFormatting.set(value, exercise: model.exercise(group.plan.first), unit: row.unit))")
+            }
+        }
+    }
+}
+
 struct TrainingSupersetControls: View {
     let model: TrainingNotebookModel
     let member: SupersetMembership
@@ -84,25 +111,52 @@ struct TrainingSupersetControls: View {
                 }
             } else {
                 if group.phase == .working {
-                    Button {
-                        model.setSupersetTimer(.start, for: group.id)
-                    } label: {
-                        Label("Rest timer", systemImage: "timer").frame(minHeight: 44)
+                    HStack {
+                        Button {
+                            model.setSupersetTimer(.start, for: group.id)
+                        } label: {
+                            Label("Rest timer", systemImage: "timer").frame(minHeight: 44)
+                        }
+                        .foregroundStyle(NotebookStyle.clay)
+                        .accessibilityIdentifier("superset-start-timer")
+                        Spacer()
+                        extraSets
                     }
-                    .foregroundStyle(NotebookStyle.clay)
-                    .accessibilityIdentifier("superset-start-timer")
                 }
                 primary(seconds: 0)
+            }
+            if group.phase == .resting || (group.phase == .working && group.timer != nil) {
+                extraSets
             }
         }
         .disabled(model.canRetrySave)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    private var extraSets: some View {
+        Menu {
+            Button { _ = model.newSet() } label: { Label("New set", systemImage: "plus") }
+                .accessibilityIdentifier("new-set")
+            if model.canRepeat {
+                Button {
+                    if model.repeatLastSet() { TrainingAccessibility.announce("Set repeated and saved.") }
+                } label: { Label("Repeat last set", systemImage: "repeat") }
+                .accessibilityIdentifier("repeat-set")
+            }
+        } label: {
+            Text("Extra sets").font(.subheadline.weight(.medium)).frame(minWidth: 44, minHeight: 44)
+        }
+        .menuStyle(.borderlessButton).menuIndicator(.hidden)
+        .foregroundStyle(NotebookStyle.quiet).accessibilityIdentifier("superset-extra-sets")
+    }
+
     @ViewBuilder private func primary(seconds: Int) -> some View {
         switch group.phase {
         case .ready:
-            action("Start superset", id: "superset-start") { _ = model.startSuperset(group.id) }
+            SupersetStartButton(model: model, group: group, start: { _ = model.startSuperset(group.id, counting: $0) }) {
+                Text("Start superset").font(.body.weight(.semibold)).frame(maxWidth: .infinity, minHeight: 46)
+            }
+            .buttonStyle(SupersetPrimaryStyle()).accessibilityIdentifier("superset-start")
         case .working:
             if model.exercise?.id == group.currentExerciseID {
                 action(member.advanceTitle(in: model), id: "superset-advance") { advance(group.id) }

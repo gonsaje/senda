@@ -10,7 +10,7 @@ struct WeeklyMuscleTrainingTests {
         return calendar
     }
 
-    @Test func savedSetsCountForPrimaryMusclesAndDropsAreGrouped() throws {
+    @Test func eachWorkingSetAndDropGroupCountsOncePerTrackedMuscle() throws {
         var journal = Journal()
         let bench = try record(&journal, "bench", sets: 6)
         let dumbbell = try record(&journal, "dumbbell-bench", sets: 1)
@@ -38,7 +38,12 @@ struct WeeklyMuscleTrainingTests {
             days: [monday.rawValue: workout])).validated()
 
         let result = try snapshot.weeklyMuscleTraining(days: monday.week(), through: monday, calendar: utc)
-        #expect(result.counts == [.chest: 5, .quadriceps: 2, .glutes: 2])
+        #expect(result.counts[.chest] == 5)
+        #expect(result.counts[.triceps] == 5)
+        #expect(result.counts[.frontShoulders] == 5)
+        #expect(result.counts[.quadriceps] == 2)
+        #expect(result.counts[.glutes] == 2)
+        #expect(!result.regions.contains { $0.lifts.contains { $0.exerciseID == "custom-press" } })
         let chest = try #require(result.regions.first { $0.muscle == .chest })
         #expect(chest.lifts.map(\.exerciseID) == ["bench", "dumbbell-bench"])
         #expect(chest.lifts.map(\.count) == [4, 1])
@@ -58,7 +63,7 @@ struct WeeklyMuscleTrainingTests {
         #expect(TrainingDay(bench.recordedAt, calendar: pacific) == otherWeek)
         #expect(TrainingDay(future.recordedAt, calendar: pacific) == monday)
         let week = try monday.week()
-        #expect(snapshot.weeklyMuscleTraining(days: week + [monday], through: monday, calendar: pacific).counts == [.chest: 1])
+        #expect(snapshot.weeklyMuscleTraining(days: week + [monday], through: monday, calendar: pacific).counts[.triceps] == 1)
         #expect(snapshot.weeklyMuscleTraining(days: week, through: otherWeek, calendar: pacific).regions.isEmpty)
     }
 
@@ -94,8 +99,73 @@ struct WeeklyMuscleTrainingTests {
         var pacific = utc
         pacific.timeZone = TimeZone(secondsFromGMT: -8 * 3_600)!
         let week = try monday.week()
-        #expect(snapshot.weeklyMuscleTraining(days: week, through: monday, calendar: utc).counts == [.chest: 2])
+        #expect(snapshot.weeklyMuscleTraining(days: week, through: monday, calendar: utc).counts[.triceps] == 2)
         #expect(snapshot.weeklyMuscleTraining(days: week, through: monday, calendar: pacific).regions.isEmpty)
+    }
+
+    @Test(arguments: [true, false])
+    func historicalDeadliftCreditsBackAndLegsWithoutExtraJournalSets(workspaceBacked: Bool) throws {
+        var journal = Journal()
+        _ = try record(&journal, "deadlift", sets: 1)
+        let legacy = JournalSnapshot(journal: journal)
+        let migrated = workspaceBacked ? try TrainingWorkspace.migrate(legacy, today: monday, calendar: utc) : nil
+        let snapshot = try JournalSnapshot(journal: journal, training: migrated).validated()
+        let week = snapshot.weeklyMuscleTraining(days: [monday], through: monday, calendar: utc)
+        for muscle in [MuscleRegion.glutes, .hamstrings, .quadriceps, .spinalErectors] {
+            #expect(week.counts[muscle] == 1)
+        }
+        #expect(snapshot.journal.batches.flatMap(\.sets).count == 1)
+    }
+
+    @Test func stretchingAndIncompleteRowsDoNotContributeMuscleSets() throws {
+        var journal = Journal()
+        _ = try record(&journal, "standing-quadriceps-stretch", sets: 2)
+        let legacy = JournalSnapshot(journal: journal)
+        var workspace = try TrainingWorkspace.migrate(legacy, today: monday, calendar: utc)
+        workspace.days[monday.rawValue]?.rows["squat"] = [TrainingRow(weight: "135", reps: "", unit: .pounds)]
+        let snapshot = JournalSnapshot(journal: journal, training: workspace)
+        #expect(snapshot.weeklyMuscleTraining(days: [monday], through: monday, calendar: utc).regions.isEmpty)
+    }
+
+    @Test func primaryAndSupportingCreditsStaySeparateForWeeklyTargets() throws {
+        var journal = Journal()
+        _ = try record(&journal, "bench", sets: 2)
+        _ = try record(&journal, "triceps-extension", sets: 1)
+        let snapshot = JournalSnapshot(journal: journal)
+        let week = snapshot.weeklyMuscleTraining(days: [monday], through: monday, calendar: utc)
+        let triceps = try #require(week.regions.first { $0.muscle == .triceps })
+        #expect(triceps.count == 3 && triceps.dayCount == 1)
+        #expect(triceps.primaryCount == 1 && triceps.supportingCount == 2)
+        #expect(triceps.lifts.filter(\.isPrimary).map(\.exerciseID) == ["triceps-extension"])
+    }
+
+    @Test func archivedCustomExerciseKeepsItsChosenRegionsAndPrimaryCreditInHistory() throws {
+        let custom = Exercise(id: "my-hinge", name: "Home hinge", shortName: "Hinge", startingWeight: 0,
+            muscleGroup: .back, isArchived: true, customMuscleTags: [.spinalErectors, .glutes])
+        var journal = Journal()
+        _ = try record(&journal, custom.id, sets: 2)
+        let snapshot = try JournalSnapshot(journal: journal, customExercises: [custom]).validated()
+        let week = snapshot.weeklyMuscleTraining(days: [monday], through: monday, calendar: utc)
+        let back = try #require(week.regions.first { $0.muscle == .spinalErectors })
+        let glutes = try #require(week.regions.first { $0.muscle == .glutes })
+        #expect(back.primaryCount == 2 && back.supportingCount == 0)
+        #expect(glutes.primaryCount == 0 && glutes.supportingCount == 2)
+        #expect(week.regions.count == 2)
+    }
+
+    @Test func fullBodyCustomCreditsOnlyChosenMusclesAndUntaggedLegacyCustomKeepsItsSets() throws {
+        let carry = Exercise(id: "loaded-march", name: "Loaded march", shortName: "March", startingWeight: 0,
+            muscleGroup: .fullBody, customMuscleTags: [.glutes, .abdominals])
+        let legacy = Exercise(id: "old-carry", name: "Carry practice", shortName: "Carry", startingWeight: 0,
+            muscleGroup: .fullBody)
+        var journal = Journal()
+        _ = try record(&journal, carry.id, sets: 1)
+        _ = try record(&journal, legacy.id, sets: 1)
+        let snapshot = try JournalSnapshot(journal: journal, customExercises: [carry, legacy]).validated()
+        let week = snapshot.weeklyMuscleTraining(days: [monday], through: monday, calendar: utc)
+        #expect(week.counts == [.glutes: 1, .abdominals: 1])
+        #expect(week.regions.allSatisfy { $0.primaryCount == 1 && $0.lifts.map(\.exerciseID) == [carry.id] })
+        #expect(snapshot.journal.batches.flatMap(\.sets).count == 2)
     }
 
     private func record(_ journal: inout Journal, _ exerciseID: String, on day: TrainingDay? = nil,

@@ -42,6 +42,7 @@ import Testing
         let setup = NotebookAutomaticBackup(settingsURL: settingsURL, now: { clock }, validateFolder: { _ in })
         let model = try TrainingNotebookModel(repository: MemoryJournalRepository(), now: { clock })
 
+        try model.bodyMeasurements.add([.weight: 70], on: clock)
         #expect(setup.errorMessage == nil)
         await setup.backUpIfDue { try model.backupArchive() }
         #expect(try files(in: folder).isEmpty)
@@ -53,6 +54,8 @@ import Testing
         #expect(backup.lastSavedAt == clock)
         #expect(try NotebookBackupCodec.decode(Data(contentsOf: first)).profile.name.isEmpty)
 
+        #expect(try NotebookBackupCodec.decode(Data(contentsOf: first)).manualMeasurements == nil)
+        try model.bodyMeasurements.add([.weight: 71], on: clock)
         clock.addTimeInterval(24 * 60 * 60)
         await backup.backUpIfDue { try model.backupArchive() }
         #expect(try files(in: folder) == [first])

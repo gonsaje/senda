@@ -11,11 +11,16 @@ enum GymExerciseCatalog {
         let aliases: [String]?
         let primary: [MuscleRegion]?
         let supporting: [MuscleRegion]?
+        let stabilizing: [MuscleRegion]?
+        let loadedStabilizers: [MuscleRegion]?
+        // Movement or stretch targets for activities that do not earn resistance-training sets.
+        let activityMuscles: [MuscleRegion]?
         let optionalLoad: Bool?
 
         var muscleMap: ExerciseMuscleMap? {
             guard let primary, !primary.isEmpty else { return nil }
-            return ExerciseMuscleMap(primary: primary, supporting: supporting ?? [], stabilizing: [], variation: name)
+            return ExerciseMuscleMap(primary: primary, supporting: supporting ?? [], stabilizing: stabilizing ?? [],
+                                     variation: name, loadedStabilizers: loadedStabilizers ?? [])
         }
     }
 

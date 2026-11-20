@@ -247,7 +247,7 @@ import SendaPersistence
         #expect(m.addExercise("squat"))
         try enter(m, weight: "185", reps: ""); #expect(m.finishEditing())
         let summary = m.summary(for: day)
-        #expect(summary.muscleGroups == [.chest, .shoulders])
+        #expect(summary.muscleGroups == [.chest, .back, .shoulders, .arms])
         #expect(summary.weekFocus == "Chest · Shoulders")
         #expect(summary.setCount == 3)
         #expect(summary.exercises == ["Overhead press", "Bench", "Dumbbell bench"])
@@ -268,7 +268,14 @@ import SendaPersistence
         #expect(try focus("squat") == "Quads · Glutes")
         #expect(try focus("crunch", "squat") == "Legs · Core")
         #expect(try focus("leg-extension", "leg-curl", "calf-raise") == "Lower Body")
-        #expect(try focus("squat", "deadlift") == "Lower Body")
+        #expect(try focus("deadlift") == "Back · Legs")
+        #expect(try focus("romanian-deadlift") == "Back · Legs")
+        #expect(try focus("manual-isometric-neck-flexion") == "Neck")
+        #expect(try focus("bench", "manual-isometric-neck-flexion") == "Chest · Neck")
+        #expect(try focus("standing-quadriceps-stretch") == "Standing quadriceps stretch")
+        #expect(try focus("bench", "standing-quadriceps-stretch") == "Chest")
+        #expect(try focus("squat", "deadlift") == "Back · Legs")
+        #expect(try focus("deadlift", "crunch") == "Back · Legs · Core")
         #expect(try focus("bench", "row", "overhead-press") == "Upper Body")
         #expect(try focus("bench", "row", "squat") == "Full Body")
         #expect(try focus("bench", "row", "crunch") == "Upper Body · Core")
@@ -280,6 +287,13 @@ import SendaPersistence
                               startingWeight: 0, muscleGroup: .legs)
         let bridge = try #require(Exercise.catalog.first { $0.id == "glute-bridge" })
         #expect(TrainingDaySummary(performed: [custom, bridge], setCount: 2).weekFocus == "Legs")
+        let hinge = Exercise(id: "my-hinge", name: "Home hinge", shortName: "Hinge", startingWeight: 0,
+            muscleGroup: .back, customMuscleTags: [.spinalErectors, .glutes])
+        let summary = TrainingDaySummary(performed: [hinge], setCount: 1)
+        #expect(summary.weekFocus == "Back · Glutes")
+        #expect(summary.muscleGroups == [.back, .legs])
+        #expect(summary.setCount == 1)
+
     }
 
     @Test func weekCategoriesUseCustomClassificationAndFollowDeleteUndo() throws {
@@ -292,11 +306,11 @@ import SendaPersistence
         #expect(m.summary(for: day).muscleGroups == [.shoulders])
         #expect(m.addExercise("bench"))
         try enter(m, weight: "135", reps: "10"); #expect(m.finishEditing())
-        #expect(m.summary(for: day).muscleGroups == [.chest, .shoulders])
+        #expect(m.summary(for: day).muscleGroups == [.chest, .shoulders, .arms])
         #expect(m.deleteSet(try #require(m.rows.first).id))
         #expect(m.summary(for: day).muscleGroups == [.shoulders])
         #expect(m.undoChange())
-        #expect(m.summary(for: day).muscleGroups == [.chest, .shoulders])
+        #expect(m.summary(for: day).muscleGroups == [.chest, .shoulders, .arms])
         #expect(m.summary(for: day).setCount == 2)
     }
 

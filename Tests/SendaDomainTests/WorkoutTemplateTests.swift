@@ -3,6 +3,20 @@ import Testing
 import SendaDomain
 
 struct WorkoutTemplateTests {
+    @Test func programSessionCopiesTemplateOrderTargetsAndSupersetsWithoutChangingTheLibrary() throws {
+        let plan = ExercisePlan(workingSets: 3, minimumReps: 6, maximumReps: 10)
+        let pair = SupersetPlan(first: "bench", second: "row", rounds: 3, restSeconds: 75)
+        let template = WorkoutTemplate(name: "Club lifts", exerciseIDs: ["bench", "row", "squat"],
+                                      exercisePlans: ["bench": plan], supersets: [pair])
+        var session = ProgramSession(template: template, dayOffset: 3)
+        #expect(session.title == "Club lifts" && session.dayOffset == 3)
+        #expect(session.exercises.map(\.exerciseID) == template.exerciseIDs)
+        #expect(session.exercises[0].plan == plan && session.supersets == [pair])
+        #expect(session.exercises[1] == ProgramExercise(exerciseID: "row"))
+        session.exercises.removeLast()
+        #expect(template.exerciseIDs.last == "squat" && template.exerciseIDs.count == 3)
+    }
+
     private let knownIDs = Set(Exercise.catalog.map(\.id))
 
     @Test func startersUseKnownExercisesInValidDistinctWorkouts() throws {

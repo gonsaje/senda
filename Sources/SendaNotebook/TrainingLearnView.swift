@@ -15,13 +15,14 @@ struct TrainingExerciseLibrary: View {
     @Environment(\.layoutDirection) private var layoutDirection
 
     private enum Editor: Identifiable {
-        case create, edit(Exercise), setup(Exercise)
+        case create, edit(Exercise), setup(Exercise), workout(Exercise)
 
         var id: String {
             switch self {
             case .create: "create"
             case .edit(let exercise): "edit-" + exercise.id
             case .setup(let exercise): "setup-" + exercise.id
+            case .workout(let exercise): "workout-" + exercise.id
             }
         }
     }
@@ -69,6 +70,8 @@ struct TrainingExerciseLibrary: View {
                 LibraryCustomExerciseEditor(model: model, exercise: nil, saved: showSavedExercise)
             case .edit(let exercise):
                 LibraryCustomExerciseEditor(model: model, exercise: exercise, saved: showSavedExercise)
+            case .workout(let exercise):
+                LibraryExerciseWorkoutDate(model: model, exercise: exercise, close: { editor = nil })
             case .setup(let exercise):
                 CustomExerciseSetupEditor(setup: exercise.customSetup, saveError: { model.errorMessage },
                     onCancelPending: { if model.canRetrySave { _ = model.cancelPendingAction() } },
@@ -194,7 +197,7 @@ struct TrainingExerciseLibrary: View {
             searchFocused = false
             editor = .create
         } label: {
-            Label("Add exercise", systemImage: "plus")
+            Label("New custom exercise", systemImage: "plus")
                 .font(.subheadline.weight(.semibold))
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(minHeight: 44).contentShape(Rectangle())
@@ -259,6 +262,9 @@ struct TrainingExerciseLibrary: View {
                         Text("\(exercise.group.rawValue) · \(exercise.equipmentLabel)")
                             .font(.subheadline).foregroundStyle(NotebookStyle.quiet)
                     }
+                    if !exercise.taggedMuscles.isEmpty {
+                        ExerciseMuscleTagsView(exercise: exercise)
+                    }
                     Button { editor = .edit(exercise) } label: {
                         Label("Edit exercise", systemImage: "pencil")
                             .frame(minHeight: 44).contentShape(Rectangle())
@@ -294,7 +300,7 @@ struct TrainingExerciseLibrary: View {
         }
         .clipped()
         .accessibilityIdentifier("learn-guide-scroll")
-        .safeAreaInset(edge: .top, spacing: 0) { navigation }
+        .safeAreaInset(edge: .top, spacing: 0) { navigation(for: exercise) }
         .background(NotebookStyle.ivory)
     }
 
@@ -391,8 +397,9 @@ struct TrainingExerciseLibrary: View {
         .accessibilityIdentifier("learn-exercise-\(exercise.id)")
     }
 
-    private var navigation: some View {
-        HStack {
+    private func navigation(for exercise: Exercise) -> some View {
+        let layout = textSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 0)) : AnyLayout(HStackLayout())
+        return layout {
             Button {
                 cancelDelete()
                 searchFocused = false
@@ -400,7 +407,16 @@ struct TrainingExerciseLibrary: View {
             } label: {
                 Label("Exercises", systemImage: "chevron.left").frame(minHeight: 44)
             }.accessibilityIdentifier("back-to-learn")
-            Spacer(minLength: 0)
+            if !textSize.isAccessibilitySize { Spacer(minLength: 0) }
+            Button {
+                searchFocused = false
+                editor = .workout(exercise)
+            } label: {
+                Label("Add to workout", systemImage: "plus").font(.subheadline.weight(.semibold))
+                    .fixedSize(horizontal: false, vertical: true).frame(minHeight: 44)
+            }.foregroundStyle(NotebookStyle.clay)
+                .disabled(pendingDeleteID != nil)
+                .accessibilityIdentifier("library-add-to-workout")
         }
         .padding(.horizontal, 24).padding(.vertical, 4)
         .frame(maxWidth: 560).frame(maxWidth: .infinity)
@@ -411,6 +427,10 @@ struct TrainingExerciseLibrary: View {
     }
 
     private func exerciseSubtitle(_ exercise: Exercise) -> String {
+        let matchingTags = exercise.matchingMuscleTags(query: model.learningQuery)
+        if !matchingTags.isEmpty {
+            return matchingTags.map(\.name).joined(separator: ", ") + " · " + exercise.equipmentLabel
+        }
         if model.learningScope != .library {
             let setup = exercise.customSetup
             if setup.isEmpty { return "Add gym type and equipment" }
@@ -456,6 +476,55 @@ struct TrainingExerciseLibrary: View {
         pendingDeleteID = nil
         if model.canRetrySave { _ = model.cancelPendingAction() }
         else { model.dismissError() }
+    }
+}
+
+private struct LibraryExerciseWorkoutDate: View {
+    let model: TrainingNotebookModel
+    let exercise: Exercise
+    let close: () -> Void
+    @State private var day: TrainingDay
+    @State private var submitted = false
+    @Environment(\.dynamicTypeSize) private var textSize
+
+    init(model: TrainingNotebookModel, exercise: Exercise, close: @escaping () -> Void) {
+        self.model = model
+        self.exercise = exercise
+        self.close = close
+        _day = State(initialValue: model.selectedDay ?? model.today)
+    }
+
+    var body: some View {
+        let inWorkout = model.workspace.days[day.rawValue]?.exerciseIDs.contains(exercise.id) == true
+        let date = Binding(get: { day.date(in: model.calendar) }, set: { day = TrainingDay($0, calendar: model.calendar) })
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                Button("Cancel", action: close).frame(minWidth: 44, minHeight: 44).foregroundStyle(NotebookStyle.clay)
+                Text(exercise.displayName).font(NotebookTypography.heading(28)).accessibilityAddTraits(.isHeader)
+                DatePicker("Workout date", selection: date, displayedComponents: .date)
+                    .datePickerStyle(.compact).environment(\.calendar, model.calendar).environment(\.timeZone, model.calendar.timeZone)
+                    .frame(minHeight: 44).disabled(model.canRetrySave)
+                    .accessibilityIdentifier("library-workout-date")
+                if submitted, let error = model.errorMessage {
+                    TrainingSaveError(model: model, message: error, retrySucceeded: close)
+                }
+                Button {
+                    submitted = true
+                    if model.addExercise(exercise.id, on: day) { close() }
+                } label: {
+                    Text(inWorkout ? "Open in workout" : "Add to workout").font(.body.weight(.semibold))
+                        .frame(maxWidth: .infinity, minHeight: 46)
+                }.buttonStyle(SupersetPrimaryStyle()).disabled(model.canRetrySave)
+                    .accessibilityIdentifier("library-confirm-workout")
+            }.padding(24).frame(maxWidth: 560).frame(maxWidth: .infinity)
+        }.background(NotebookStyle.ivory).foregroundStyle(NotebookStyle.ink).tint(NotebookStyle.clay)
+        .onDisappear {
+            if submitted && model.canRetrySave { _ = model.cancelPendingAction() }
+        }
+        #if os(iOS)
+        .presentationDetents(textSize >= .xxLarge ? [.large] : [.height(290), .large])
+        .presentationDragIndicator(.visible)
+        #endif
     }
 }
 

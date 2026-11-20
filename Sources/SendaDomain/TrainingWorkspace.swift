@@ -136,6 +136,8 @@ public struct TrainingFocus: Codable, Equatable, Identifiable, Sendable {
     }
 }
 public enum TrainingUndo: Codable, Equatable, Sendable {
+    case hidSuperset(day: TrainingDay, id: UUID, index: Int, selected: String)
+    case unpaired(day: TrainingDay, group: WorkoutSuperset, index: Int)
     case removedFromWorkout(day: TrainingDay, target: TrainingWorkoutRemoval, original: DayWorkout, removal: RemovedTrainingSets)
     case repeated(day: TrainingDay, exerciseID: String, rowID: UUID)
     case deleted(day: TrainingDay, exerciseID: String, index: Int, row: TrainingRow, removal: RemovedTrainingSet?)
@@ -150,7 +152,7 @@ public enum TrainingUndo: Codable, Equatable, Sendable {
 
     package var invalidatedByWorkoutEditOn: TrainingDay? {
         switch self {
-        case let .removedFromWorkout(day, _, _, _), let .deletedSupersetSet(day, _, _, _, _, _): day
+        case let .hidSuperset(day, _, _, _), let .unpaired(day, _, _), let .removedFromWorkout(day, _, _, _), let .deletedSupersetSet(day, _, _, _, _, _): day
         default: nil
         }
     }
@@ -234,19 +236,17 @@ public struct TrainingWorkspace: Codable, Equatable, Sendable {
         var displayedWeights: [WeightUnit: [Int: String]] = [:]
         var rowIDs = Set<UUID>(), links = Set<UUID>(), actions = Set<UUID>(), groupIDs = Set<UUID>()
         guard try visibleWeek.week().first == visibleWeek else { throw TrainingError.invalidWorkspace }
+        var scheduledSlots = Set<ScheduledProgramReference.Slot>()
         for (key, day) in days {
             let date = try TrainingDay(key)
             if let session = day.programSession {
+                guard scheduledSlots.insert(session.slot).inserted else { throw TrainingError.invalidWorkspace }
                 try session.validate(day: date, enrollments: enrollments)
             }
             guard Set(day.exerciseIDs).count == day.exerciseIDs.count,
                   day.exerciseIDs.allSatisfy({ known.contains($0) && day.rows[$0] != nil }),
                   day.selectedExerciseID.map(day.exerciseIDs.contains) ?? day.exerciseIDs.isEmpty else { throw TrainingError.invalidWorkspace }
-            if let groups = day.supersets {
-                guard Set(groups.map(\.id)).count == groups.count else { throw TrainingError.invalidWorkspace }
-                try SupersetPlan.validate(groups.map(\.plan), order: day.exerciseIDs)
-                for group in groups { try group.validate(in: day) }
-            }
+            try day.validateSupersets()
             for (exercise, plan) in day.exercisePlans ?? [:] {
                 guard day.rows[exercise] != nil else { throw TrainingError.invalidWorkspace }
                 _ = try plan.validated()
@@ -293,6 +293,17 @@ public struct TrainingWorkspace: Codable, Equatable, Sendable {
         }
         if let undo {
             switch undo {
+            case .hidSuperset(let day, let id, let index, let selected):
+                guard var workout = days[day.rawValue] else { throw TrainingError.invalidWorkspace }
+                try workout.restoreHiddenSuperset(id, at: index, selected: selected)
+            case .unpaired(let day, let group, let index):
+                guard var workout = days[day.rawValue], (0...(workout.supersets?.count ?? 0)).contains(index) else {
+                    throw TrainingError.invalidWorkspace
+                }
+                var groups = workout.supersets ?? []
+                groups.insert(group, at: index)
+                workout.supersets = groups
+                try workout.validateSupersets()
             case .removedFromWorkout(let day, let target, let original, let removal):
                 let remaining = try target.remainingWorkout(from: original)
                 guard days[day.rawValue] == remaining else { throw TrainingError.invalidWorkspace }

@@ -28,6 +28,14 @@ public struct ProgramSession: Codable, Equatable, Sendable {
         self.exercises = exercises
         self.supersets = supersets
     }
+
+    public init(template: WorkoutTemplate, dayOffset: Int) {
+        let exercises = template.exerciseIDs.map { id in
+            if let plan = template.exercisePlans[id] { return ProgramExercise(exerciseID: id, plan: plan) }
+            return ProgramExercise(exerciseID: id)
+        }
+        self.init(title: template.name, dayOffset: dayOffset, exercises: exercises, supersets: template.supersets ?? [])
+    }
 }
 
 public struct ProgramBlock: Codable, Equatable, Sendable {
@@ -81,7 +89,10 @@ public struct TrainingProgram: Codable, Equatable, Identifiable, Sendable {
     public func exportData(customExercises: [Exercise] = []) throws -> Data {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-        let file = ProgramFile(version: customExercises.isEmpty ? 1 : 2, program: self, customExercises: customExercises.isEmpty ? nil : customExercises)
+        let muscleMetadata = CustomMuscleMetadata(customExercises)
+        let version = if muscleMetadata != nil { 3 } else if customExercises.isEmpty { 1 } else { 2 }
+        let file = ProgramFile(version: version, program: self, customExercises: customExercises.isEmpty ? nil : customExercises,
+                               customMuscleMetadata: muscleMetadata)
         let formatted = try encoder.encode(file)
         if formatted.count <= Self.maximumImportBytes { return formatted }
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
@@ -174,13 +185,16 @@ package struct ProgramFile: Codable {
     let version: Int
     package let program: TrainingProgram
     package let customExercises: [Exercise]?
+    let customMuscleMetadata: CustomMuscleMetadata?
 
     package static func decode(_ data: Data) throws -> Self {
         guard data.count <= TrainingProgram.maximumImportBytes else { throw ProgramError.fileTooLarge }
         guard let file = try? JSONDecoder().decode(Self.self, from: data) else { throw ProgramError.invalidFile }
-        guard (1...2).contains(file.version) else { throw ProgramError.unsupportedVersion }
+        guard (1...3).contains(file.version) else { throw ProgramError.unsupportedVersion }
         let supplied = file.customExercises ?? []
-        guard (file.version == 2) == !supplied.isEmpty else { throw ProgramError.invalidFile }
+        let muscleMetadata = CustomMuscleMetadata(supplied)
+        guard (file.version >= 2) == !supplied.isEmpty, (file.version == 3) == (muscleMetadata != nil),
+              file.customMuscleMetadata == muscleMetadata else { throw ProgramError.invalidFile }
         let referenced = file.program.referencedExerciseIDs
         guard supplied.allSatisfy({ referenced.contains($0.id) && !$0.isArchived }) else { throw ProgramError.invalidFile }
         return file
@@ -196,8 +210,11 @@ public struct ScheduledProgramReference: Codable, Equatable, Sendable {
     public let week: Int
     public let dayOffset: Int
     public let start: TrainingDay
+    public var rescheduledTo: TrainingDay?
+    public package(set) var initialUnit: WeightUnit?
 
-    public init(program: TrainingProgram, start: TrainingDay, slot: ProgramScheduleSlot) {
+    public init(program: TrainingProgram, start: TrainingDay, slot: ProgramScheduleSlot, unit: WeightUnit? = nil) {
+        initialUnit = unit
         self.start = start
         programID = program.id
         programTitle = program.title
@@ -241,6 +258,7 @@ public struct ProgramEnrollment: Codable, Equatable, Sendable {
     public var programID: String { program.id }
     public let program: TrainingProgram
     public let start: TrainingDay
+    public var endedOn: TrainingDay?
 
     public init(program: TrainingProgram, start: TrainingDay) {
         self.program = program
@@ -248,12 +266,17 @@ public struct ProgramEnrollment: Codable, Equatable, Sendable {
     }
 
     public func session(for reference: ScheduledProgramReference) -> ScheduledProgramSession? {
+        guard let (block, session) = prescription(for: reference) else { return nil }
+        return ScheduledProgramSession(program: program, start: start, week: reference.week, block: block, session: session)
+    }
+
+    package func prescription(for reference: ScheduledProgramReference) -> (ProgramBlock, ProgramSession)? {
         guard programID == reference.programID, start == reference.start, reference.week >= 1 else { return nil }
         var remainingWeeks = reference.week
         for block in program.blocks {
             if remainingWeeks <= block.weeks {
                 guard let session = block.sessions.first(where: { $0.dayOffset == reference.dayOffset }) else { return nil }
-                return ScheduledProgramSession(program: program, start: start, week: reference.week, block: block, session: session)
+                return (block, session)
             }
             remainingWeeks -= block.weeks
         }
@@ -282,10 +305,14 @@ public struct ProgramScheduleSlot: Identifiable, Sendable {
 public enum ProgramError: LocalizedError {
     case invalidID, invalidTitle, invalidDetails, invalidSource, invalidBlock, invalidLength, sessionDays, invalidSession
     case exerciseList, unavailableExercise, invalidPrescription, invalidPair, credentialNeedsAuthor, duplicateID, immutable
+    case scheduleChanged, dateConflict, invalidMoveDate
     case allOccupied, invalidFile, fileTooLarge, exportTooLarge, unsupportedVersion, writeFailure, exerciseConflict, previousRemoval
 
     public var errorDescription: String? {
         switch self {
+        case .scheduleChanged: "The schedule has changed. Review its current dates before applying a change."
+        case .dateConflict: "Choose another date so every workout can move together."
+        case .invalidMoveDate: "Choose today or a later date for the first remaining workout."
         case .invalidID: "This program’s identifier is invalid."
         case .invalidTitle: "Enter a program name of up to 80 characters."
         case .invalidDetails: "Shorten the program description, author details, or coaching notes."
@@ -351,10 +378,18 @@ extension TrainingWorkspace {
 }
 
 extension ScheduledProgramReference {
+    struct Slot: Hashable {
+        let program: String
+        let start: TrainingDay
+        let week: Int
+        let offset: Int
+    }
+    var slot: Slot { Slot(program: programID, start: start, week: week, offset: dayOffset) }
+
     func validate(day: TrainingDay, enrollments: [ProgramEnrollment.Key: ProgramEnrollment]) throws {
         let key = ProgramEnrollment.Key(programID: programID, start: start)
         guard let enrolled = enrollments[key], let session = enrolled.session(for: self),
               programTitle == session.programTitle, sessionTitle == session.sessionTitle,
-              day == (try start.adding(days: (week - 1) * 7 + dayOffset)) else { throw TrainingError.invalidWorkspace }
+              day == (try rescheduledTo ?? start.adding(days: (week - 1) * 7 + dayOffset)) else { throw TrainingError.invalidWorkspace }
     }
 }

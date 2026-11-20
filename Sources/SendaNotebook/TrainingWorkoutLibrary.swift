@@ -11,6 +11,7 @@ struct TrainingWorkoutLibrary: View {
     @State private var tab: Tab
     @State private var search = ""
     @State private var selection: Selection?
+    @State private var chosenDay: TrainingDay?
     @State private var editor: EditorRequest?
     @State private var showsPrograms = false
     @State private var confirmsDeletion = false
@@ -38,7 +39,14 @@ struct TrainingWorkoutLibrary: View {
         _tab = State(initialValue: initialTab)
     }
 
-    private var destination: TrainingDay { destinationDay ?? model.selectedDay ?? model.today }
+    private var destination: TrainingDay {
+        if let chosenDay { return chosenDay }
+        let initial = destinationDay ?? model.selectedDay ?? model.today
+        if case .recent(let source) = selection, let earliest = try? source.day.adding(days: 1) {
+            return max(initial, earliest)
+        }
+        return initial
+    }
 
     private enum Selection {
         case template(WorkoutTemplate, personal: Bool)
@@ -118,6 +126,7 @@ struct TrainingWorkoutLibrary: View {
             .frame(maxWidth: .infinity)
         }
         .id(selection?.id)
+        .onChange(of: selection?.id) { _, _ in chosenDay = nil }
         .scrollDismissesKeyboard(.interactively)
         .accessibilityIdentifier(selection == nil ? "workout-library" :
             (selection?.isRecent == true ? "recent-workout-detail" : "workout-template-detail"))
@@ -228,10 +237,10 @@ struct TrainingWorkoutLibrary: View {
                 let all = model.starterWorkouts
                 let lead = ["push", "pull", "legs"]
                 let ordered = lead.compactMap { id in all.first { $0.id == id } } + all.filter { !lead.contains($0.id) }
-                let workouts = matching(ordered)
+                let workouts = model.matchingWorkouts(ordered, query: search)
                 if workouts.isEmpty { noMatches } else { templateRows(workouts, isPersonal: false) }
             case .personal:
-                let workouts = matching(model.savedWorkouts)
+                let workouts = model.matchingWorkouts(model.savedWorkouts, query: search)
                 if model.savedWorkouts.isEmpty {
                     Text("No saved templates").font(.body.weight(.semibold)).accessibilityAddTraits(.isHeader)
                     Button("Create template") { editor = .new }
@@ -249,7 +258,7 @@ struct TrainingWorkoutLibrary: View {
                     .accessibilityIdentifier("save-day-as-workout-template")
                 }
             case .recent:
-                let available = model.reusableWorkouts(before: destination)
+                let available = model.reusableWorkouts(before: embedded ? nil : destination)
                 let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
                 let workouts = available.filter { workout in
                     query.isEmpty || TrainingText.date(workout.day, format: "EEEE, MMMM d, yyyy").localizedStandardContains(query)
@@ -257,7 +266,8 @@ struct TrainingWorkoutLibrary: View {
                         || workout.exerciseIDs.contains { model.exercise($0).displayName.localizedStandardContains(query) }
                 }
                 if available.isEmpty {
-                    emptyState("No recent workouts", hint: "Workouts with logged sets before \(TrainingText.date(destination, format: "MMM d")) appear here.")
+                    emptyState("No recent workouts", hint: embedded ? "Workouts with logged sets appear here."
+                        : "Workouts with logged sets before \(TrainingText.date(destination, format: "MMM d")) appear here.")
                     Button("Browse starters") { tab = .starters; search = "" }
                         .foregroundStyle(NotebookStyle.clay).frame(minHeight: 44)
                 } else if workouts.isEmpty { noMatches } else {
@@ -342,16 +352,6 @@ struct TrainingWorkoutLibrary: View {
                 if embedded && showsCreateButton && !textSize.isAccessibilitySize { createButton }
             }
             WorkoutLibraryRule()
-        }
-    }
-
-    private func matching(_ workouts: [WorkoutTemplate]) -> [WorkoutTemplate] {
-        let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return workouts }
-        return workouts.filter { workout in
-            workout.name.localizedStandardContains(query) || workout.exerciseIDs.contains {
-                model.exercise($0).displayName.localizedStandardContains(query)
-            }
         }
     }
 
@@ -473,9 +473,7 @@ struct TrainingWorkoutLibrary: View {
                                     .font(.subheadline).foregroundStyle(NotebookStyle.quiet)
                                     .fixedSize(horizontal: false, vertical: true)
                             }
-                            Text("For \(TrainingText.date(destination, format: "EEEE, MMM d, yyyy"))")
-                                .font(.caption).foregroundStyle(NotebookStyle.quiet)
-                                .fixedSize(horizontal: false, vertical: true)
+                            destinationPicker(for: selection)
                             RecordButton(title: applyTitle(for: selection, exerciseIDs: available)) { apply(selection, exerciseIDs: available) }
                                 .disabled(pending != nil || available.isEmpty)
                                 .accessibilityHint("Add exercises to \(TrainingText.date(destination, format: "EEEE, MMM d, yyyy")) with existing entries preserved.")
@@ -488,6 +486,24 @@ struct TrainingWorkoutLibrary: View {
             }
             .background(NotebookStyle.ivory)
         }
+    }
+
+    private func destinationPicker(for selection: Selection) -> some View {
+        let date = Binding(get: { destination.date(in: model.calendar) }, set: {
+            chosenDay = TrainingDay($0, calendar: model.calendar)
+        })
+        // Reusing a logged workout always copies its structure forward in time.
+        let earliest: Date = if case .recent(let workout) = selection,
+                                let followingDay = try? workout.day.adding(days: 1) {
+            model.calendar.startOfDay(for: followingDay.date(in: model.calendar))
+        } else { .distantPast }
+        return DatePicker("Workout date", selection: date, in: earliest..., displayedComponents: .date)
+            .datePickerStyle(.compact)
+            .environment(\.calendar, model.calendar)
+            .environment(\.timeZone, model.calendar.timeZone)
+            .frame(minHeight: 44)
+            .disabled(pending != nil)
+            .accessibilityIdentifier("workout-destination-date")
     }
 
     private func heading(_ title: String) -> some View {
@@ -568,5 +584,17 @@ struct WorkoutLibraryPlanLabel: View {
         Text("\(plan.workingSets) \(plan.workingSets == 1 ? "working set" : "working sets") · \(reps) \(plan.maximumReps == 1 ? "rep" : "reps")")
             .font(.subheadline.monospacedDigit()).foregroundStyle(NotebookStyle.quiet)
             .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+extension TrainingNotebookModel {
+    func matchingWorkouts(_ workouts: [WorkoutTemplate], query search: String) -> [WorkoutTemplate] {
+        let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return workouts }
+        return workouts.filter { workout in
+            workout.name.localizedStandardContains(query) || workout.exerciseIDs.contains {
+                exercise($0).displayName.localizedStandardContains(query)
+            }
+        }
     }
 }

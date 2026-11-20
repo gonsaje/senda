@@ -4,6 +4,7 @@ public struct WeeklyMuscleTraining: Equatable, Sendable {
     public struct Lift: Identifiable, Equatable, Sendable {
         public let exerciseID: String
         public let count: Int
+        public let isPrimary: Bool
         public var id: String { exerciseID }
     }
 
@@ -12,6 +13,8 @@ public struct WeeklyMuscleTraining: Equatable, Sendable {
         public let count: Int
         public let dayCount: Int
         public let lifts: [Lift]
+        public var primaryCount: Int { lifts.reduce(0) { $0 + ($1.isPrimary ? $1.count : 0) } }
+        public var supportingCount: Int { count - primaryCount }
         public var id: MuscleRegion { muscle }
     }
 
@@ -25,7 +28,7 @@ public struct WeeklyMuscleTraining: Equatable, Sendable {
 
 public extension JournalSnapshot {
     /// Includes committed working and drop sets on the requested days through today.
-    /// A set contributes once to each primary muscle of its exercise.
+    /// Each set counts once per trained muscle, with primary and supporting contributions kept distinct.
     func weeklyMuscleTraining(days: [TrainingDay], through today: TrainingDay,
                               calendar: Calendar = .current) -> WeeklyMuscleTraining {
         let elapsed = Set(days.filter { $0 <= today })
@@ -66,9 +69,11 @@ public extension JournalSnapshot {
         let library = Dictionary(exerciseLibrary.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         var contributions: [MuscleRegion: (lifts: [WeeklyMuscleTraining.Lift], days: Set<TrainingDay>)] = [:]
         for (exerciseID, dailyCounts) in countsByLift {
-            guard let map = library[exerciseID]?.muscleMap else { continue }
-            let lift = WeeklyMuscleTraining.Lift(exerciseID: exerciseID, count: dailyCounts.values.reduce(0, +))
-            for muscle in map.primary {
+            guard let exercise = library[exerciseID] else { continue }
+            let primary = Set(exercise.primaryTrackedMuscles)
+            let count = dailyCounts.values.reduce(0, +)
+            for muscle in Set(exercise.trackedMuscles) {
+                let lift = WeeklyMuscleTraining.Lift(exerciseID: exerciseID, count: count, isPrimary: primary.contains(muscle))
                 contributions[muscle, default: ([], [])].lifts.append(lift)
                 contributions[muscle, default: ([], [])].days.formUnion(dailyCounts.keys)
             }
@@ -76,10 +81,17 @@ public extension JournalSnapshot {
         var regions: [WeeklyMuscleTraining.Region] = []
         for (muscle, (lifts, days)) in contributions {
             let total = lifts.reduce(0) { $0 + $1.count }
-            let ordered = lifts.sorted { $0.count == $1.count ? $0.exerciseID < $1.exerciseID : $0.count > $1.count }
+            let ordered = lifts.sorted {
+                if $0.isPrimary != $1.isPrimary { return $0.isPrimary }
+                return $0.count == $1.count ? $0.exerciseID < $1.exerciseID : $0.count > $1.count
+            }
             regions.append(WeeklyMuscleTraining.Region(muscle: muscle, count: total, dayCount: days.count, lifts: ordered))
         }
-        regions.sort { $0.count == $1.count ? $0.muscle.name < $1.muscle.name : $0.count > $1.count }
+        regions.sort {
+            if $0.count != $1.count { return $0.count > $1.count }
+            if $0.primaryCount != $1.primaryCount { return $0.primaryCount > $1.primaryCount }
+            return $0.muscle.name < $1.muscle.name
+        }
         return WeeklyMuscleTraining(regions: regions)
     }
 }

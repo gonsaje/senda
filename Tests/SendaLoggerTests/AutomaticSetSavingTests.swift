@@ -131,6 +131,67 @@ import SendaPersistence
         #expect(!model.canAdjustPlate(1.25, count: 2, focus: focus))
     }
 
+    @Test func plateLoadUpdatesTheTotalAndBarTogetherAndUndoesTheRecordedSet() throws {
+        let store = MemoryJournalRepository(), editor = try model(store), rowID = try begin(editor)
+        #expect(editor.selectInput(rowID, field: .weight))
+        let initialFocus = try #require(editor.focus)
+        #expect(editor.setBarbellWeight(3_500, focus: initialFocus))
+        try enter(editor, row: rowID, weight: "125", reps: "8")
+        #expect(editor.selectInput(rowID, field: .weight))
+        let focus = try #require(editor.focus), before = try #require(editor.focusedRow)
+        let performed = try #require(before.performedSetID)
+        #expect(!editor.applyPlateLoad(totalWeight: 18_500, barbellWeight: 4_500, focus: initialFocus))
+        #expect(!editor.applyPlateLoad(totalWeight: 18_600, barbellWeight: 4_500, focus: focus))
+        #expect(!editor.applyPlateLoad(totalWeight: 3_000, barbellWeight: 4_500, focus: focus))
+        #expect(editor.focusedRow == before)
+
+        #expect(editor.applyPlateLoad(totalWeight: 18_500, barbellWeight: 4_500, focus: focus))
+        #expect(editor.inputText(for: focus) == "185")
+        #expect(editor.focusedRow?.barbellWeight == 4_500 && editor.focusedRow?.performedSetID == performed)
+        #expect(editor.journal.reference(to: performed)?.set.values == SetValues(weight: 18_500, reps: 8))
+        let reloaded = try model(store)
+        #expect(reloaded.focusedRow?.barbellWeight == 4_500)
+        #expect(reloaded.journal.reference(to: performed)?.set.values.weight == 18_500)
+
+        #expect(editor.applyPlateLoad(totalWeight: 18_500, barbellWeight: 4_500, focus: focus))
+        #expect(editor.lastLoadAdjustment(focus: focus) == .plateLoad)
+        #expect(editor.undoPlateAdjustment(focus: focus) && editor.focusedRow == before)
+        #expect(editor.journal.reference(to: performed)?.set.values.weight == 12_500)
+    }
+
+    @Test func reapplyingTheDisplayedMetricPlateLoadPreservesConvertedPrecision() throws {
+        let editor = try model(MemoryJournalRepository()), rowID = try begin(editor)
+        #expect(editor.changeUnit(.kilograms) && editor.selectInput(rowID, field: .weight))
+        let focus = try #require(editor.focus), bar = try #require(WeightUnit.kilograms.parse("20"))
+        #expect(editor.setBarbellWeight(bar, focus: focus))
+        let typedTarget = try #require(WeightUnit.kilograms.parse("22.5"))
+        let convertedWeight = typedTarget + 1
+        #expect(editor.setInputWeight(convertedWeight, focus: focus))
+        #expect(editor.inputText(for: focus) == "22.5")
+        #expect(editor.applyPlateLoad(totalWeight: typedTarget, barbellWeight: bar, focus: focus))
+        #expect(editor.focusedRow?.parsedWeight == convertedWeight)
+        #expect(editor.lastLoadAdjustment(focus: focus) == nil)
+    }
+
+    @Test func failedPlateLoadKeepsTheOriginalBarAndCanRetryOnce() throws {
+        let store = AutomaticSavingFailureRepository(), editor = try model(store), rowID = try begin(editor)
+        #expect(editor.selectInput(rowID, field: .reps))
+        editor.typeInput("5", focus: try #require(editor.focus))
+        #expect(editor.selectInput(rowID, field: .weight))
+        let focus = try #require(editor.focus)
+        store.reject = true
+        #expect(!editor.applyPlateLoad(totalWeight: 18_500, barbellWeight: 4_500, focus: focus))
+        #expect(editor.canRetrySave && editor.focusedRow?.barbellWeight == nil && editor.journal.batches.isEmpty)
+        #expect(!editor.applyPlateLoad(totalWeight: 10_500, barbellWeight: 3_500, focus: focus))
+        store.reject = false
+        #expect(editor.retrySave() && editor.retrySave())
+        #expect(editor.inputText(for: focus) == "185" && editor.focusedRow?.barbellWeight == 4_500)
+        #expect(editor.journal.batches.count == 1 && editor.lastLoadAdjustment(focus: focus) == .plateLoad)
+        #expect(editor.undoPlateAdjustment(focus: focus))
+        #expect(editor.focusedRow?.barbellWeight == nil && editor.inputText(for: focus).isEmpty)
+        #expect(editor.journal.batches.isEmpty)
+    }
+
     @Test func plateUndoRestoresBlankAndUnrecordsOnlyTheNewlyCompletedSet() throws {
         let store = MemoryJournalRepository(), model = try model(store), row = try begin(model)
         #expect(model.selectInput(row, field: .reps))

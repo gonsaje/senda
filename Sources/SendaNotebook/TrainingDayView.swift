@@ -6,7 +6,7 @@ import UIKit
 #endif
 
 private enum TrainingDaySheet: Hashable, Identifiable {
-    case catalog(String), exercises, library, saveTemplate, history(String)
+    case catalog(String, multiple: Bool), exercises, library, saveTemplate, history(String)
     var id: Self { self }
 }
 
@@ -38,7 +38,6 @@ struct TrainingDayView: View {
     let day: TrainingDay
     @State private var presentedSheet: TrainingDaySheet?
     @State private var weightEntry = TrainingWeightEntrySettings()
-    @State private var removalRequest: TrainingWorkoutRemovalRequest?
     @State private var showingSearch = false
     @State private var searchAfterDismissal: TrainingDay?
     @State private var pendingNavigation: TrainingPendingNavigation?
@@ -90,7 +89,7 @@ struct TrainingDayView: View {
                         VStack(alignment: .leading, spacing: 8) {
                             if showingSearch {
                                 TrainingExercisePicker(inline: model, close: { showingSearch = false },
-                                    browse: { query in open(.sheet(.catalog(query))) })
+                                    browse: { query, multiple in open(.sheet(.catalog(query, multiple: multiple))) })
                             } else if let exercise = model.exercise {
                                 exerciseControls(exercise)
                                 if let last = model.lastReference {
@@ -178,11 +177,12 @@ struct TrainingDayView: View {
                 searchAfterDismissal = nil
             }) { destination in
                 switch destination {
-                case .catalog(let query):
-                    TrainingExercisePicker(model: model, initialSearch: query, close: { presentedSheet = nil })
+                case let .catalog(query, multiple):
+                    TrainingExercisePicker(model: model, initialSearch: query, selectingSeveral: multiple, close: { presentedSheet = nil })
                 case .exercises:
                     TrainingDayExerciseList(model: model, day: day, close: { presentedSheet = nil },
-                        add: { searchAfterDismissal = day; presentedSheet = nil })
+                        add: { searchAfterDismissal = day; presentedSheet = nil },
+                        chooseWorkout: { presentedSheet = .library }, saveTemplate: { presentedSheet = .saveTemplate })
                 case .library:
                     TrainingWorkoutLibrary(model: model, close: { presentedSheet = nil })
                 case .saveTemplate:
@@ -196,7 +196,6 @@ struct TrainingDayView: View {
             .sheet(item: $planContext) { context in
                 TrainingPlanEditor(model: model, context: context, close: { planContext = nil })
             }
-            .modifier(TrainingWorkoutRemovalConfirmation(model: model, request: $removalRequest))
             .onChange(of: model.supersets) { previous, _ in
                 guard model.selectedDay == day else { return }
                 announceSupersetTransition(from: previous)
@@ -239,7 +238,6 @@ struct TrainingDayView: View {
                 awaitingSupersetFinish = nil
                 weightEntry = TrainingWeightEntrySettings()
                 showsFirstSetConfirmation = false
-                removalRequest = nil
                 showingSearch = false
                 searchAfterDismissal = nil
                 pendingNavigation = nil
@@ -495,12 +493,13 @@ struct TrainingDayView: View {
     }
 
     private var workoutOptions: some View {
-        TrainingWorkoutOptions(model: model, day: day, showAll: { open(.sheet(.exercises)) },
-            chooseWorkout: { open(.sheet(.library)) }, saveTemplate: { open(.sheet(.saveTemplate)) },
-            beginNavigation: { pendingNavigation = nil }, requestRemoval: { target in
-                pendingNavigation = nil
-                removalRequest = TrainingWorkoutRemovalRequest(target: target, day: day)
-            })
+        Button { open(.sheet(.exercises)) } label: {
+            Text("Edit").font(.subheadline.weight(.medium)).frame(minWidth: 44, minHeight: 46)
+                .contentShape(Rectangle())
+        }
+        .foregroundStyle(NotebookStyle.quiet)
+        .accessibilityLabel("Edit workout exercises")
+        .accessibilityIdentifier("all-exercises")
     }
     private func progressButton(_ exercise: Exercise) -> some View {
         Button { pendingNavigation = nil; model.openProgress(for: exercise.id) } label: {

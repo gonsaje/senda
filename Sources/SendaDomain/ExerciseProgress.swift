@@ -1,6 +1,6 @@
 import Foundation
 
-public enum ExerciseProgressRange: String, CaseIterable, Sendable {
+public enum ExerciseProgressRange: String, CaseIterable, Codable, Sendable {
     case oneMonth = "1m"
     case threeMonths = "3m"
     case sixMonths = "6m"

@@ -2,6 +2,52 @@ import Testing
 @testable import SendaDomain
 
 struct ExerciseMuscleMapTests {
+    @Test func everyPresetHasReviewedDiscoveryTargetsAndValidTrackingRoles() throws {
+        #expect(Exercise.catalog.count == 709)
+        for exercise in Exercise.catalog {
+            #expect(!exercise.taggedMuscles.isEmpty, "\(exercise.id)")
+            #expect(Set(exercise.taggedMuscles).count == exercise.taggedMuscles.count)
+            #expect(Set(exercise.primaryTrackedMuscles).isSubset(of: Set(exercise.trackedMuscles)))
+            #expect(Set(exercise.trackedMuscles).isSubset(of: Set(exercise.taggedMuscles)))
+            if let map = exercise.muscleMap {
+                #expect(Set(map.loadedStabilizers).isSubset(of: Set(map.stabilizing)))
+            }
+        }
+    }
+
+    @Test func deadliftsTrackLoadedSpinalErectorsAcrossEquipmentAndVariations() throws {
+        let variations = Exercise.catalog.filter { $0.id.contains("deadlift") || ["barbell-rack-pull", "barbell-block-pull"].contains($0.id) }
+        #expect(variations.count >= 16)
+        for exercise in variations {
+            #expect(exercise.taggedGroups.contains(.back), "\(exercise.id)")
+            #expect(exercise.taggedGroups.contains(.legs), "\(exercise.id)")
+            #expect(exercise.trackedMuscles.contains(.spinalErectors), "\(exercise.id)")
+            #expect(!exercise.primaryTrackedMuscles.contains(.spinalErectors), "\(exercise.id)")
+        }
+        let bench = try #require(Exercise.catalog.first { $0.id == "bench" })
+        #expect(bench.taggedGroups == [.chest, .shoulders, .arms])
+        #expect(!bench.trackedMuscles.contains(.abdominals))
+    }
+
+    @Test func mobilityAndConditioningHaveDiscoveryTagsSeparateFromStrengthSets() throws {
+        for (id, region) in [("supine-hamstring-stretch-with-strap", MuscleRegion.hamstrings), ("running", .calves),
+                             ("doorway-chest-stretch", .chest), ("foam-pad-single-leg-stand", .glutes)] {
+            let exercise = try #require(Exercise.catalog.first { $0.id == id })
+            #expect(exercise.taggedMuscles.contains(region))
+            #expect(exercise.trackedMuscles.isEmpty)
+        }
+        for exercise in Exercise.catalog where exercise.id.hasPrefix("manual-isometric-neck-") {
+            #expect(exercise.group == .neck && exercise.taggedGroups == [.neck])
+        }
+        for (id, region) in [("machine-seated-hip-adduction", MuscleRegion.adductors),
+                             ("side-lying-dumbbell-external-rotation", .rotatorCuff),
+                             ("scapular-push-up", .serratus), ("wall-tibialis-raise", .shins),
+                             ("manual-isometric-neck-flexion", .neck)] {
+            let exercise = try #require(Exercise.catalog.first { $0.id == id })
+            #expect(exercise.primaryTrackedMuscles == [region])
+        }
+    }
+
     @Test func establishedPresetsKeepTheirOfflineMaps() throws {
         for exercise in Exercise.originalCatalog + ExpandedExerciseCatalog.exercises {
             let map = try #require(ExerciseMuscleMap.map(for: exercise.id))

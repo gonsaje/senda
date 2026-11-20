@@ -87,6 +87,98 @@ final class LoggerUITests: XCTestCase {
     }
 
     @MainActor
+    func testRecentBestOpensTheExactRecordedSet() {
+        let app = launch(extra: ["--sample-data"])
+        tap("dock-trends", in: app)
+        tap("trends-best-bench", in: app)
+        let set = app.descendants(matching: .any).matching(
+            NSPredicate(format: "identifier BEGINSWITH %@ AND selected == YES", "progress-recorded-set-")).firstMatch
+        XCTAssertTrue(set.waitForExistence(timeout: 5))
+        XCTAssertTrue(set.label.contains("145"), set.label)
+    }
+
+    @MainActor
+    func testUnloggedTrackedLiftRemainsAChoiceInBodyComparison() {
+        let app = launch()
+        tap("dock-trends", in: app)
+        tap("trends-strength-manage", in: app)
+        findTrackingExercise("Bench", id: "bench", in: app).tap()
+        tap("trends-track-done", in: app)
+        tap("trends-compare-body", in: app)
+        tap("body-compare-strength", in: app)
+        XCTAssertTrue(element("body-compare-bench", in: app).isSelected)
+        XCTAssertFalse(app.textFields["body-compare-search"].exists)
+        tap("body-compare-none", in: app)
+        tap("body-compare-strength", in: app)
+        tap("body-compare-bench", in: app)
+        XCTAssertEqual(element("body-compare-strength", in: app).value as? String, "Bench")
+    }
+
+    @MainActor
+    func testTrackedLiftOpensBodyComparisonAndRestoresCustomSettings() {
+        let app = launch(extra: ["--sample-data"])
+        tap("dock-trends", in: app)
+        tap("trends-strength-manage", in: app)
+        findTrackingExercise("Bench", id: "bench", in: app).tap()
+        tap("trends-track-done", in: app)
+        tap("trends-range-1m", in: app)
+        tap("trends-compare-body", in: app)
+        XCTAssertEqual(element("body-compare-strength", in: app).value as? String, "Bench")
+        XCTAssertTrue(app.buttons["body-measurements-range-1m"].isSelected)
+
+        tap("body-measurements-metric", in: app)
+        tap("body-measurements-metric-waist", in: app)
+        tap("body-measurements-custom-range", in: app)
+        tap("body-dates-apply", in: app)
+        tap("close-body-measurements", in: app)
+        app.terminate()
+        app.launch()
+        let trendsTab = app.buttons["dock-trends"]
+        let ready = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hittable == true"), object: trendsTab)
+        XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 10), .completed)
+        tap("dock-trends", in: app)
+        tap("trends-body-measurements", in: app)
+        XCTAssertEqual(element("body-measurements-metric", in: app).value as? String, "Waist circumference")
+        XCTAssertEqual(element("body-compare-strength", in: app).value as? String, "Bench")
+        XCTAssertTrue(app.buttons["body-measurements-custom-range"].isSelected)
+    }
+
+    @MainActor
+    func testSeveralExercisesCanBeSelectedDirectlyFromInlineSearch() {
+        let app = launch()
+        _ = openDay(0, in: app)
+        tap("add-exercise", in: app)
+        let search = element("picker-search", in: app)
+        search.tap()
+        search.typeText("Bench\n")
+        tap("inline-select-several", in: app)
+        XCTAssertEqual(element("exercise-search", in: app).value as? String, "Bench")
+        tap("picker-dumbbell-bench", in: app)
+        tap("picker-bench", in: app)
+        XCTAssertTrue(element("picker-add-selected", in: app).label.contains("2"))
+        tap("picker-add-selected", in: app)
+        XCTAssertEqual(selectedExercise(in: app).label, "Dumbbell bench")
+    }
+
+    @MainActor
+    func testGoalExerciseSearchIsUsableAtLargestText() {
+        let app = launch(extra: ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
+        tap("dock-profile", in: app)
+        tap("add-strength-goal", in: app)
+        tap("strength-goal-exercise", in: app)
+        let search = app.textFields["strength-goal-exercise-search"]
+        XCTAssertTrue(search.waitForExistence(timeout: 5))
+        search.tap()
+        search.typeText("Romanian deadlift\n")
+        let row = reveal("strength-goal-exercise-romanian-deadlift", in: app)
+        XCTAssertGreaterThanOrEqual(row.frame.height, 44)
+        XCTAssertTrue(row.isHittable)
+        attach("Search for a strength goal at the largest text size", app)
+        row.tap()
+        XCTAssertEqual(element("strength-goal-exercise", in: app).value as? String, "Romanian deadlift")
+    }
+
+    @MainActor
     func testMyExercisesFindsMissingDetailsAndEquipmentFreeRepsSurviveRelaunch() {
         let app = launch()
         let day = openDay(0, in: app)
@@ -1268,7 +1360,7 @@ final class LoggerUITests: XCTestCase {
     }
 
     @MainActor
-    func testSettingsAddsSampleWorkoutsWithoutChangingLoggedDays() {
+    func testSettingsOpensAnIsolatedDemoAndExitReturnsToTheRealJournal() {
         let app = launch()
         tap("previous-week", in: app)
         let loggedDay = openDay(0, in: app)
@@ -1276,31 +1368,27 @@ final class LoggerUITests: XCTestCase {
         enter(weight: "81", reps: "9", in: app)
         tap("input-done", in: app)
         tap("back-to-week", in: app)
-        let originalLabel = element(loggedDay, in: app).label
+        let days = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "day-"))
+        let before = days.allElementsBoundByIndex.map(\.label)
 
         tap("dock-profile", in: app)
-        element("profile-settings", in: app).tap()
-        let addSamples = element("add-sample-workouts", in: app)
-        addSamples.tap()
-        let result = element("sample-workouts-status", in: app)
-        XCTAssertTrue(result.label.hasPrefix("Added "), result.label)
-        attach("Sample workouts added in Settings", app)
-        addSamples.tap()
-        XCTAssertEqual(result.label, "No more sample workouts to add.")
+        tap("profile-settings", in: app)
+        tap("try-demo", in: app)
+        XCTAssertTrue(element("exit-demo", in: app).isHittable)
+        tap("dock-profile", in: app)
+        tap("profile-settings", in: app)
+        XCTAssertFalse(app.buttons["profile-backup"].exists)
+        XCTAssertFalse(app.buttons["try-demo"].exists)
         tap("close-profile-settings", in: app)
+        tap("dock-trends", in: app)
+        XCTAssertTrue(element("trends-strength-manage", in: app).isHittable)
+        attach("Trends in the isolated sample journal", app)
+        tap("exit-demo", in: app)
         tap("dock-log", in: app)
-
-        let days = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "day-"))
-        XCTAssertEqual(days.count, 7)
-        XCTAssertEqual(element(loggedDay, in: app).label, originalLabel)
-        XCTAssertTrue(days.allElementsBoundByIndex.contains {
-            $0.identifier != loggedDay && $0.label.contains("6 sets")
-        })
-        attach("Sample training on previously empty dates", app)
+        XCTAssertEqual(days.allElementsBoundByIndex.map(\.label), before)
         tap(loggedDay, in: app)
         XCTAssertTrue(element("row-1-weight", in: app).label.contains("81 lb"))
         XCTAssertTrue(element("row-1-reps", in: app).label.contains("9 reps"))
-        XCTAssertFalse(app.buttons["row-2-weight"].exists)
     }
 
     @MainActor
@@ -1429,7 +1517,11 @@ final class LoggerUITests: XCTestCase {
         let preview = app.buttons["program-week-preview"]
         XCTAssertTrue(preview.waitForExistence(timeout: 4))
         preview.tap()
-        app.buttons["Week 5"].firstMatch.tap()
+        attach("Program weeks by training block", app)
+        tap("program-week-5", in: app)
+        app.buttons["Previous program week"].tap()
+        XCTAssertTrue(preview.label.contains("Week 4"))
+        app.buttons["Next program week"].tap()
         XCTAssertTrue(preview.label.contains("Week 5") || (preview.value as? String)?.contains("Week 5") == true)
         tap("schedule-program", in: app)
         let today = app.buttons[todayRowID()]
@@ -1439,6 +1531,61 @@ final class LoggerUITests: XCTestCase {
         XCTAssertTrue(element("scheduled-program-context", in: app).exists)
         tap("all-exercises", in: app)
         XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "Superset A")).firstMatch.exists)
+    }
+
+    @MainActor
+    func testProgramWeekChooserAtAccessibilityTextSize() {
+        let app = launch(extra: ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
+        tap("dock-library", in: app)
+        tap("library-programs", in: app)
+        tap("program-senda-strength-cycle", in: app)
+        let preview = app.buttons["program-week-preview"]
+        let detail = app.scrollViews["program-detail-scroll"]
+        for _ in 0..<7 where !preview.isHittable { detail.swipeUp() }
+        XCTAssertTrue(preview.isHittable)
+        preview.tap()
+        let weeks = app.scrollViews["program-choose-week"]
+        XCTAssertTrue(weeks.waitForExistence(timeout: 5))
+        let last = app.buttons["program-week-12"]
+        for _ in 0..<7 where !last.isHittable { weeks.swipeUp() }
+        XCTAssertTrue(last.isHittable)
+        XCTAssertGreaterThanOrEqual(last.frame.height, 44)
+        XCTAssertGreaterThanOrEqual(last.frame.width, 44)
+        attach("Choose week at accessibility text size", app)
+        last.tap()
+        XCTAssertTrue(preview.label.contains("Week 12"))
+    }
+
+    @MainActor
+    func testManageProgramScheduleAndOpenPlannedCalendarWorkout() {
+        let app = launch()
+        let day = String(todayRowID().dropFirst("day-".count))
+        tap("dock-library", in: app)
+        tap("library-programs", in: app)
+        tap("program-senda-upper-lower", in: app)
+        tap("schedule-program", in: app)
+        tap("week-calendar", in: app)
+        let today = element("calendar-day-\(day)", in: app)
+        XCTAssertEqual(today.value as? String, "Workout planned")
+        today.tap()
+        XCTAssertTrue(element("scheduled-program-context", in: app).exists)
+        tap("back-to-week", in: app)
+        tap("dock-library", in: app)
+        tap("library-programs", in: app)
+        tap("manage-schedule-senda-upper-lower-\(day)", in: app)
+        tap("managed-move", in: app)
+        XCTAssertFalse(element("managed-apply", in: app).isEnabled)
+        XCTAssertTrue(element("managed-first-date", in: app).exists)
+        app.navigationBars.buttons["Back"].tap()
+        tap("managed-end", in: app)
+        attach("End program date preview", app)
+        XCTAssertTrue(app.staticTexts["Upper body"].firstMatch.exists)
+        tap("managed-apply", in: app)
+        XCTAssertTrue(app.staticTexts["Schedule ended"].waitForExistence(timeout: 5))
+        tap("managed-undo", in: app)
+        tap("managed-view-week", in: app)
+        XCTAssertTrue(app.buttons[todayRowID()].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons[todayRowID()].label.contains("Upper / lower rotation"))
     }
 
     @MainActor
@@ -1469,6 +1616,15 @@ final class LoggerUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["Edit workout"].waitForExistence(timeout: 5))
         app.navigationBars.buttons["BackButton"].tap()
         XCTAssertTrue(app.navigationBars["Edit block"].waitForExistence(timeout: 5))
+        tap("program-use-library-workout", in: app)
+        let workoutSearch = app.searchFields.firstMatch
+        workoutSearch.tap()
+        workoutSearch.typeText("Pull\n")
+        tap("program-use-pull", in: app)
+        XCTAssertEqual(app.textFields["program-session-name"].value as? String, "Pull")
+        XCTAssertTrue(app.buttons["program-session-exercise-row"].exists)
+        app.navigationBars.buttons["BackButton"].tap()
+        XCTAssertTrue(app.navigationBars["Edit block"].waitForExistence(timeout: 5))
         app.navigationBars.buttons["BackButton"].tap()
         tap("save-training-program", in: app)
         XCTAssertTrue(app.staticTexts["Coach rotation"].waitForExistence(timeout: 5))
@@ -1478,6 +1634,8 @@ final class LoggerUITests: XCTestCase {
         attach("Authored program with credentials", app)
         app.terminate()
         app.launch()
+        let intro = app.descendants(matching: .any).matching(identifier: "senda-launch-intro").firstMatch
+        XCTAssertTrue(intro.waitForNonExistence(timeout: 10))
         let library = app.buttons["dock-library"]
         let ready = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hittable == true"), object: library)
         XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 12), .completed)
@@ -1573,6 +1731,8 @@ final class LoggerUITests: XCTestCase {
         attach("Month calendar with logged workout dots", app)
         loggedDay.tap()
         XCTAssertTrue(monthTitle.waitForNonExistence(timeout: 3))
+        XCTAssertTrue(element("day-title", in: app).exists)
+        tap("back-to-week", in: app)
         try assertWeek(containing: today)
 
         calendarControl.tap()
@@ -1594,6 +1754,30 @@ final class LoggerUITests: XCTestCase {
     }
 
     @MainActor
+    func testWeekShowsOneDeadliftSetWithBackAndLegContributionsAtLargeText() {
+        let app = launch(extra: ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityL"])
+        let day = openDay(0, in: app)
+        add("Deadlift", id: "deadlift", in: app)
+        enter(weight: "225", reps: "5", in: app)
+        tap("input-done", in: app)
+        tap("back-to-week", in: app)
+        let row = element(day, in: app)
+        XCTAssertTrue(row.label.contains("Back · Legs"), row.label)
+        XCTAssertTrue(row.label.contains("1 set"), row.label)
+        tap("week-muscles", in: app)
+
+        tap("week-muscle-region-spinalErectors", in: app)
+        XCTAssertEqual(element("week-muscle-volume", in: app).label, "1 set across 1 day")
+        XCTAssertEqual(element("week-muscle-roles", in: app).label, "0 primary · 1 supporting")
+        let lift = element("week-muscle-lift-deadlift", in: app)
+        XCTAssertTrue(lift.label.contains("Deadlift") && lift.label.contains("supporting"), lift.label)
+        attach("Deadlift back work at larger text size", app)
+        tap("week-muscle-region-glutes", in: app)
+        XCTAssertEqual(element("week-muscle-volume", in: app).label, "1 set across 1 day")
+        XCTAssertFalse(element("week-muscle-lift-deadlift", in: app).label.contains("supporting"))
+    }
+
+    @MainActor
     func testWeekMuscleHeatmapShowsLoggedSetsAndUpdatesAcrossWeeks() {
         let app = launch(extra: ["--sample-data"])
         let todayID = todayRowID()
@@ -1610,6 +1794,9 @@ final class LoggerUITests: XCTestCase {
         let volume = element("week-muscle-volume", in: app).label
         XCTAssertTrue(["4 sets across 1 day", "8 sets across 2 days"].contains(volume), volume)
         attach("Chest sets in the weekly muscle heatmap", app)
+        tap("week-muscle-region-triceps", in: app)
+        XCTAssertTrue(element("week-muscle-roles", in: app).label.contains("supporting"))
+        XCTAssertTrue(element("week-muscle-lift-bench", in: app).label.contains("supporting"))
         tap("close-week-muscles", in: app)
         XCTAssertTrue(sheet.waitForNonExistence(timeout: 3))
         XCTAssertTrue(app.buttons[todayID].isHittable)
@@ -1649,7 +1836,7 @@ final class LoggerUITests: XCTestCase {
         app.terminate(); app.launch()
         tap("week-muscles", in: app)
         XCTAssertEqual(element("week-muscle-volume", in: app).label, "0 sets across 0 days")
-        XCTAssertTrue(element("week-muscle-target", in: app).label.contains("8–12 sets"))
+        XCTAssertTrue(element("week-muscle-target", in: app).label.contains("8–12 primary sets"))
         tap("close-week-muscles", in: app)
 
         tap(todayRowID(), in: app)
@@ -1659,19 +1846,22 @@ final class LoggerUITests: XCTestCase {
         tap("back-to-week", in: app)
         tap("week-muscles", in: app)
         XCTAssertEqual(element("week-muscle-volume", in: app).label, "1 set across 1 day")
-        XCTAssertTrue(element("week-muscle-target", in: app).label.contains("8–12 sets"))
+        XCTAssertTrue(element("week-muscle-target", in: app).label.contains("8–12 primary sets"))
         attach("Muscle detail with logged volume and a weekly target", app)
+        tap("week-muscle-target", in: app)
+        XCTAssertEqual(element("weekly-muscle-target-muscle", in: app).label, "Chest")
+        tap("cancel-weekly-muscle-target", in: app)
         tap("close-week-muscles", in: app)
 
         tap("dock-profile", in: app)
         tap("weekly-muscle-target-chest", in: app)
         tap("remove-weekly-muscle-target", in: app)
         tap("confirm-remove-weekly-muscle-target", in: app)
-        XCTAssertFalse(app.buttons["weekly-muscle-target-chest"].exists)
+        XCTAssertTrue(app.buttons["weekly-muscle-target-chest"].waitForNonExistence(timeout: 5))
         tap("dock-log", in: app)
         tap("week-muscles", in: app)
         XCTAssertEqual(element("week-muscle-volume", in: app).label, "1 set across 1 day")
-        XCTAssertFalse(app.staticTexts["week-muscle-target"].exists)
+        XCTAssertEqual(element("week-muscle-target", in: app).label, "Set weekly target")
     }
 
     @MainActor
@@ -2097,6 +2287,44 @@ final class LoggerUITests: XCTestCase {
     }
 
     @MainActor
+    func testEditOpensExercisesAndPairedTabsKeepTheFirstSetThroughHideAndUnpair() {
+        let app = launch()
+        _ = openDay(0, in: app)
+        add("Bench", id: "bench", in: app)
+        add("Cable row", id: "cable-row", in: app)
+        tap("all-exercises", in: app)
+        XCTAssertTrue(element("day-exercises-title", in: app).exists)
+        tap("create-superset", in: app)
+        tap("superset-pick-bench", in: app)
+        tap("superset-pick-cable-row", in: app)
+        tap("pair-superset", in: app)
+        tap("day-exercise-bench", in: app)
+        enter(weight: "135", reps: "8", in: app)
+        tap("input-done", in: app)
+        XCTAssertTrue(element("superset-advance", in: app).isEnabled)
+        XCTAssertFalse(app.buttons["row-2-weight"].exists)
+        tap("all-exercises", in: app)
+        tap("superset-options-bench", in: app)
+        tap("edit-superset-bench", in: app)
+        XCTAssertTrue(element("superset-rounds", in: app).exists)
+        XCTAssertTrue(element("superset-rest", in: app).exists)
+        tap("save-superset-settings", in: app)
+        tap("exercise-options-cable-row", in: app)
+        tap("hide-exercise-cable-row", in: app)
+        for id in ["bench", "cable-row"] {
+            XCTAssertTrue(element("day-exercise-" + id, in: app).label.localizedCaseInsensitiveContains("hidden"))
+        }
+        tap("day-exercises-undo", in: app)
+        tap("superset-options-bench", in: app)
+        tap("unpair-superset-bench", in: app)
+        XCTAssertFalse(app.buttons["superset-options-bench"].exists)
+        tap("day-exercises-undo", in: app)
+        tap("start-superset-bench", in: app)
+        tap("superset-advance", in: app)
+        XCTAssertEqual(selectedExercise(in: app).identifier, "exercise-cable-row")
+    }
+
+    @MainActor
     func testSupersetPairingOrderManualRoundsAndRestSurviveRelaunch() {
         let app = launch()
         func logSet(_ row: Int) {
@@ -2142,11 +2370,10 @@ final class LoggerUITests: XCTestCase {
         XCTAssertFalse(element("superset-advance", in: app).isEnabled)
         logSet(1)
         tap("input-done", in: app)
-        tap("workout-options", in: app)
-        XCTAssertTrue(app.buttons["new-set"].exists)
-        XCTAssertTrue(app.buttons["repeat-set"].exists)
-        app.buttons["all-exercises"].tap()
-        app.buttons["close-day-exercises"].tap()
+        XCTAssertTrue(app.buttons["superset-extra-sets"].exists)
+        tap("all-exercises", in: app)
+        XCTAssertTrue(element("day-exercises-title", in: app).exists)
+        tap("close-day-exercises", in: app)
         tap("exercise-bench", in: app)
         tap("superset-return", in: app)
         XCTAssertEqual(selectedExercise(in: app).identifier, "exercise-cable-row")
@@ -2411,17 +2638,18 @@ final class LoggerUITests: XCTestCase {
         _ = openDay(0, in: app)
         add("Bench", id: "bench", in: app)
         add("Deadlift", id: "deadlift", in: app)
-        tap("workout-options", in: app)
-        tap("delete-selected-exercise", in: app)
+        tap("all-exercises", in: app)
+        tap("exercise-options-deadlift", in: app)
+        tap("day-delete-deadlift", in: app)
         let alert = app.alerts.firstMatch
         XCTAssertTrue(alert.waitForExistence(timeout: 3))
         alert.buttons["Cancel"].tap()
-        XCTAssertTrue(app.buttons["exercise-deadlift"].isSelected)
-        tap("workout-options", in: app)
-        tap("delete-selected-exercise", in: app)
+        XCTAssertTrue(app.buttons["day-exercise-deadlift"].isSelected)
+        tap("exercise-options-deadlift", in: app)
+        tap("day-delete-deadlift", in: app)
         alert.buttons.matching(identifier: "confirm-workout-removal").firstMatch.tap()
-        XCTAssertTrue(app.buttons["exercise-deadlift"].waitForNonExistence(timeout: 3))
-        XCTAssertTrue(app.buttons["exercise-bench"].isSelected)
+        XCTAssertTrue(app.buttons["day-exercise-deadlift"].waitForNonExistence(timeout: 3))
+        XCTAssertTrue(app.buttons["day-exercise-bench"].isSelected)
         tap("workout-options", in: app)
         tap("reset-current-workout", in: app)
         alert.buttons.matching(identifier: "confirm-workout-removal").firstMatch.tap()
@@ -2439,12 +2667,14 @@ final class LoggerUITests: XCTestCase {
         enter(weight: "135", reps: "10", in: app); tap("input-done", in: app)
         add("Deadlift", id: "deadlift", in: app)
         enter(weight: "225", reps: "5", in: app); tap("input-done", in: app)
+        tap("all-exercises", in: app)
         for id in ["deadlift", "bench"] {
-            tap("hide-exercise-menu", in: app)
+            tap("exercise-options-" + id, in: app)
             tap("hide-exercise-" + id, in: app)
-            XCTAssertTrue(app.buttons["exercise-" + id].waitForNonExistence(timeout: 3))
+            XCTAssertTrue(element("day-exercise-" + id, in: app).label.localizedCaseInsensitiveContains("hidden"))
         }
-        XCTAssertTrue(reveal("workout-options", in: app).isHittable)
+        tap("close-day-exercises", in: app)
+        XCTAssertTrue(reveal("all-exercises", in: app).isHittable)
         tap("all-exercises", in: app)
         XCTAssertTrue(element("day-exercise-deadlift", in: app).label.localizedCaseInsensitiveContains("hidden"))
         tap("day-exercise-deadlift", in: app)
@@ -2452,6 +2682,80 @@ final class LoggerUITests: XCTestCase {
         tap("back-to-week", in: app)
         XCTAssertTrue(element(day, in: app).label.contains("2 sets"))
         attach("Hidden movements retain discoverable recorded sets", app)
+    }
+
+    @MainActor
+    func testPlateCalculatorPreviewsAndAppliesTotalWithSelectedBarbell() {
+        let app = launch()
+        _ = openDay(0, in: app)
+        add("Bench", id: "bench", in: app)
+        tap("row-1-weight", in: app)
+        tap("input-mode-plates", in: app)
+        tap("input-barbell", in: app)
+        tap("input-barbell-45", in: app)
+        let weight = app.textFields["set-input"]
+        XCTAssertEqual(weight.value as? String, "45")
+
+        func preview185() {
+            tap("input-plate-calculator", in: app)
+            let bar = element("plate-target-bar", in: app)
+            XCTAssertTrue((bar.label + (bar.value as? String ?? "")).contains("45"))
+            enterPlateTarget("185", in: app)
+            let result = element("plate-target-result", in: app)
+            let load = result.label + (result.value as? String ?? "")
+            XCTAssertTrue(load.contains("45") && load.contains("25"), load)
+            XCTAssertTrue(app.buttons["plate-target-apply"].isEnabled)
+        }
+
+        preview185()
+        tap("plate-target-cancel", in: app)
+        XCTAssertEqual(weight.value as? String, "45")
+
+        preview185()
+        attach("185 lb on a 45 lb bar, per-side plate plan", app)
+        tap("plate-target-apply", in: app)
+        XCTAssertEqual(weight.value as? String, "185")
+        tap("input-done", in: app)
+        XCTAssertTrue(element("row-1-weight", in: app).label.contains("185 lb"))
+    }
+
+    @MainActor
+    func testLargestTextPlateCalculatorOffersLoadableTotalsAndAppliesOnlyTheChosenWeight() {
+        let app = launch(extra: ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
+        _ = openDay(0, in: app)
+        add("Bench", id: "bench", in: app)
+        tap("row-1-weight", in: app)
+        tap("input-mode-plates", in: app)
+        tap("input-barbell", in: app)
+        tap("input-barbell-45", in: app)
+        tap("input-plate-calculator", in: app)
+
+        let apply = app.buttons["plate-target-apply"]
+        enterPlateTarget("40", in: app)
+        XCTAssertTrue(apply.exists)
+        XCTAssertFalse(apply.isEnabled)
+
+        enterPlateTarget("187", in: app)
+        XCTAssertFalse(apply.isEnabled)
+        let lower = element("plate-target-lower", in: app)
+        let upper = element("plate-target-upper", in: app)
+        XCTAssertTrue((lower.label + (lower.value as? String ?? "")).contains("185"))
+        XCTAssertTrue((upper.label + (upper.value as? String ?? "")).contains("190"))
+        tap("plate-target-upper", in: app)
+        XCTAssertEqual(app.textFields["plate-target-total"].value as? String, "190")
+        XCTAssertTrue(apply.isEnabled)
+        tap("plate-target-apply", in: app)
+        XCTAssertEqual(app.textFields["set-input"].value as? String, "190")
+    }
+
+    @MainActor private func enterPlateTarget(_ value: String, in app: XCUIApplication) {
+        let total = app.textFields["plate-target-total"]
+        XCTAssertTrue(total.waitForExistence(timeout: 3))
+        total.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+        let current = total.value as? String ?? ""
+        let entered = current == total.placeholderValue ? "" : current
+        total.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: entered.count) + value)
+        XCTAssertEqual(total.value as? String, value)
     }
 
     @MainActor
@@ -2757,6 +3061,24 @@ final class LoggerUITests: XCTestCase {
     }
 
     @MainActor
+    func testLowerBackSearchFindsOneDeadliftWithItsLoggedMuscle() {
+        let app = launch()
+        openLibraryExercises(in: app)
+        let search = element("learn-search", in: app)
+        search.tap()
+        search.typeText("lower back\n")
+        let deadlifts = app.buttons.matching(identifier: "learn-exercise-deadlift")
+        let deadlift = deadlifts.firstMatch
+        XCTAssertTrue(deadlift.waitForExistence(timeout: 5))
+        XCTAssertEqual(deadlifts.count, 1)
+        XCTAssertTrue(deadlift.label.localizedCaseInsensitiveContains("spinal erectors"), deadlift.label)
+        tap("learn-exercise-deadlift", in: app)
+        let anatomy = element("exercise-muscles-deadlift", in: app)
+        XCTAssertTrue(anatomy.label.localizedCaseInsensitiveContains("loaded stabilizers"), anatomy.label)
+        XCTAssertTrue(anatomy.label.localizedCaseInsensitiveContains("spinal erectors"), anatomy.label)
+    }
+
+    @MainActor
     func testLearnFindsExercisesByDisplayedMuscleAndCommonName() {
         let app = launch()
         openLibraryExercises(in: app)
@@ -2771,6 +3093,29 @@ final class LoggerUITests: XCTestCase {
         search.tap()
         search.typeText("pull up\n")
         XCTAssertTrue(app.buttons["learn-exercise-pull-up"].waitForExistence(timeout: 5))
+    }
+
+    @MainActor
+    func testLibraryExerciseOpensTheSelectedWorkoutWithoutDuplicatingTheLift() {
+        let app = launch()
+        _ = openDay(0, in: app)
+        let date = element("day-date", in: app).label
+        openLibraryExercises(in: app)
+        XCTAssertTrue(app.buttons["library-add-exercise"].label.contains("New custom exercise"))
+        let search = element("learn-search", in: app)
+        search.tap(); search.typeText("Bench\n")
+        tap("learn-exercise-bench", in: app)
+        tap("library-add-to-workout", in: app)
+        XCTAssertTrue(element("library-workout-date", in: app).exists)
+        tap("library-confirm-workout", in: app)
+        XCTAssertEqual(selectedExercise(in: app).identifier, "exercise-bench")
+        XCTAssertEqual(element("day-date", in: app).label, date)
+        tap("dock-library", in: app)
+        tap("library-add-to-workout", in: app)
+        XCTAssertEqual(app.buttons["library-confirm-workout"].label, "Open in workout")
+        tap("library-confirm-workout", in: app)
+        XCTAssertEqual(app.buttons.matching(identifier: "exercise-bench").count, 1)
+        XCTAssertFalse(app.buttons["row-2-reps"].exists)
     }
 
     @MainActor
@@ -3567,6 +3912,47 @@ final class LoggerUITests: XCTestCase {
     }
 
     @MainActor
+    func testCustomMusclesCanBeSelectedInLibraryAndFromAWorkout() {
+        let app = launch()
+        openLibraryExercises(in: app)
+        tap("library-add-exercise", in: app)
+        let name = app.textFields["library-exercise-name"]
+        name.tap()
+        name.typeText("Practice row")
+        tap("custom-muscle-tags", in: app)
+        tap("custom-muscle-tag-chest", in: app)
+        tap("custom-muscle-tag-lats", in: app)
+        XCTAssertTrue(app.buttons["custom-muscle-tag-lats"].isSelected)
+        attach("Choosing the muscles for a custom exercise", app)
+        tap("custom-muscle-tags-done", in: app)
+        tap("library-save-exercise", in: app)
+        tap("library-edit-exercise", in: app)
+        XCTAssertTrue(element("custom-muscle-tags", in: app).label.contains("Chest, Lats"))
+        tap("custom-muscle-tags", in: app)
+        tap("custom-muscle-tag-chest", in: app)
+        tap("custom-muscle-tags-done", in: app)
+        tap("library-save-exercise", in: app)
+        tap("library-edit-exercise", in: app)
+        let summary = element("custom-muscle-tags", in: app).label
+        XCTAssertTrue(summary.contains("Lats") && !summary.contains("Chest"))
+        tap("library-cancel-exercise", in: app)
+
+        tap("dock-log", in: app)
+        _ = openDay(0, in: app)
+        openExerciseCatalog(in: app)
+        tap("picker-more", in: app)
+        tap("create-exercise", in: app)
+        let inlineName = app.textFields["custom-name"]
+        inlineName.tap()
+        inlineName.typeText("Garden press")
+        tap("custom-muscle-tags", in: app)
+        tap("custom-muscle-tag-chest", in: app)
+        tap("custom-muscle-tags-done", in: app)
+        tap("save-custom-exercise", in: app)
+        XCTAssertEqual(selectedExercise(in: app).label, "Garden press")
+    }
+
+    @MainActor
     func testDeletingCustomExerciseKeepsItsLoggedSetsAfterRelaunch() {
         let app = launch()
         openLibraryExercises(in: app)
@@ -3768,6 +4154,53 @@ final class LoggerUITests: XCTestCase {
         tap("dock-log", in: app)
         XCTAssertTrue(app.scrollViews["week-view"].exists)
         attach("Large text Log Trends Library Profile dock", app)
+    }
+
+    @MainActor
+    func testTodaysWorkoutCanBeReusedTomorrowFromLibrary() throws {
+        let app = launch(extra: ["--sample-data"])
+        tap("dock-library", in: app)
+        tap("workout-library-tab-recent", in: app)
+        tap("reuse-workout-" + todayRowID(), in: app)
+        tap("apply-recent-workout", in: app)
+        let tomorrow = try XCTUnwrap(Calendar.current.date(byAdding: .day, value: 1, to: Date()))
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US")
+        formatter.dateFormat = "EEEE, MMMM d"
+        XCTAssertTrue(element("day-date", in: app).label.contains(formatter.string(from: tomorrow)))
+        XCTAssertTrue(element("row-1-weight", in: app).label.contains("—"))
+    }
+
+    @MainActor
+    func testLibraryTemplateCanBeAppliedToAnotherDateFromThePreview() throws {
+        let app = launch()
+        tap("dock-library", in: app)
+        tap("workout-template-push", in: app)
+        let picker = reveal("workout-destination-date", in: app)
+        picker.tap()
+
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .current
+        let now = Date()
+        let day = calendar.component(.day, from: now) == 15 ? 16 : 15
+        var parts = calendar.dateComponents([.year, .month], from: now)
+        parts.day = day
+        let date = try XCTUnwrap(calendar.date(from: parts))
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US")
+        formatter.calendar = calendar
+        formatter.dateFormat = "MMMM d"
+        let label = formatter.string(from: date)
+        let choice = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", label)).firstMatch
+        XCTAssertTrue(choice.waitForExistence(timeout: 4))
+        choice.tap()
+        let backdrop = app.buttons["PopoverDismissRegion"]
+        if backdrop.exists {
+            backdrop.coordinate(withNormalizedOffset: CGVector(dx: 0.03, dy: 0.08)).tap()
+        }
+        tap("apply-workout-template", in: app)
+        XCTAssertTrue(element("day-date", in: app).label.contains(label))
+        XCTAssertEqual(selectedExercise(in: app).label, "Bench")
     }
 
     @MainActor
@@ -4129,8 +4562,10 @@ final class LoggerUITests: XCTestCase {
             if id.hasPrefix("row-") && id.hasSuffix("-details"), let index = id.split(separator: "-").dropFirst().first {
                 let menu = id.contains("-drop-") ? String(id.dropLast("-details".count)) + "-actions" : "set-\(index)-actions"
                 reveal(menu, in: app, file: file, line: line).tap()
-            } else if ["all-exercises", "choose-workout", "day-save-template", "hide-exercise-menu"].contains(id) {
-                reveal("workout-options", in: app, file: file, line: line).tap()
+            } else if id == "workout-options" {
+                reveal("all-exercises", in: app, file: file, line: line).tap()
+            } else if ["choose-workout", "day-save-template", "reset-current-workout"].contains(id) {
+                tap("workout-options", in: app, file: file, line: line)
             }
         }
         reveal(id, in: app, file: file, line: line).tap()
@@ -4200,7 +4635,7 @@ final class LoggerUITests: XCTestCase {
         let libraryScroll = [workoutLibrary, workoutTemplate, recentWorkout].first { $0.exists }
         let libraryTab = app.buttons["dock-library"]
         let isLibraryPage = libraryScroll != nil && libraryTab.exists && libraryTab.isSelected
-        let sheetScrolls = [customSetup, gymFilters, picker, filters, custom, dayIndex, profileSettings, goalEditor,
+        let sheetScrolls = [app.scrollViews["plate-target-scroll"], customSetup, gymFilters, picker, filters, custom, dayIndex, profileSettings, goalEditor,
                             details, settings, progress, planEditor, setDetailsEditor, setTypePicker]
         let sheetScroll = sheetScrolls.first { $0.exists } ?? (isLibraryPage ? nil : libraryScroll)
         let records = app.scrollViews["trends-records-scroll"]

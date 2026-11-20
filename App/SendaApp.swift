@@ -23,6 +23,10 @@ struct SendaApp: App {
             return defaults
         }
         #endif
+        if ProcessInfo.processInfo.arguments.contains("--sample-data"),
+           let defaults = UserDefaults(suiteName: "com.senda.journal.sample-launch-preferences") {
+            return defaults
+        }
         return .standard
     }
 }
@@ -33,7 +37,6 @@ private struct JournalRootView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var session: TrainingSession?
     @State private var automaticBackup: NotebookAutomaticBackup?
-    @State private var bodyMeasurements: BodyMeasurementsModel?
     @State private var openingError: String?
 
     var body: some View {
@@ -43,6 +46,7 @@ private struct JournalRootView: View {
                 .allowsHitTesting(!showsLaunchIntro)
             if showsLaunchIntro {
                 SendaLaunchIntro { showsLaunchIntro = false }
+                    .allowsHitTesting(false)
                     .transition(.opacity)
                     .zIndex(1)
             }
@@ -60,9 +64,8 @@ private struct JournalRootView: View {
     }
 
     @ViewBuilder private var content: some View {
-        if let session, let bodyMeasurements {
+        if let session {
             TrainingSessionView(session: session, automaticBackup: automaticBackup)
-                .environment(bodyMeasurements)
         } else if let openingError {
             VStack(alignment: .leading, spacing: 20) {
                 Text("Your journal couldn’t be opened.")
@@ -83,8 +86,7 @@ private struct JournalRootView: View {
     private func openJournal() {
         do {
             if ProcessInfo.processInfo.arguments.contains("--sample-data") {
-                session = try makeSampleSession()
-                bodyMeasurements = BodyMeasurementsModel(repository: MemoryBodyMeasurementsRepository())
+                session = try TrainingSession.sample()
             } else {
                 let support = try FileManager.default.url(for: .applicationSupportDirectory,
                     in: .userDomainMask, appropriateFor: nil, create: true)
@@ -99,29 +101,16 @@ private struct JournalRootView: View {
                 let journalURL = support.appendingPathComponent(journalPath)
                 let dataDirectory = journalURL.deletingLastPathComponent()
                 let profileURL = dataDirectory.appendingPathComponent("profile.json")
-                let measurementsURL = dataDirectory.appendingPathComponent("BodyMeasurements", isDirectory: true)
-                    .appendingPathComponent("measurements.json")
-                bodyMeasurements = BodyMeasurementsModel(repository: FileBodyMeasurementsRepository(url: measurementsURL),
-                                                         health: AppleHealthBodyMeasurements())
                 session = TrainingSession(repository: FileJournalRepository(url: journalURL),
                     profileRepository: FileProfileRepository(url: profileURL),
-                    restoreStore: FileNotebookRestoreStore(journalURL: journalURL, profileURL: profileURL))
+                    restoreStore: FileNotebookRestoreStore(journalURL: journalURL, profileURL: profileURL),
+                    health: AppleHealthBodyMeasurements())
                 automaticBackup = NotebookAutomaticBackup(
                     settingsURL: dataDirectory.appendingPathComponent("backup-settings.json")
                 )
             }
             openingError = nil
         } catch { openingError = error.localizedDescription }
-    }
-
-    private func makeSampleSession() throws -> TrainingSession {
-        let repository = MemoryJournalRepository(journal: try SampleJournal.makeTwelveWeeks())
-        let profile = MemoryProfileRepository()
-        try profile.save(ProfileDetails(goals: [
-            StrengthGoal(exerciseID: "bench", target: SetValues(weight: 15_500, reps: 8)),
-            StrengthGoal(exerciseID: "deadlift", target: SetValues(weight: 21_500, reps: 5))
-        ]))
-        return TrainingSession(repository: repository, isSample: true, profileRepository: profile)
     }
 }
 

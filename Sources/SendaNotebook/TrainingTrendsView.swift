@@ -11,8 +11,15 @@ public struct TrainingTrendsView: View {
     @Bindable private var model: TrainingNotebookModel
     @Environment(\.dynamicTypeSize) private var textSize
     @Environment(BodyMeasurementsModel.self) private var bodyMeasurements: BodyMeasurementsModel?
-    @State private var showsBodyMeasurements = false
+    private struct BodyChartRequest: Identifiable {
+        let id = UUID()
+        let selection: BodyChartSelection
+    }
+
+    @AppStorage("senda.bodyMeasurements.chartSelection") private var storedBodyChart = Data()
+    @State private var bodyChart: BodyChartRequest?
     @State private var showAllBests = false
+    @State private var showAllComparisons = false
     @State private var navigationPath: [TrendsDestination] = []
     @State private var strengthExerciseID: String?
 
@@ -81,16 +88,41 @@ public struct TrainingTrendsView: View {
         .tint(NotebookStyle.clay)
         .buttonStyle(.plain)
         .accessibilityIdentifier("trends-scroll")
-        .sheet(isPresented: $showsBodyMeasurements, onDismiss: { bodyMeasurements?.disconnectHealth() }) {
+        .sheet(item: $bodyChart, onDismiss: { bodyMeasurements?.disconnectHealth() }) { request in
             if let bodyMeasurements {
-                BodyMeasurementsView(model: bodyMeasurements, notebook: model,
-                    close: { showsBodyMeasurements = false })
+                BodyMeasurementsView(model: bodyMeasurements, notebook: model, selection: request.selection,
+                    remember: rememberBodyChart, close: { bodyChart = nil })
             }
         }
     }
 
+    private var rememberedBodyChart: BodyChartSelection {
+        (try? JSONDecoder().decode(BodyChartSelection.self, from: storedBodyChart))
+            ?? BodyChartSelection(range: model.progressRange)
+    }
+
+    private func openBodyChart(comparing exerciseID: String? = nil) {
+        var selection = rememberedBodyChart
+        if let exerciseID {
+            selection.exerciseID = exerciseID
+            selection.range = model.progressRange
+            selection.customDays = nil
+        } else {
+            if let id = selection.exerciseID, !model.exercises.contains(where: { $0.id == id }) { selection.exerciseID = nil }
+            if let dates = selection.customDays, dates.upperBound > model.today {
+                selection.customDays = dates.lowerBound <= model.today ? dates.lowerBound...model.today : nil
+            }
+        }
+        rememberBodyChart(selection)
+        bodyChart = BodyChartRequest(selection: selection)
+    }
+
+    private func rememberBodyChart(_ selection: BodyChartSelection) {
+        if let data = try? JSONEncoder().encode(selection) { storedBodyChart = data }
+    }
+
     private var bodyMeasurementsButton: some View {
-        Button { showsBodyMeasurements = true } label: {
+        Button { openBodyChart() } label: {
             HStack(spacing: 12) {
                 Text("Body measurements")
                     .font(.body.weight(.medium))
@@ -248,7 +280,7 @@ public struct TrainingTrendsView: View {
                             Text(exercise.displayName).font(.body.weight(.semibold))
                                 .fixedSize(horizontal: false, vertical: true)
                             Spacer(minLength: 0)
-                            Image(systemName: "chevron.down").font(.caption).accessibilityHidden(true)
+                            Image(systemName: "chevron.right").font(.caption).accessibilityHidden(true)
                         }
                         .foregroundStyle(NotebookStyle.clay)
                         .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
@@ -273,6 +305,17 @@ public struct TrainingTrendsView: View {
                     Text("No recorded sets for this exercise in this period.")
                         .font(.subheadline).foregroundStyle(NotebookStyle.quiet)
                         .fixedSize(horizontal: false, vertical: true)
+                }
+                if bodyMeasurements != nil {
+                    Button { openBodyChart(comparing: current) } label: {
+                        Label("Compare with \(rememberedBodyChart.metric.title.lowercased())", systemImage: "chart.xyaxis.line")
+                            .font(.subheadline.weight(.medium))
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(minHeight: 44, alignment: .leading)
+                    }
+                    .foregroundStyle(NotebookStyle.clay)
+                    .accessibilityHint("Compare \(exercise.displayName) over the selected period")
+                    .accessibilityIdentifier("trends-compare-body")
                 }
             } else {
                 Text("No exercises tracked yet.")
@@ -315,9 +358,17 @@ public struct TrainingTrendsView: View {
                 .fixedSize(horizontal: false, vertical: true)
             VStack(spacing: 0) {
                 rule
-                ForEach(trends.exerciseSummaries) { summary in
+                ForEach(showAllComparisons ? trends.exerciseSummaries : Array(trends.exerciseSummaries.prefix(3))) { summary in
                     performanceRow(summary)
                     rule
+                }
+                if trends.exerciseSummaries.count > 3 {
+                    Button(showAllComparisons ? "Show fewer comparisons" : "See all \(trends.exerciseSummaries.count) comparisons") {
+                        showAllComparisons.toggle()
+                    }
+                    .foregroundStyle(NotebookStyle.clay)
+                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                    .accessibilityIdentifier("trends-all-comparisons")
                 }
             }
         }
@@ -440,7 +491,7 @@ public struct TrainingTrendsView: View {
 
     private func bestRow(_ best: TrainingTrendBest) -> some View {
         let exercise = model.exercise(best.exerciseID)
-        return Button { model.openProgress(for: exercise.id) } label: {
+        return Button { model.openProgress(for: exercise.id, on: best.day, highlighting: best.setID) } label: {
             HStack(alignment: .firstTextBaseline, spacing: 12) {
                 VStack(alignment: .leading, spacing: 5) {
                     Text(exercise.displayName).font(.body.weight(.semibold))
@@ -459,7 +510,7 @@ public struct TrainingTrendsView: View {
             .contentShape(Rectangle())
         }
         .accessibilityElement(children: .combine)
-        .accessibilityHint("Show exercise history")
+        .accessibilityHint("Open the recorded set")
         .accessibilityIdentifier("trends-best-\(best.exerciseID)")
     }
 

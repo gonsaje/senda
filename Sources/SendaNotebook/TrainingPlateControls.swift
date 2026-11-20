@@ -170,6 +170,7 @@ struct TrainingPlateControls: View {
 struct TrainingBarbellMenu: View {
     let unit: WeightUnit
     let weight: Int?
+    var identifier = "input-barbell"
     let canSet: (Int?) -> Bool
     let set: (Int?) -> Void
     @State private var enteringCustomWeight = false
@@ -215,7 +216,7 @@ struct TrainingBarbellMenu: View {
         .accessibilityLabel(weight == nil ? "Add barbell" : "Change barbell")
         .accessibilityValue(weight.map { "\(unit.text(for: $0)) \(unit.symbol)" } ?? "No barbell")
         .accessibilityHint("Include one bar in this set’s total weight")
-        .accessibilityIdentifier("input-barbell")
+        .accessibilityIdentifier(identifier)
         .alert("Custom barbell weight", isPresented: $enteringCustomWeight) {
             TextField("Weight (\(unit.symbol))", text: $customText).numericKeyboard(decimal: true)
             Button("Cancel", role: .cancel) {}

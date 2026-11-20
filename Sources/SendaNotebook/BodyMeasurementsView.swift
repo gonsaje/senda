@@ -2,10 +2,18 @@ import SwiftUI
 import SendaDomain
 import SendaLogger
 
+struct BodyChartSelection: Codable, Equatable {
+    var metric: BodyMetric = .weight
+    var range: ExerciseProgressRange
+    var customDays: ClosedRange<TrainingDay>?
+    var exerciseID: String?
+}
+
 struct BodyMeasurementsView: View {
     let model: BodyMeasurementsModel
     let notebook: TrainingNotebookModel
     let close: () -> Void
+    let remember: (BodyChartSelection) -> Void
 
     @AppStorage("senda.bodyMeasurements.readAppleHealth") private var readsAppleHealth = false
     @Environment(\.scenePhase) private var scenePhase
@@ -16,11 +24,16 @@ struct BodyMeasurementsView: View {
     @State private var comparisonID: String?
     @State private var saveNotice: String?
 
-    init(model: BodyMeasurementsModel, notebook: TrainingNotebookModel, close: @escaping () -> Void) {
+    init(model: BodyMeasurementsModel, notebook: TrainingNotebookModel, selection: BodyChartSelection,
+         remember: @escaping (BodyChartSelection) -> Void, close: @escaping () -> Void) {
         self.model = model
         self.notebook = notebook
         self.close = close
-        _range = State(initialValue: notebook.progressRange)
+        self.remember = remember
+        _range = State(initialValue: selection.range)
+        _metric = State(initialValue: selection.metric)
+        _customDays = State(initialValue: selection.customDays)
+        _comparisonID = State(initialValue: selection.exerciseID)
     }
 
     private var unit: WeightUnit { notebook.workspace.preferredUnit }
@@ -103,6 +116,9 @@ struct BodyMeasurementsView: View {
         .foregroundStyle(NotebookStyle.ink)
         .tint(NotebookStyle.clay)
         .buttonStyle(.plain)
+        .onChange(of: BodyChartSelection(metric: metric, range: range, customDays: customDays, exerciseID: comparisonID)) { _, selection in
+            remember(selection)
+        }
         .onChange(of: days) { _, _ in saveNotice = nil }
         .task { model.reloadManual() }
         .task(id: readsAppleHealth && scenePhase == .active) {
@@ -132,8 +148,9 @@ struct BodyMeasurementsView: View {
                     cancel: { destination = nil },
                     apply: { customDays = $0; destination = nil })
             case .strength:
-                MeasurementStrengthPicker(exercises: comparisonChoices, selectedID: comparisonID,
-                    select: { comparisonID = $0; destination = nil }, cancel: { destination = nil })
+                ExerciseChoiceSheet(title: "Compare strength", groups: [.init(title: "", exercises: comparisonChoices)],
+                    selectedID: comparisonID, identifierPrefix: "body-compare-", emptyMessage: "Log a set or track an exercise to compare strength.",
+                    clearTitle: "No comparison", select: { comparisonID = $0; destination = nil }, close: { destination = nil })
             }
         }
         #if os(macOS)
@@ -291,8 +308,10 @@ struct BodyMeasurementsView: View {
     }
 
     private var comparisonChoices: [Exercise] {
-        let recorded = Set(notebook.journal.batches.map(\.exerciseID))
-        return notebook.exercises.filter { recorded.contains($0.id) }
+        var eligible = Set(notebook.journal.batches.map(\.exerciseID))
+        eligible.formUnion(notebook.trackedStrengthExerciseIDs)
+        if let comparisonID { eligible.insert(comparisonID) }
+        return notebook.exercises.filter { eligible.contains($0.id) }
             .sorted { $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending }
     }
 
@@ -303,7 +322,7 @@ struct BodyMeasurementsView: View {
                 Text(exercise.map { "Compare with \($0.displayName)" } ?? "Compare strength")
                     .font(.body.weight(.medium)).multilineTextAlignment(.leading)
                 Spacer(minLength: 8)
-                Image(systemName: "chevron.down").font(.caption)
+                Image(systemName: "chevron.right").font(.caption)
             }
             .foregroundStyle(NotebookStyle.clay)
             .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)

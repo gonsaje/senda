@@ -111,9 +111,17 @@ extension TrainingNotebookModel {
     }
 
     public func previewProgram(_ program: TrainingProgram, starting start: TrainingDay) throws -> [ProgramScheduleSlot] {
-        let definition = scheduledProgram(program, starting: start) ?? program
-        try definition.validated(against: Set(exercises.map(\.id)))
-        return try programSlots(definition, starting: start, in: workspace)
+        if let enrollment = workspace.activeProgramEnrollments.first(where: { $0.programID == program.id && $0.start == start }) {
+            return scheduledWorkoutDates(enrollment).compactMap { day in
+                guard let reference = workspace.days[day.rawValue]?.programSession,
+                      let (block, session) = enrollment.prescription(for: reference)
+                else { return nil }
+                return ProgramScheduleSlot(day: day, week: reference.week, blockTitle: block.title, session: session,
+                                           isOccupied: true, isScheduled: true)
+            }
+        }
+        try program.validated(against: Set(exercises.map(\.id)))
+        return try programSlots(program, starting: start, in: workspace)
     }
 
     @discardableResult public func scheduleProgram(_ program: TrainingProgram, starting start: TrainingDay) -> Bool {
@@ -123,7 +131,7 @@ extension TrainingNotebookModel {
             let enrollment = ProgramEnrollment(program: program, start: start)
             if let previous = workspace.programEnrollments?.first(where: { $0.programID == program.id && $0.start == start }) {
                 if workspace.activeProgramEnrollments.contains(where: { $0.programID == program.id && $0.start == start }) { return }
-                guard previous.program == program else { throw ProgramError.previousRemoval }
+                guard previous.endedOn == nil, previous.program == program else { throw ProgramError.previousRemoval }
             }
             try program.validated(against: Set(activeExercises.map(\.id)))
             let slots = try programSlots(program, starting: start, in: workspace).filter { !$0.isOccupied }
@@ -136,7 +144,7 @@ extension TrainingNotebookModel {
                 let plans = Dictionary(uniqueKeysWithValues: session.exercises.map { ($0.exerciseID, $0.plan) })
                 var workout = DayWorkout(exerciseIDs: ids, selectedExerciseID: ids.first, rows: rows, unit: unit,
                                          exercisePlans: plans, supersets: session.supersets.isEmpty ? nil : session.supersets.map(WorkoutSuperset.init(plan:)))
-                workout.programSession = ScheduledProgramReference(program: program, start: start, slot: slot)
+                workout.programSession = ScheduledProgramReference(program: program, start: start, slot: slot, unit: unit)
                 workspace.days[slot.day.rawValue] = workout
             }
             if workspace.programEnrollments?.contains(enrollment) != true {
@@ -158,9 +166,7 @@ extension TrainingNotebookModel {
                 for session in sessions {
                     let day = try start.adding(days: week * 7 + session.dayOffset)
                     let existing = workspace.days[day.rawValue]
-                    let isOccupied = reservedForUndo == day || (existing.map {
-                        !$0.exerciseIDs.isEmpty || !$0.rows.isEmpty || $0.exercisePlans?.isEmpty == false || $0.programSession != nil
-                    } ?? false)
+                    let isOccupied = reservedForUndo == day || (existing?.occupiesProgramDate ?? false)
                     let sameEnrollment = existing?.programSession.map { $0.programID == program.id && $0.start == start } ?? false
                     slots.append(ProgramScheduleSlot(day: day, week: week + 1, blockTitle: block.title, session: session,
                                                      isOccupied: isOccupied, isScheduled: sameEnrollment))

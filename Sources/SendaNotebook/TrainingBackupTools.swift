@@ -98,7 +98,7 @@ struct NotebookBackupTools: View {
                     action("Save full backup", icon: "square.and.arrow.up", identifier: "export-backup") {
                         prepareExport(.backup, data: exportBackup)
                     }
-                    detail("You choose where to save each manual copy in Files. A full backup includes workouts, goals, exercises, drafts, units, and profile details. The backup file is unencrypted.")
+                    detail("Includes workouts, goals, exercises, drafts, units, profile details, and manual body measurements. Apple Health readings stay in Health. Choose where to save the unencrypted file.")
                 }
                 if let exportCSV {
                     action("Export recorded sets (CSV)", icon: "tablecells", identifier: "export-csv") {
@@ -126,6 +126,9 @@ struct NotebookBackupTools: View {
             defaultFilename: exportKind.filename,
             onCompletion: exportFinished
         )
+        #if os(iOS)
+        .fileDialogDefaultDirectory(showsExporter && exportKind == .backup ? .documentsDirectory : nil)
+        #endif
         .confirmationDialog("Replace this notebook?", isPresented: $showsRestoreConfirmation, titleVisibility: .visible) {
             Button("Replace notebook", role: .destructive, action: confirmRestore)
                 .accessibilityIdentifier("restore-final-confirm")
@@ -351,6 +354,12 @@ public struct NotebookRestorePreview: View {
             summary("Recorded sets", value: String(recordedSets))
             summary("Saved workouts", value: String(snapshot.training?.workoutTemplates?.count ?? 0))
             summary("Custom exercises", value: String(snapshot.customExercises?.count ?? 0))
+            if let readings = archive.manualMeasurements {
+                summary("Manual body measurements", value: "\(readings.count) in backup")
+                if readings.isEmpty { Text("Restoring this backup clears your manual readings.").font(.subheadline) }
+            } else {
+                summary("Manual body measurements", value: "Keep current readings")
+            }
             summary("Lift goals", value: String(archive.profile.goals.count))
             summary("Unfinished rows", value: String(unfinishedRows))
             let unit = snapshot.training?.preferredUnit ?? snapshot.workspace?.weightUnit ?? .pounds

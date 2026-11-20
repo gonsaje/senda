@@ -7,7 +7,7 @@ extension TrainingNotebookModel {
     public var supersets: [WorkoutSuperset] {
         guard let workout, let groups = workout.supersets else { return [] }
         let byFirst = Dictionary(uniqueKeysWithValues: groups.map { ($0.plan.first, $0) })
-        return workout.exerciseIDs.compactMap { byFirst[$0] }
+        return workout.exerciseIDs.compactMap { byFirst[$0] } + workout.hiddenSupersets
     }
 
     @discardableResult public func createSuperset(_ plan: SupersetPlan) -> Bool {
@@ -21,17 +21,42 @@ extension TrainingNotebookModel {
     }
 
     @discardableResult public func unlinkSuperset(_ id: UUID) -> Bool {
-        guard !canRetrySave, let day = selectedDay, let pair = supersets.first(where: { $0.id == id }) else { return false }
+        guard !canRetrySave, let day = selectedDay, let groups = workout?.supersets,
+              let index = groups.firstIndex(where: { $0.id == id }) else { return false }
+        let pair = groups[index]
         return commit(synchronizeInput: false) { state in
             state.training!.days[day.rawValue]!.removeSuperset(containing: pair.plan.first)
+            state.training!.undo = .unpaired(day: day, group: pair, index: index)
         }
     }
 
-    @discardableResult public func startSuperset(_ id: UUID) -> Bool {
-        editSuperset(id, closeInput: true) { group, workout in
-            if group.phase == .ready { group.phase = .working }
+    public func previousFirstSet(for group: WorkoutSuperset) -> TrainingRow? {
+        guard group.phase == .ready else { return nil }
+        return workout?.rows[group.plan.first]?.last {
+            $0.kind?.countsTowardWorkingPlan == true && $0.performedSetID != nil && $0.pendingCorrection != true
+        }
+    }
+
+    @discardableResult public func startSuperset(_ id: UUID, counting rowID: UUID? = nil) -> Bool {
+        if let rowID {
+            guard let group = supersets.first(where: { $0.id == id }), previousFirstSet(for: group)?.id == rowID else { return false }
+        }
+        return editSuperset(id, closeInput: true) { group, workout in
+            workout.showTabs(for: group.currentExerciseID)
+            if group.phase == .ready {
+                group.phase = .working
+                if let rowID { group.rowIDs = [rowID] }
+            }
             group.bindCurrentRow(in: &workout)
             workout.selectedExerciseID = group.currentExerciseID
+        }
+    }
+
+    @discardableResult public func updateSuperset(_ id: UUID, rounds: Int, restSeconds: Int) -> Bool {
+        guard let group = supersets.first(where: { $0.id == id }), group.phase != .finished,
+              (group.minimumRounds...20).contains(rounds), (0...3600).contains(restSeconds) else { return false }
+        return editSuperset(id, closeInput: false) { group, _ in
+            group.plan = SupersetPlan(first: group.plan.first, second: group.plan.second, rounds: rounds, restSeconds: restSeconds)
         }
     }
 

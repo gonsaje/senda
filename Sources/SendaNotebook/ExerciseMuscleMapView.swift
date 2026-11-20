@@ -12,24 +12,29 @@ public struct ExerciseMuscleMapView: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            HStack(alignment: .top, spacing: 28) {
-                figure(.front, title: "Front")
-                figure(.back, title: "Back")
+            if map.hasIllustratedRegion {
+                HStack(alignment: .top, spacing: 28) {
+                    figure(.front, title: "Front")
+                    figure(.back, title: "Back")
+                }
+                .frame(maxWidth: 360)
+                .frame(maxWidth: .infinity)
             }
-            .frame(maxWidth: 360)
-            .frame(maxWidth: .infinity)
 
             VStack(alignment: .leading, spacing: 13) {
                 legend("Primary", muscles: map.primary, filled: true)
                 if !map.supporting.isEmpty {
                     legend("Also works", muscles: map.supporting, filled: false)
                 }
-                if !map.stabilizing.isEmpty {
+                if !map.loadedStabilizers.isEmpty {
+                    legend("Loaded stabilizers", muscles: map.loadedStabilizers, filled: false)
+                }
+                if !otherStabilizers.isEmpty {
                     VStack(alignment: .leading, spacing: 3) {
                         Text("Stabilizers")
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(NotebookStyle.quiet)
-                        Text(names(map.stabilizing))
+                        Text(names(otherStabilizers))
                             .font(.subheadline)
                             .foregroundStyle(NotebookStyle.quiet)
                             .fixedSize(horizontal: false, vertical: true)
@@ -44,7 +49,7 @@ public struct ExerciseMuscleMapView: View {
 
     private func figure(_ aspect: MuscleFigureAspect, title: String) -> some View {
         VStack(spacing: 8) {
-            MuscleFigure(aspect: aspect, primary: map.primary, supporting: map.supporting)
+            MuscleFigure(aspect: aspect, primary: map.primary, supporting: map.supporting + map.loadedStabilizers)
                 .aspectRatio(132.0 / 294.0, contentMode: .fit)
                 .frame(maxHeight: 288)
             Text(title)
@@ -79,15 +84,24 @@ public struct ExerciseMuscleMapView: View {
         muscles.map(\.name).joined(separator: ", ")
     }
 
+    private var otherStabilizers: [MuscleRegion] {
+        map.stabilizing.filter { !map.loadedStabilizers.contains($0) }
+    }
+
     private var accessibilityDescription: String {
         var description = "Muscles worked. Primary: \(names(map.primary))."
         if !map.supporting.isEmpty {
             description += " Also works: \(names(map.supporting))."
         }
-        if !map.stabilizing.isEmpty {
-            description += " Stabilizers: \(names(map.stabilizing))."
+        if !map.loadedStabilizers.isEmpty {
+            description += " Loaded stabilizers: \(names(map.loadedStabilizers))."
         }
-        description += " The front and back diagrams show primary muscles filled and supporting muscles outlined."
+        if !otherStabilizers.isEmpty {
+            description += " Stabilizers: \(names(otherStabilizers))."
+        }
+        if map.hasIllustratedRegion {
+            description += " On the diagrams, filled regions are primary and outlined regions are supporting."
+        }
         return description
     }
 }
@@ -97,14 +111,28 @@ struct ExerciseMuscleThumbnail: View {
     let map: ExerciseMuscleMap
 
     var body: some View {
-        HStack(spacing: 2) {
-            MuscleFigure(aspect: .front, primary: map.primary, supporting: map.supporting)
-                .frame(width: 26, height: 58)
-            MuscleFigure(aspect: .back, primary: map.primary, supporting: map.supporting)
-                .frame(width: 26, height: 58)
+        if map.hasIllustratedRegion {
+            HStack(spacing: 2) {
+                MuscleFigure(aspect: .front, primary: map.primary, supporting: map.supporting + map.loadedStabilizers)
+                    .frame(width: 26, height: 58)
+                MuscleFigure(aspect: .back, primary: map.primary, supporting: map.supporting + map.loadedStabilizers)
+                    .frame(width: 26, height: 58)
+            }
+            .frame(width: 58, height: 58)
+            .accessibilityHidden(true)
         }
-        .frame(width: 58, height: 58)
-        .accessibilityHidden(true)
+    }
+}
+
+extension ExerciseMuscleMap {
+    // The drawing covers these surface regions. All other regions still appear by name in the legend.
+    static let illustratedRegions: Set<MuscleRegion> = [
+        .chest, .frontShoulders, .sideShoulders, .rearShoulders, .biceps, .triceps, .forearms,
+        .lats, .upperBack, .spinalErectors, .abdominals, .glutes, .quadriceps, .hamstrings, .calves
+    ]
+
+    fileprivate var hasIllustratedRegion: Bool {
+        trackedMuscles.contains(where: Self.illustratedRegions.contains)
     }
 }
 

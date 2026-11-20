@@ -9,47 +9,65 @@ public struct TrainingDaySummary: Equatable, Sendable {
     init(performed: [Exercise], setCount: Int) {
         self.setCount = setCount
         exercises = performed.map(\.name)
-        let groups = Set(performed.map(\.group))
+        let groups = performed.reduce(into: Set<MuscleGroup>()) { result, exercise in
+            let tracked = exercise.trackedMuscles
+            if !tracked.isEmpty || exercise.presetID == nil {
+                result.insert(exercise.group)
+                result.formUnion(tracked.map(\.group))
+            }
+        }
         muscleGroups = MuscleGroup.allCases.filter(groups.contains)
         weekFocus = Self.weekFocus(for: performed)
     }
 
     private static func weekFocus(for performed: [Exercise]) -> String? {
         guard !performed.isEmpty else { return nil }
-        let lowerRegions: [MuscleRegion] = [.quadriceps, .hamstrings, .glutes, .calves]
-        var groups: Set<MuscleGroup> = []
-        var lowerMuscles: Set<MuscleRegion> = []
+        var categories = Set<MuscleGroup>()
+        var primaryCategories = Set<MuscleGroup>()
+        var lowerMuscles = Set<MuscleRegion>()
         var hasUnspecifiedLegs = false
 
         for exercise in performed {
-            let primary = exercise.muscleMap?.primary ?? []
-            let targetsOnlyLegs = !primary.isEmpty && primary.allSatisfy(lowerRegions.contains)
-            if exercise.group == .legs || targetsOnlyLegs {
-                groups.insert(.legs)
-                let muscles = primary.filter(lowerRegions.contains)
-                lowerMuscles.formUnion(muscles)
-                if muscles.isEmpty { hasUnspecifiedLegs = true }
+            let isCustom = exercise.presetID == nil
+            let primary = exercise.primaryTrackedMuscles
+            // Show deliberately loaded stabilizers and custom choices in the headline; ordinary assists stay in Muscles.
+            let displayed = isCustom ? exercise.trackedMuscles : primary + (exercise.muscleMap?.loadedStabilizers ?? [])
+            guard isCustom || !exercise.trackedMuscles.isEmpty else { continue }
+            categories.insert(exercise.group)
+            categories.formUnion(displayed.map(\.group))
+            if primary.isEmpty {
+                primaryCategories.insert(exercise.group)
             } else {
-                groups.insert(exercise.group)
+                primaryCategories.formUnion(primary.map(\.group))
             }
+            let lower = displayed.filter { $0.group == .legs }
+            lowerMuscles.formUnion(lower)
+            if exercise.group == .legs && lower.isEmpty { hasUnspecifiedLegs = true }
         }
 
-        let hasCore = groups.remove(.core) != nil
-        let summarize = groups.count + (hasCore ? 1 : 0) >= 3
-        var names: [String]
-        if groups.count >= 2 && (summarize || lowerMuscles.count >= 3) {
-            names = [groups.contains(.legs) || groups.contains(.fullBody) ? "Full Body" : "Upper Body"]
+        let hasCore = categories.remove(.core) != nil
+        let areaCount = categories.count
+        let primaryAreaCount = primaryCategories.subtracting([.core]).count
+        var names: [String] = []
+        if categories.contains(.fullBody) || areaCount >= 3 || (areaCount >= 2 && hasCore && primaryAreaCount >= 2) {
+            names = [categories.contains(.legs) || categories.contains(.fullBody) ? "Full Body" : "Upper Body"]
         } else {
-            names = MuscleGroup.allCases.filter(groups.contains).flatMap { group -> [String] in
-                guard group == .legs else { return [group == .fullBody ? "Full Body" : group.rawValue] }
-                if lowerMuscles.count >= 3 { return ["Lower Body"] }
-                if hasUnspecifiedLegs || (lowerMuscles.count == 2 && (hasCore || groups.count > 1)) {
-                    return ["Legs"]
+            for group in MuscleGroup.allCases where categories.contains(group) {
+                if group != .legs {
+                    names.append(group.rawValue)
+                } else if lowerMuscles.count >= 3 && areaCount == 1 {
+                    names.append("Lower Body")
+                } else if hasUnspecifiedLegs || (lowerMuscles.count >= 2 && (hasCore || areaCount > 1)) {
+                    names.append("Legs")
+                } else {
+                    let commonOrder: [MuscleRegion] = [.quadriceps, .hamstrings, .glutes, .calves]
+                    let order = commonOrder + MuscleRegion.allCases.filter { !commonOrder.contains($0) }
+                    names += order.filter(lowerMuscles.contains).map { $0 == .quadriceps ? "Quads" : $0.name }
                 }
-                return lowerRegions.filter(lowerMuscles.contains).map { $0 == .quadriceps ? "Quads" : $0.name }
             }
         }
         if hasCore { names.append(MuscleGroup.core.rawValue) }
+        if names.isEmpty { return performed.count == 1 ? performed[0].displayName : "Workout" }
         return names.joined(separator: " · ")
     }
 }

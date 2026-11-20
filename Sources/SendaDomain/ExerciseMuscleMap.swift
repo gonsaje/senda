@@ -5,6 +5,21 @@ public enum MuscleRegion: String, CaseIterable, Codable, Sendable {
     case biceps, triceps, forearms, lats, upperBack, spinalErectors
     case abdominals, glutes, quadriceps, hamstrings, calves
 
+    case hipFlexors, adductors, shins, outerLowerLeg, innerLowerLeg
+    case rotatorCuff, serratus, neck
+
+    public var group: MuscleGroup {
+        switch self {
+        case .chest: .chest
+        case .lats, .upperBack, .spinalErectors: .back
+        case .frontShoulders, .sideShoulders, .rearShoulders, .rotatorCuff, .serratus: .shoulders
+        case .biceps, .triceps, .forearms: .arms
+        case .glutes, .quadriceps, .hamstrings, .calves, .hipFlexors, .adductors, .shins, .outerLowerLeg, .innerLowerLeg: .legs
+        case .abdominals: .core
+        case .neck: .neck
+        }
+    }
+
     public var name: String {
         switch self {
         case .chest: "Chest"
@@ -22,6 +37,14 @@ public enum MuscleRegion: String, CaseIterable, Codable, Sendable {
         case .quadriceps: "Quadriceps"
         case .hamstrings: "Hamstrings"
         case .calves: "Calves"
+        case .hipFlexors: "Hip flexors"
+        case .adductors: "Hip adductors"
+        case .shins: "Shins"
+        case .outerLowerLeg: "Outer lower leg"
+        case .innerLowerLeg: "Inner lower leg"
+        case .rotatorCuff: "Rotator cuff"
+        case .serratus: "Serratus anterior"
+        case .neck: "Neck"
         }
     }
 
@@ -42,6 +65,14 @@ public enum MuscleRegion: String, CaseIterable, Codable, Sendable {
         case .quadriceps: "Quadriceps femoris"
         case .hamstrings: "Biceps femoris, semitendinosus and semimembranosus"
         case .calves: "Gastrocnemius and soleus"
+        case .hipFlexors: "Iliopsoas and other hip flexors"
+        case .adductors: "Adductor longus, brevis, magnus and other hip adductors"
+        case .shins: "Tibialis anterior and other ankle dorsiflexors"
+        case .outerLowerLeg: "Fibularis longus and brevis"
+        case .innerLowerLeg: "Tibialis posterior and other medial lower-leg muscles"
+        case .rotatorCuff: "Supraspinatus, infraspinatus, teres minor and subscapularis"
+        case .serratus: "Serratus anterior"
+        case .neck: "Cervical flexors, extensors and lateral flexors"
         }
     }
 }
@@ -56,6 +87,23 @@ public struct ExerciseMuscleMap: Equatable, Sendable {
     public let stabilizing: [MuscleRegion]
     public let variation: String
 
+    /// Stabilizers bearing a substantial training load in this variation.
+    public let loadedStabilizers: [MuscleRegion]
+
+    init(primary: [MuscleRegion], supporting: [MuscleRegion], stabilizing: [MuscleRegion],
+         variation: String, loadedStabilizers: [MuscleRegion] = []) {
+        self.primary = primary
+        self.supporting = supporting
+        self.stabilizing = stabilizing
+        self.variation = variation
+        self.loadedStabilizers = loadedStabilizers
+    }
+
+    public var trackedMuscles: [MuscleRegion] {
+        var seen = Set<MuscleRegion>()
+        return (primary + supporting + loadedStabilizers).filter { seen.insert($0).inserted }
+    }
+
     /// Custom or unknown identifiers have no inferred anatomical guidance.
     public static func map(for id: String) -> ExerciseMuscleMap? {
         switch id {
@@ -65,14 +113,14 @@ public struct ExerciseMuscleMap: Equatable, Sendable {
         case "deadlift":
             ExerciseMuscleMap(primary: [.glutes, .quadriceps, .hamstrings], supporting: [],
                 stabilizing: [.spinalErectors, .abdominals, .lats, .upperBack, .forearms],
-                variation: "Conventional barbell deadlift")
+                variation: "Conventional barbell deadlift", loadedStabilizers: [.spinalErectors])
         case "squat":
-            ExerciseMuscleMap(primary: [.quadriceps, .glutes], supporting: [.hamstrings],
-                stabilizing: [.abdominals, .spinalErectors], variation: "Barbell back squat")
+            ExerciseMuscleMap(primary: [.quadriceps, .glutes], supporting: [.adductors],
+                stabilizing: [.abdominals, .spinalErectors, .hamstrings], variation: "Barbell back squat")
         case "row":
             ExerciseMuscleMap(primary: [.lats, .upperBack], supporting: [.rearShoulders, .biceps],
                 stabilizing: [.spinalErectors, .abdominals, .forearms],
-                variation: "Bent-over barbell row with an overhand grip")
+                variation: "Bent-over barbell row with an overhand grip", loadedStabilizers: [.spinalErectors])
         case "overhead-press":
             ExerciseMuscleMap(primary: [.frontShoulders, .sideShoulders], supporting: [.triceps, .upperBack],
                 stabilizing: [.abdominals, .spinalErectors], variation: "Standing barbell shoulder press")
@@ -82,7 +130,7 @@ public struct ExerciseMuscleMap: Equatable, Sendable {
         case "romanian-deadlift":
             ExerciseMuscleMap(primary: [.hamstrings, .glutes], supporting: [],
                 stabilizing: [.spinalErectors, .abdominals, .upperBack, .forearms],
-                variation: "Barbell Romanian deadlift")
+                variation: "Barbell Romanian deadlift", loadedStabilizers: [.spinalErectors])
         case "dumbbell-bench":
             ExerciseMuscleMap(primary: [.chest], supporting: [.frontShoulders, .triceps],
                 stabilizing: [.abdominals], variation: "Flat dumbbell bench press")
@@ -90,7 +138,7 @@ public struct ExerciseMuscleMap: Equatable, Sendable {
             ExerciseMuscleMap(primary: [.lats], supporting: [.upperBack, .biceps, .rearShoulders],
                 stabilizing: [.abdominals, .forearms], variation: "Overhand pull-up")
         case "leg-press":
-            ExerciseMuscleMap(primary: [.quadriceps, .glutes], supporting: [.hamstrings],
+            ExerciseMuscleMap(primary: [.quadriceps, .glutes], supporting: [.adductors],
                 stabilizing: [.abdominals], variation: "Seated machine leg press")
         case "leg-curl":
             ExerciseMuscleMap(primary: [.hamstrings], supporting: [.calves],
@@ -122,7 +170,7 @@ public struct ExerciseMuscleMap: Equatable, Sendable {
                 stabilizing: [.abdominals, .spinalErectors, .forearms],
                 variation: "Seated low cable row")
         case "push-up":
-            ExerciseMuscleMap(primary: [.chest], supporting: [.frontShoulders, .triceps],
+            ExerciseMuscleMap(primary: [.chest], supporting: [.frontShoulders, .triceps, .serratus],
                 stabilizing: [.abdominals, .glutes], variation: "Floor push-up with legs extended")
         default:
             ExpandedExerciseCatalog.muscleMaps[id] ?? GymExerciseCatalog.entriesByID[id]?.muscleMap

@@ -14,6 +14,7 @@ struct LibraryCustomExerciseEditor: View {
     private struct Draft: Equatable {
         var name: String
         var group: MuscleGroup
+        var muscleTags: [MuscleRegion]
         var equipment: ExerciseEquipment
         var setup: CustomExerciseSetup
     }
@@ -23,7 +24,7 @@ struct LibraryCustomExerciseEditor: View {
         self.exercise = exercise
         self.saved = saved
         _draft = State(initialValue: Draft(name: exercise?.name ?? "", group: exercise?.group ?? .fullBody,
-                                         equipment: exercise?.equipmentType ?? .other, setup: exercise?.customSetup ?? .init()))
+                                         muscleTags: exercise?.customMuscleTags ?? [], equipment: exercise?.equipmentType ?? .other, setup: exercise?.customSetup ?? .init()))
     }
 
     var body: some View {
@@ -44,6 +45,7 @@ struct LibraryCustomExerciseEditor: View {
                 }
                 .pickerStyle(.menu).frame(minHeight: 44)
                 .accessibilityIdentifier("library-exercise-group")
+                CustomExerciseMusclePicker(selection: $draft.muscleTags, mainGroup: draft.group, onOpen: { typing = false })
                 Picker("Main equipment", selection: $draft.equipment) {
                     ForEach(ExerciseEquipment.allCases, id: \.self) { Text($0.rawValue).tag($0) }
                 }
@@ -90,10 +92,10 @@ struct LibraryCustomExerciseEditor: View {
         let succeeded: Bool
         if let exercise {
             succeeded = model.updateCustomExercise(exercise.id, named: draft.name, group: draft.group,
-                                                  equipment: draft.equipment, customSetup: draft.setup)
+                                                  equipment: draft.equipment, customSetup: draft.setup, customMuscleTags: draft.muscleTags)
         } else {
             succeeded = model.createLibraryExercise(named: draft.name, group: draft.group,
-                                                    equipment: draft.equipment, customSetup: draft.setup)
+                                                    equipment: draft.equipment, customSetup: draft.setup, customMuscleTags: draft.muscleTags)
         }
         if succeeded { finishSave() }
     }
@@ -104,7 +106,7 @@ struct LibraryCustomExerciseEditor: View {
         guard let stored = (model.snapshot.customExercises ?? []).first(where: {
             (exercise == nil || $0.id == exercise?.id) && model.canManageCustomExercise($0.id)
                 && ExerciseLibrary.matchingKey($0.name) == key && $0.group == draft.group
-                && $0.equipmentType == draft.equipment && $0.customSetup == draft.setup
+                && $0.equipmentType == draft.equipment && $0.customSetup == draft.setup && $0.customMuscleTags == draft.muscleTags
         }) else { return }
         attemptedSave = false
         saved(stored)

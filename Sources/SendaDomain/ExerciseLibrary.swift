@@ -4,10 +4,11 @@ public enum ExerciseLibrary {
     public static let initialWorkoutIDs = ["bench", "deadlift", "squat"]
 
     public static func custom(named name: String, existing: [Exercise] = Exercise.catalog, muscleGroup: MuscleGroup? = nil,
-                              equipment: ExerciseEquipment? = nil, customSetup: CustomExerciseSetup = .init()) throws -> Exercise {
+                              equipment: ExerciseEquipment? = nil, customSetup: CustomExerciseSetup = .init(),
+                              customMuscleTags: [MuscleRegion] = []) throws -> Exercise {
         let name = try availableName(name, in: existing)
         return Exercise(id: "custom-\(UUID().uuidString.lowercased())", name: name, shortName: name, startingWeight: 0,
-                        muscleGroup: muscleGroup, equipment: equipment, customSetup: customSetup)
+                        muscleGroup: muscleGroup, equipment: equipment, customSetup: customSetup, customMuscleTags: customMuscleTags)
     }
 
     /// Callers must also confirm this record belongs to the notebook's saved custom library.
@@ -22,13 +23,14 @@ public enum ExerciseLibrary {
 
     public static func editCustom(_ exercise: Exercise, named name: String, existing: [Exercise],
                                   muscleGroup: MuscleGroup? = nil, equipment: ExerciseEquipment? = nil,
-                                  customSetup: CustomExerciseSetup = .init()) throws -> Exercise {
+                                  customSetup: CustomExerciseSetup = .init(), customMuscleTags: [MuscleRegion]? = nil) throws -> Exercise {
         guard canManageCustom(exercise) else { throw ExerciseLibraryError.protectedExercise }
         let preservedName = cleaned(name) == exercise.name
         let name = preservedName ? exercise.name : try availableName(name, in: existing, excluding: exercise.id)
         return Exercise(id: exercise.id, name: name, shortName: preservedName ? exercise.shortName : name,
                         startingWeight: exercise.startingWeight, muscleGroup: muscleGroup, equipment: equipment,
-                        customSetup: customSetup, isArchived: exercise.isArchived)
+                        customSetup: customSetup, isArchived: exercise.isArchived,
+                        customMuscleTags: customMuscleTags ?? exercise.customMuscleTags)
     }
 
     private static let originalIDs = Set(Exercise.originalCatalog.map(\.id))
@@ -48,6 +50,7 @@ public enum ExerciseLibrary {
                   validName(exercise.name), exercise.name == cleaned(exercise.name),
                   validName(exercise.shortName), exercise.shortName == cleaned(exercise.shortName),
                   NumericField.weight.range.contains(exercise.startingWeight),
+                  Set(exercise.customMuscleTags).count == exercise.customMuscleTags.count,
                   originalNames.isDisjoint(with: namesForExercise) else { throw ExerciseLibraryError.invalidLibrary }
             if !exercise.isArchived {
                 guard activeNames.isDisjoint(with: namesForExercise) else { throw ExerciseLibraryError.invalidLibrary }
@@ -125,9 +128,16 @@ public enum ExerciseLibrary {
 }
 
 public extension Exercise {
+    func matchingMuscleTags(query: String) -> [MuscleRegion] {
+        let key = ExerciseLibrary.matchingKey(query)
+        guard !key.isEmpty else { return [] }
+        return taggedMuscles.filter { $0.matchesCatalogSearch(key: key) }
+    }
+
     func matchesCatalogSearch(key: String) -> Bool {
         if matchesExerciseName(key: key) { return true }
-        var terms = [group.rawValue, equipmentType.rawValue] + (muscleMap?.primary.map(\.name) ?? [])
+        if taggedMuscles.contains(where: { $0.matchesCatalogSearch(key: key) }) { return true }
+        var terms = [group.rawValue, equipmentType.rawValue]
         if let required = customSetup.requiredEquipment {
             if required.contains(where: { $0.matchesSearch(key: key) }) { return true }
         } else if let id = catalogAliasID ?? presetID, let setup = GymExerciseCatalog.entriesByID[id]?.setup {
@@ -151,6 +161,18 @@ public extension Exercise {
     }
 }
 
+/// A file carrying either kind of custom anatomy data needs a reader that preserves both.
+package struct CustomMuscleMetadata: Codable, Equatable {
+    let tags: Int
+    let neckExercises: Int
+
+    package init?(_ exercises: [Exercise]) {
+        tags = exercises.reduce(0) { $0 + $1.customMuscleTags.count }
+        neckExercises = exercises.count { $0.muscleGroup == .neck }
+        guard tags > 0 || neckExercises > 0 else { return nil }
+    }
+}
+
 public enum ExerciseLibraryError: LocalizedError, Equatable {
     case invalidName, invalidLibrary, duplicateName(String), protectedExercise
     public var errorDescription: String? {
@@ -160,5 +182,23 @@ public enum ExerciseLibraryError: LocalizedError, Equatable {
         case .invalidLibrary: "The exercise library could not be restored. The saved file has been left untouched."
         case .duplicateName(let name): "An exercise named “\(name)” already exists. Choose it from the list."
         }
+    }
+}
+
+private extension MuscleRegion {
+    static let searchKeys: [Self: [String]] = {
+        let aliases: [Self: [String]] = [
+            .spinalErectors: ["lower back", "low back"],
+            .quadriceps: ["quads"], .abdominals: ["abs"], .chest: ["pecs"],
+            .frontShoulders: ["front delts"], .sideShoulders: ["side delts"], .rearShoulders: ["rear delts"]
+        ]
+        return Dictionary(uniqueKeysWithValues: allCases.map { region in
+            let names = [region.name, region.anatomicalName, region.group.rawValue] + (aliases[region] ?? [])
+            return (region, names.map(ExerciseLibrary.matchingKey))
+        })
+    }()
+
+    func matchesCatalogSearch(key: String) -> Bool {
+        Self.searchKeys[self]?.contains(where: { $0.contains(key) }) == true
     }
 }

@@ -27,6 +27,29 @@ import SendaPersistence
         #expect(reopened.snapshot.customExercises?.count == 1)
     }
 
+    @Test func workoutCustomExerciseTagsSurviveFailedEditAndFullRestore() throws {
+        let store = ManagedExerciseStore(), model = try TrainingNotebookModel(repository: store)
+        #expect(model.openToday())
+        #expect(model.createExercise(named: "Garden press", group: .chest, equipment: .barbell,
+            customMuscleTags: [.chest, .triceps]))
+        let original = try #require(model.exercise)
+        store.reject = true
+        #expect(!model.updateCustomExercise(original.id, named: "Garden press", group: .chest, equipment: .barbell,
+            customMuscleTags: [.chest, .frontShoulders]))
+        #expect(model.exercise(original.id).customMuscleTags == [.chest, .triceps])
+        store.reject = false
+        #expect(model.retrySave() && model.exercise(original.id).customMuscleTags == [.chest, .frontShoulders])
+        #expect(model.updateCustomExercise(original.id, named: "Garden bench", group: .chest, equipment: .barbell))
+        #expect(model.archiveCustomExercise(original.id))
+        let archive = try NotebookBackupCodec.decode(model.backupData())
+        let restored = try TrainingNotebookModel(repository: MemoryJournalRepository())
+        #expect(restored.restoreBackup(archive))
+        let lift = restored.exercise(original.id)
+        #expect(lift.isArchived && lift.name == "Garden bench" && lift.customMuscleTags == [.chest, .frontShoulders])
+        #expect(!model.updateCustomExercise("bench", named: "Bench", group: .chest, equipment: .barbell,
+            customMuscleTags: [.chest]))
+    }
+
     @Test func archivePreservesRecordedWorkoutAndFiltersOnlyNewAdditions() throws {
         let store = MemoryJournalRepository()
         let model = try TrainingNotebookModel(repository: store)

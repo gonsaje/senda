@@ -111,7 +111,9 @@ public final class NotebookAutomaticBackup {
         defer { isSaving = false }
 
         do {
-            let archive = try archive()
+            let supplied = try archive()
+            // The automatic destination is iCloud Drive. Keep manual body measurements on-device.
+            let archive = NotebookArchive(snapshot: supplied.snapshot, profile: supplied.profile, createdAt: supplied.createdAt)
             let lastFingerprint = automatic ? settings.fingerprint : nil
             let prepared = try await Task.detached(priority: .utility) {
                 let stable = NotebookArchive(snapshot: archive.snapshot, profile: archive.profile,

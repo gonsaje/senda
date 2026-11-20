@@ -1,7 +1,7 @@
 import Foundation
 
 public enum MuscleGroup: String, Codable, CaseIterable, Sendable {
-    case chest = "Chest", back = "Back", shoulders = "Shoulders", legs = "Legs", arms = "Arms", core = "Core", fullBody = "Full body"
+    case chest = "Chest", back = "Back", shoulders = "Shoulders", legs = "Legs", arms = "Arms", core = "Core", neck = "Neck", fullBody = "Full body"
 }
 public enum ExerciseEquipment: String, Codable, CaseIterable, Sendable {
     case barbell = "Barbell", dumbbell = "Dumbbell", cable = "Cable", machine = "Machine", bodyweight = "Bodyweight", other = "Other"

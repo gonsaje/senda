@@ -336,6 +336,7 @@ import SendaPersistence
         #expect(m.addExercise("row"))
         #expect(m.openDay(future)); try record(m, exercise: "push-up", weight: "", reps: "12")
         #expect(m.openDay(day)); try record(m)
+        #expect(m.reusableWorkouts(before: nil).map(\.day) == [future, day, prior, older])
         #expect(m.reusableWorkouts.map(\.day) == [prior, older])
         let first = try #require(m.reusableWorkouts.first)
         #expect(first.exerciseIDs == ["row", "bench", "deadlift"])

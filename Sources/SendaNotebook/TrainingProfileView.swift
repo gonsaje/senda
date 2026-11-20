@@ -179,7 +179,7 @@ struct TrainingProfileView: View {
     }
 
     private var untargetedMuscles: [MuscleRegion] {
-        let mapped = Set(model.exercises.flatMap { $0.muscleMap?.primary ?? [] })
+        let mapped = Set(model.exercises.flatMap(\.primaryTrackedMuscles))
         let targeted = Set(model.profile.details.weeklyMuscleTargets.map(\.muscle))
         return mapped.subtracting(targeted).sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
@@ -269,7 +269,8 @@ private struct TrainingProfileSettingsIndex: View {
     @Bindable var model: TrainingNotebookModel
     let close: () -> Void
     @State private var destination: Destination?
-    @State private var sampleWorkoutsStatus: String?
+    @State private var demoError: String?
+    @Environment(TrainingSession.self) private var session: TrainingSession?
     @AppStorage(NotebookAppearance.preferenceKey) private var appearance: NotebookAppearance = .system
     @Environment(\.dynamicTypeSize) private var textSize
 
@@ -332,27 +333,43 @@ private struct TrainingProfileSettingsIndex: View {
                     .accessibilityElement(children: .combine)
                     .accessibilityIdentifier("profile-weight-units")
                     profileRule
-                    Menu {
-                        Picker("Appearance", selection: $appearance) {
-                            ForEach(NotebookAppearance.allCases, id: \.self) { option in
-                                Text(option.title).tag(option)
+                    if session?.demo == nil {
+                        Menu {
+                            Picker("Appearance", selection: $appearance) {
+                                ForEach(NotebookAppearance.allCases, id: \.self) { option in
+                                    Text(option.title).tag(option)
+                                }
                             }
+                        } label: {
+                            destinationRow(title: "Appearance", detail: appearance.title, opensMenu: true)
                         }
-                    } label: {
-                        destinationRow(title: "Appearance", detail: appearance.title, opensMenu: true)
+                        .accessibilityLabel("Appearance")
+                        .accessibilityValue(appearance.title)
+                        .accessibilityIdentifier("profile-appearance")
+                        profileRule
+                        Button { destination = .backup } label: {
+                            destinationRow(title: "Workout recovery", detail: "Save or restore a backup file")
+                        }
+                        .accessibilityElement(children: .combine)
+                        .accessibilityIdentifier("profile-backup")
+                        profileRule
                     }
-                    .accessibilityLabel("Appearance")
-                    .accessibilityValue(appearance.title)
-                    .accessibilityIdentifier("profile-appearance")
-                    profileRule
-                    Button { destination = .backup } label: {
-                        destinationRow(title: "Workout recovery", detail: "Save or restore a backup file")
+                    if let session, !model.isSample {
+                        Button {
+                            do { try session.openDemo() }
+                            catch { demoError = error.localizedDescription }
+                        } label: {
+                            destinationRow(title: "Explore sample journal", detail: "Try 12 weeks of sample workouts. Demo changes are discarded when you exit.")
+                        }
+                        .accessibilityElement(children: .combine)
+                        .accessibilityIdentifier("try-demo")
+                        .disabled(model.canRetrySave)
+                        if model.canRetrySave, let error = model.errorMessage {
+                            TrainingSaveError(model: model, message: error)
+                        }
+                        if let demoError { Text(demoError).font(.subheadline).foregroundStyle(NotebookStyle.clay) }
+                        profileRule
                     }
-                    .accessibilityElement(children: .combine)
-                    .accessibilityIdentifier("profile-backup")
-                    profileRule
-                    sampleWorkouts
-                    profileRule
                     Link(destination: URL(string: "https://dontsweat.tech/senda/privacy.html")!) {
                         destinationRow(title: "Privacy policy", detail: "How Senda handles your data")
                     }
@@ -363,7 +380,7 @@ private struct TrainingProfileSettingsIndex: View {
                     }
                     .accessibilityIdentifier("profile-contact-support")
                     profileRule
-                    Text("Your notebook is saved on this device.")
+                    Text(session?.demo == nil ? "Your notebook is saved on this device." : "This sample journal is temporary.")
                         .font(.subheadline)
                         .foregroundStyle(NotebookStyle.quiet)
                         .fixedSize(horizontal: false, vertical: true)
@@ -376,50 +393,6 @@ private struct TrainingProfileSettingsIndex: View {
             .clipped()
             .accessibilityIdentifier("profile-settings-scroll")
         }
-    }
-
-    private var sampleWorkouts: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Button(action: addSampleWorkouts) {
-                HStack(spacing: 12) {
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text("Add sample workouts").font(.body.weight(.medium))
-                        Text("Up to three workouts a week on empty days in the 30 days before today.")
-                            .font(.subheadline).foregroundStyle(NotebookStyle.quiet)
-                    }
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    Image(systemName: "plus").foregroundStyle(NotebookStyle.clay).accessibilityHidden(true)
-                }
-                .frame(minHeight: 44)
-                .padding(.vertical, 12)
-                .contentShape(Rectangle())
-            }
-            .disabled(model.canRetrySave)
-            .accessibilityElement(children: .combine)
-            .accessibilityIdentifier("add-sample-workouts")
-            if let sampleWorkoutsStatus {
-                Text(sampleWorkoutsStatus).font(.subheadline).foregroundStyle(NotebookStyle.olive)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.bottom, 12)
-                    .accessibilityIdentifier("sample-workouts-status")
-            }
-            if let error = model.errorMessage {
-                TrainingSaveError(model: model, message: error).padding(.bottom, 12)
-            }
-        }
-    }
-
-    private func addSampleWorkouts() {
-        sampleWorkoutsStatus = nil
-        guard let count = model.addSampleWorkouts() else { return }
-        let message = switch count {
-        case 0: "No more sample workouts to add."
-        case 1: "Added 1 sample workout."
-        default: "Added \(count) sample workouts."
-        }
-        sampleWorkoutsStatus = message
-        TrainingAccessibility.announce(message)
     }
 
     private func destinationRow(title: String, detail: String, opensMenu: Bool = false) -> some View {

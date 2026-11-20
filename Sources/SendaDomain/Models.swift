@@ -7,6 +7,8 @@ public struct Exercise: Codable, Identifiable, Equatable, Sendable {
     public let startingWeight: Int
     public let muscleGroup: MuscleGroup?
     public let equipment: ExerciseEquipment?
+    private let savedMuscleTags: [MuscleRegion]?
+    public var customMuscleTags: [MuscleRegion] { savedMuscleTags ?? [] }
     private var savedCustomSetup: CustomExerciseSetup?
     public var customSetup: CustomExerciseSetup {
         get { savedCustomSetup ?? .init() }
@@ -28,6 +30,7 @@ public struct Exercise: Codable, Identifiable, Equatable, Sendable {
     var catalogAliasID: String?
     private enum CodingKeys: String, CodingKey {
         case id, name, shortName, startingWeight, muscleGroup, equipment
+        case savedMuscleTags = "customMuscleTags"
         case savedCustomSetup = "customSetup"
         case savedArchiveState = "archived"
     }
@@ -46,9 +49,11 @@ public struct Exercise: Codable, Identifiable, Equatable, Sendable {
 
     public init(id: String, name: String, shortName: String, startingWeight: Int,
                 muscleGroup: MuscleGroup? = nil, equipment: ExerciseEquipment? = nil,
-                customSetup: CustomExerciseSetup = .init(), isArchived: Bool = false) {
+                customSetup: CustomExerciseSetup = .init(), isArchived: Bool = false, customMuscleTags: [MuscleRegion] = []) {
         self.id = id; self.name = name; self.shortName = shortName; self.startingWeight = startingWeight
         self.muscleGroup = muscleGroup; self.equipment = equipment
+        let selected = Set(customMuscleTags)
+        self.savedMuscleTags = selected.isEmpty ? nil : MuscleRegion.allCases.filter(selected.contains)
         self.customSetup = customSetup
         self.isArchived = isArchived
     }

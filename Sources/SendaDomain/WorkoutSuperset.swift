@@ -56,7 +56,7 @@ public enum SupersetTimerAction: Sendable {
 
 public struct WorkoutSuperset: Codable, Identifiable, Equatable, Sendable {
     public let id: UUID
-    public let plan: SupersetPlan
+    public package(set) var plan: SupersetPlan
     public package(set) var phase: SupersetPhase = .ready
     public package(set) var completedTurns = 0
     public package(set) var timer: SupersetRestTimer?
@@ -70,6 +70,10 @@ public struct WorkoutSuperset: Codable, Identifiable, Equatable, Sendable {
 
     public var round: Int {
         phase == .resting ? completedTurns / 2 : min(plan.rounds, completedTurns / 2 + 1)
+    }
+
+    public var minimumRounds: Int {
+        max(completedTurns / 2 + 1, (rowIDs.count + 1) / 2)
     }
 
     public var currentExerciseID: String {
@@ -143,6 +147,43 @@ public struct WorkoutSuperset: Codable, Identifiable, Equatable, Sendable {
 }
 
 extension DayWorkout {
+    package var hiddenSupersets: [WorkoutSuperset] {
+        (supersets ?? []).filter { $0.plan.exerciseIDs.allSatisfy { !exerciseIDs.contains($0) } }
+    }
+
+    package func validateSupersets() throws {
+        guard let groups = supersets else { return }
+        guard Set(groups.map(\.id)).count == groups.count,
+              groups.allSatisfy({ $0.plan.exerciseIDs.allSatisfy { rows[$0] != nil } }) else {
+            throw TrainingError.invalidWorkspace
+        }
+        try SupersetPlan.validate(groups.map(\.plan), order: exerciseIDs + hiddenSupersets.flatMap { $0.plan.exerciseIDs })
+        for group in groups { try group.validate(in: self) }
+    }
+
+    package mutating func restoreHiddenSuperset(_ id: UUID, at index: Int, selected: String) throws {
+        guard let group = hiddenSupersets.first(where: { $0.id == id }),
+              (0...exerciseIDs.count).contains(index), (exerciseIDs + group.plan.exerciseIDs).contains(selected) else {
+            throw TrainingError.invalidWorkspace
+        }
+        exerciseIDs.insert(contentsOf: group.plan.exerciseIDs, at: index)
+        selectedExerciseID = selected
+        try validateSupersets()
+    }
+
+    package mutating func showTabs(for id: String) {
+        guard !exerciseIDs.contains(id) else { return }
+        let members = hiddenSupersets.first { $0.plan.exerciseIDs.contains(id) }?.plan.exerciseIDs ?? [id]
+        exerciseIDs.append(contentsOf: members)
+    }
+
+    package mutating func beginReadySuperset(for id: String, recorded row: TrainingRow) {
+        guard row.performedSetID != nil, row.kind?.countsTowardWorkingPlan == true,
+              let index = supersets?.firstIndex(where: { $0.phase == .ready && $0.plan.first == id }) else { return }
+        supersets?[index].phase = .working
+        supersets?[index].rowIDs = [row.id]
+    }
+
     package mutating func removeSuperset(containing id: String) {
         supersets?.removeAll { $0.plan.exerciseIDs.contains(id) }
         if supersets?.isEmpty == true { supersets = nil }
@@ -161,7 +202,7 @@ extension DayWorkout {
         var order = exerciseIDs.filter { $0 != plan.first && $0 != plan.second }
         order.insert(contentsOf: plan.exerciseIDs, at: min(first, second))
         let groups = (supersets ?? []) + [WorkoutSuperset(plan: plan)]
-        try SupersetPlan.validate(groups.map(\.plan), order: order)
+        try SupersetPlan.validate(groups.map(\.plan), order: order + hiddenSupersets.flatMap { $0.plan.exerciseIDs })
         exerciseIDs = order
         supersets = groups
     }

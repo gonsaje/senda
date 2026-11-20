@@ -37,6 +37,29 @@ import SendaPersistence
         #expect(model.journal == before.journal)
     }
 
+    @Test func addingALibraryExerciseToADateRetriesAtomicallyAndKeepsExistingRows() throws {
+        let store = FailingWorkoutStore()
+        let model = try open(store)
+        let tomorrow = try today.adding(days: 1)
+        try #require(model.openDay(today) && model.addExercise("bench"))
+        try #require(model.selectInput(try #require(model.rows.first).id, field: .weight))
+        model.typeInput("31.", focus: try #require(model.focus))
+        try #require(model.selectSection(.learn))
+        let before = model.snapshot
+        store.rejectsWrites = true
+        #expect(!model.addExercise("squat", on: tomorrow) && model.canRetrySave)
+        #expect(model.section == .learn && model.snapshot == before)
+        store.rejectsWrites = false
+        try #require(model.retrySave())
+        #expect(model.section == .log && model.selectedDay == tomorrow && model.exercise?.id == "squat")
+        #expect(model.workspace.days[today.rawValue] == before.training?.days[today.rawValue])
+        let first = model.rows
+        try #require(model.addExercise("squat", on: tomorrow))
+        #expect(model.rows == first && model.workout?.exerciseIDs == ["squat"])
+        try #require(model.addExercise("bench", on: today))
+        #expect(model.rows.first?.weight == "31." && model.journal == before.journal)
+    }
+
     @Test func applyingAStarterFromWeekMergesIntoTheExplicitDay() throws {
         let model = try open(MemoryJournalRepository())
         let tomorrow = try today.adding(days: 1)

@@ -13,6 +13,76 @@ import SendaDomain
             numberInputText: "0", workoutExerciseIDs: ["bench", "deadlift", "squat", exercise.id])
     }
 
+    @Test func customMusclesRoundTripInLocalAndSharedBackupsAndRejectMissingTags() throws {
+        let url = location()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let repository = FileJournalRepository(url: url)
+        var lift = try ExerciseLibrary.custom(named: "Garage carry", muscleGroup: .fullBody,
+            customMuscleTags: [.abdominals, .forearms])
+        lift.isArchived = true
+        let snapshot = JournalSnapshot(customExercises: [lift],
+            training: TrainingWorkspace(visibleWeek: try TrainingDay("2026-11-16")))
+        try repository.saveSnapshot(snapshot)
+        #expect(try repository.loadSnapshot() == snapshot)
+        var file = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        #expect(file["version"] as? Int == 13 && file["customMuscleMetadata"] as? [String: Int] == ["tags": 2, "neckExercises": 0])
+        var definitions = try #require(file["customExercises"] as? [[String: Any]])
+        definitions[0].removeValue(forKey: "customMuscleTags")
+        file["customExercises"] = definitions
+        let damaged = try JSONSerialization.data(withJSONObject: file)
+        try damaged.write(to: url)
+        #expect(throws: StorageError.invalidCustomMuscleMetadata) { try repository.loadSnapshot() }
+        #expect(try Data(contentsOf: url) == damaged)
+        file["version"] = 12
+        try JSONSerialization.data(withJSONObject: file).write(to: url)
+        #expect(throws: StorageError.invalidCustomMuscleMetadata) { try repository.loadSnapshot() }
+
+
+        for manual in [nil, []] as [[BodyMeasurement]?] {
+            let archive = NotebookArchive(snapshot: snapshot, profile: ProfileDetails(), manualMeasurements: manual)
+            let data = try NotebookBackupCodec.encode(archive)
+            #expect(try NotebookBackupCodec.decode(data) == archive)
+            var json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+            #expect(json["version"] as? Int == 13 && json["customMuscleMetadata"] as? [String: Int] == ["tags": 2, "neckExercises": 0])
+            var payload = try #require(json["snapshot"] as? [String: Any])
+            payload["customExercises"] = definitions
+            json["snapshot"] = payload
+            #expect(throws: NotebookBackupError.invalidBackup) {
+                try NotebookBackupCodec.decode(JSONSerialization.data(withJSONObject: json))
+            }
+        }
+    }
+
+    @Test func aCustomNeckExerciseNeedsTheNewFormatEvenWithoutMuscleTags() throws {
+        let exercise = try ExerciseLibrary.custom(named: "Gentle nod", muscleGroup: .neck)
+        let snapshot = JournalSnapshot(customExercises: [exercise], training: TrainingWorkspace(visibleWeek: try TrainingDay("2026-11-16")))
+        let url = location()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let repository = FileJournalRepository(url: url)
+        try repository.saveSnapshot(snapshot)
+        #expect(try repository.loadSnapshot() == snapshot)
+        var file = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        #expect(file["version"] as? Int == 13)
+        #expect(file["customMuscleMetadata"] as? [String: Int] == ["neckExercises": 1, "tags": 0])
+        var defs = try #require(file["customExercises"] as? [[String: Any]])
+        defs[0].removeValue(forKey: "muscleGroup")
+        file["customExercises"] = defs
+        try JSONSerialization.data(withJSONObject: file).write(to: url)
+        #expect(throws: StorageError.invalidCustomMuscleMetadata) { try repository.loadSnapshot() }
+
+        let archive = NotebookArchive(snapshot: snapshot, profile: ProfileDetails())
+        let data = try NotebookBackupCodec.encode(archive)
+        #expect(try NotebookBackupCodec.decode(data) == archive)
+        let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(object["version"] as? Int == 13)
+        var program = TrainingProgram.catalog[0].copyForEditing()
+        program.blocks[0].sessions[0].exercises[0].exerciseID = exercise.id
+        let shared = try program.exportData(customExercises: [exercise])
+        let json = try #require(JSONSerialization.jsonObject(with: shared) as? [String: Any])
+        #expect(json["version"] as? Int == 3)
+        #expect(try ProgramFile.decode(shared).customExercises == [exercise])
+    }
+
     @Test func taggedCustomExercisesSurviveJournalAndBackupWithoutChangingEarlierRecords() throws {
         let url = location()
         defer { try? FileManager.default.removeItem(at: url) }

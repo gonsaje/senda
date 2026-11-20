@@ -11,23 +11,58 @@ import SendaPersistence
     @ObservationIgnored private let restoreStore: any NotebookRestoreStore
     @ObservationIgnored private let repository: any JournalRepository
     @ObservationIgnored private let profileRepository: any ProfileRepository
+    @ObservationIgnored private let health: (any BodyMeasurementsHealthSource)?
+    public struct Demo {
+        public let session: TrainingSession
+        public let preferences: UserDefaults
+    }
+    public private(set) var demo: Demo?
+    private static let demoPreferencesDomain = "com.senda.journal.sample-preferences"
     public let isSample: Bool
     public init(repository: any JournalRepository, isSample: Bool = false, profileRepository: (any ProfileRepository)? = nil,
-                restoreStore: (any NotebookRestoreStore)? = nil) {
+                restoreStore: (any NotebookRestoreStore)? = nil, health: (any BodyMeasurementsHealthSource)? = nil) {
+        self.health = health
         let profileRepository = profileRepository ?? MemoryProfileRepository()
         self.profileRepository = profileRepository
         self.restoreStore = restoreStore ?? MemoryNotebookRestoreStore(repository: repository, profileRepository: profileRepository)
         self.repository = repository; self.isSample = isSample; open()
     }
+    public static func sample() throws -> TrainingSession {
+        let repository = MemoryJournalRepository(journal: try SampleJournal.makeTwelveWeeks())
+        let profile = MemoryProfileRepository()
+        try profile.save(ProfileDetails(goals: [
+            StrengthGoal(exerciseID: "bench", target: SetValues(weight: 15_500, reps: 8)),
+            StrengthGoal(exerciseID: "deadlift", target: SetValues(weight: 21_500, reps: 5))
+        ]))
+        let session = TrainingSession(repository: repository, isSample: true, profileRepository: profile)
+        guard session.notebook != nil else { throw TrainingError.invalidWorkspace }
+        return session
+    }
+
+    public func openDemo() throws {
+        guard !isSample, demo == nil else { return }
+        let session = try Self.sample()
+        guard let preferences = UserDefaults(suiteName: Self.demoPreferencesDomain) else {
+            throw CocoaError(.fileReadUnknown)
+        }
+        preferences.removePersistentDomain(forName: Self.demoPreferencesDomain)
+        demo = Demo(session: session, preferences: preferences)
+    }
+
+    public func closeDemo() {
+        demo?.preferences.removePersistentDomain(forName: Self.demoPreferencesDomain)
+        demo = nil
+    }
+
     public func open() {
         do {
             try restoreStore.recoverInterruptedRestore()
             let saved = try repository.loadSnapshot().validated()
             if TrainingWorkspace.requiresLegacyReview(saved) {
                 let review = try LegacyRecoveryModel(repository: repository)
-                if review.isComplete { recovery = nil; notebook = try TrainingNotebookModel(repository: repository, isSample: isSample, profileRepository: profileRepository, restoreStore: restoreStore) }
+                if review.isComplete { recovery = nil; notebook = try TrainingNotebookModel(repository: repository, isSample: isSample, profileRepository: profileRepository, restoreStore: restoreStore, health: health) }
                 else { notebook = nil; recovery = review }
-            } else { recovery = nil; notebook = try TrainingNotebookModel(repository: repository, isSample: isSample, profileRepository: profileRepository, restoreStore: restoreStore) }
+            } else { recovery = nil; notebook = try TrainingNotebookModel(repository: repository, isSample: isSample, profileRepository: profileRepository, restoreStore: restoreStore, health: health) }
             openingError = nil
         } catch { notebook = nil; recovery = nil; openingError = error.localizedDescription }
     }
@@ -54,6 +89,7 @@ import SendaPersistence
         } catch { backupErrorMessage = error.localizedDescription; open(); return false }
     }
     public func suspend() {
+        if let demo { demo.session.suspend(); return }
         if let recovery { _ = recovery.flushRecovery() }
         else if let notebook {
             guard !notebook.backupRecoveryRequired else { return }

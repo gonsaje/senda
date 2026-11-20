@@ -29,6 +29,20 @@ struct ExerciseLibraryTests {
         #expect(restored.first { $0.id == old.id }?.muscleMap == nil)
     }
 
+    @Test func customMuscleTagsRemainIndependentOfTheMainCategoryThroughEdits() throws {
+        let original = try ExerciseLibrary.custom(named: "Garage pull", muscleGroup: .back,
+            customMuscleTags: [.forearms, .lats, .abdominals, .lats])
+        #expect(original.customMuscleTags == [.forearms, .lats, .abdominals])
+        let renamed = try ExerciseLibrary.editCustom(original, named: "Cable pull", existing: [original], muscleGroup: .arms)
+        #expect(renamed.customMuscleTags == original.customMuscleTags && renamed.group == .arms)
+        let cleared = try ExerciseLibrary.editCustom(renamed, named: renamed.name, existing: [renamed],
+            muscleGroup: .arms, customMuscleTags: [])
+        #expect(cleared.customMuscleTags.isEmpty)
+        let data = try JSONEncoder().encode(cleared)
+        #expect(!String(decoding: data, as: UTF8.self).contains("customMuscleTags"))
+        #expect(try JSONDecoder().decode(Exercise.self, from: data).customMuscleTags.isEmpty)
+    }
+
     @Test func editingCustomExercisesRetainsIdentityAndPermitsReusingArchivedNames() throws {
         var old = try ExerciseLibrary.custom(named: "Porch lift", muscleGroup: .legs, equipment: .bodyweight)
         old.isArchived = true

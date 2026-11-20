@@ -8,6 +8,7 @@ struct TrainingProgramLibrary: View {
     @Environment(\.dismiss) private var dismiss
     @State private var path: [String] = []
     @State private var editor: TrainingProgram?
+    @State private var manager: ManagedSchedule?
     @State private var importing = false
     @State private var export: ProgramDocument?
     @State private var exporting = false
@@ -17,30 +18,23 @@ struct TrainingProgramLibrary: View {
     var body: some View {
         NavigationStack(path: $path) {
             List {
-                let enrollments = model.workspace.activeProgramEnrollments.sorted { $0.start > $1.start }
+                let enrollments = model.workspace.activeProgramEnrollments.filter { $0.endedOn == nil }.sorted { $0.start > $1.start }
                 if !enrollments.isEmpty {
                     Section("On Week") {
                         ForEach(Array(enrollments.enumerated()), id: \.offset) { _, enrollment in
                             Button {
-                                let days = model.workspace.days.compactMap { date, workout -> TrainingDay? in
-                                    guard let session = workout.programSession, session.programID == enrollment.programID,
-                                          session.start == enrollment.start else { return nil }
-                                    return TrainingDay(rawValue: date)
-                                }.sorted()
-                                let next = days.first { $0 >= model.today } ?? days.last ?? enrollment.start
-                                if model.showWeek(containing: next), model.selectSection(.log) { dismiss() }
-                                else { message = model.errorMessage }
+                                manager = ManagedSchedule(enrollment: enrollment)
                             } label: {
                                 HStack {
                                     VStack(alignment: .leading, spacing: 4) {
                                         Text(enrollment.program.title).font(.body.weight(.semibold))
-                                        Text("Start · " + TrainingText.date(enrollment.start, format: "MMM d, yyyy"))
+                                        Text("Manage schedule · " + TrainingText.date(enrollment.start, format: "MMM d, yyyy"))
                                             .font(.subheadline).foregroundStyle(NotebookStyle.quiet)
                                     }
                                     Spacer()
-                                    Image(systemName: "calendar").foregroundStyle(NotebookStyle.clay)
+                                    Image(systemName: "chevron.forward").foregroundStyle(NotebookStyle.quiet)
                                 }.frame(minHeight: 44)
-                            }.accessibilityHint("Open the scheduled workout week")
+                            }.accessibilityIdentifier("manage-schedule-\(enrollment.programID)-\(enrollment.start.rawValue)")
                         }
                     }
                 }
@@ -65,11 +59,18 @@ struct TrainingProgramLibrary: View {
             .navigationDestination(for: String.self) { id in
                 if let program = model.programs.first(where: { $0.id == id }) {
                     ProgramDetail(model: model, program: program, edit: { editor = $0 },
-                        share: share, deleted: { path = [] }, openWeek: { dismiss() })
+                        share: share, deleted: { path = [] }, openWeek: { dismiss() },
+                        manage: { manager = ManagedSchedule(enrollment: $0) })
                 }
             }
         }
         .tint(NotebookStyle.clay)
+        .sheet(item: $manager) { managed in
+            ProgramScheduleManager(model: model, enrollment: managed.enrollment) {
+                manager = nil
+                dismiss()
+            }
+        }
         .sheet(item: $editor) { original in
             TrainingProgramEditor(model: model, original: original) { saved in
                 editor = nil
@@ -128,6 +129,11 @@ struct TrainingProgramLibrary: View {
     }
 }
 
+private struct ManagedSchedule: Identifiable {
+    let enrollment: ProgramEnrollment
+    var id: String { "\(enrollment.programID)-\(enrollment.start.rawValue)" }
+}
+
 private struct ProgramDocument: FileDocument {
     static var readableContentTypes: [UTType] { [.json] }
     let data: Data
@@ -156,6 +162,7 @@ private struct ProgramDetail: View {
     let share: (TrainingProgram) -> Void
     let deleted: () -> Void
     let openWeek: () -> Void
+    let manage: (ProgramEnrollment) -> Void
     @State private var start: Date
     @State private var week = 1
     @State private var confirmDelete = false
@@ -163,13 +170,15 @@ private struct ProgramDetail: View {
     @State private var hasPendingWrite = false
 
     init(model: TrainingNotebookModel, program: TrainingProgram, edit: @escaping (TrainingProgram) -> Void,
-         share: @escaping (TrainingProgram) -> Void, deleted: @escaping () -> Void, openWeek: @escaping () -> Void) {
+         share: @escaping (TrainingProgram) -> Void, deleted: @escaping () -> Void, openWeek: @escaping () -> Void,
+         manage: @escaping (ProgramEnrollment) -> Void) {
         self.model = model
         self.program = program
         self.edit = edit
         self.share = share
         self.deleted = deleted
         self.openWeek = openWeek
+        self.manage = manage
         _start = State(initialValue: model.today.date(in: model.calendar))
     }
 
@@ -187,6 +196,9 @@ private struct ProgramDetail: View {
         let free = slots.filter { !$0.isOccupied && !$0.isScheduled }.count
         let busy = slots.filter { $0.isOccupied && !$0.isScheduled }.count
         let scheduled = model.isProgramScheduled(program, starting: startDay)
+        let enrollment = model.workspace.activeProgramEnrollments.first {
+            $0.programID == program.id && $0.start == startDay && $0.endedOn == nil
+        }
         let unavailable = model.unavailableProgramExercises(program)
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
@@ -219,9 +231,7 @@ private struct ProgramDetail: View {
                         }
                     }.scrollIndicators(.hidden)
                 }
-                Picker("Week preview", selection: $week) {
-                    ForEach(1...max(1, displayed.weeks), id: \.self) { n in Text("Week \(n)").tag(n) }
-                }.pickerStyle(.menu).accessibilityIdentifier("program-week-preview")
+                ProgramWeekPicker(program: displayed, week: $week)
                 if displayed.blocks.indices.contains(blockIndex), !displayed.blocks[blockIndex].progression.isEmpty {
                     Text(displayed.blocks[blockIndex].progression).font(.subheadline).foregroundStyle(NotebookStyle.quiet)
                 }
@@ -256,11 +266,12 @@ private struct ProgramDetail: View {
                 }
                 if let problem { Text(problem).font(.callout) }
                 Button {
+                    if let enrollment { manage(enrollment); return }
                     if !scheduled && !model.scheduleProgram(program, starting: startDay) { showError(); return }
                     if model.showWeek(containing: startDay), model.selectSection(.log) { openWeek() }
                     else { showError() }
                 } label: {
-                    Text(scheduled ? "View on Week" : "Schedule \(free) \(free == 1 ? "workout" : "workouts")")
+                    Text(enrollment != nil ? "Manage schedule" : scheduled ? "View on Week" : "Schedule \(free) \(free == 1 ? "workout" : "workouts")")
                         .font(.headline).frame(maxWidth: .infinity, minHeight: 44)
                 }
                 .buttonStyle(.borderedProminent).tint(NotebookStyle.primaryFill).foregroundStyle(NotebookStyle.onPrimary)
@@ -269,6 +280,7 @@ private struct ProgramDetail: View {
             }
             .frame(maxWidth: 520, alignment: .leading).padding(20).frame(maxWidth: .infinity)
         }
+        .accessibilityIdentifier("program-detail-scroll")
         .programPageStyle()
         .environment(\.calendar, model.calendar)
         .environment(\.timeZone, model.calendar.timeZone)

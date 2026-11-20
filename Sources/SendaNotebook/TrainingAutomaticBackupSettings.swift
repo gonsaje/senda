@@ -14,6 +14,7 @@ struct TrainingAutomaticBackupSettings: View {
                 .font(NotebookTypography.heading(22, relativeTo: .title2))
                 .accessibilityAddTraits(.isHeader)
                 .fixedSize(horizontal: false, vertical: true)
+            detail("iCloud copies include workouts and profile details. To include manual body measurements, choose Save full backup.")
             if let folder = backup.folderName {
                 Text(folder).font(.body.weight(.medium))
                     .fixedSize(horizontal: false, vertical: true)
@@ -32,7 +33,7 @@ struct TrainingAutomaticBackupSettings: View {
                     backup.turnOff()
                 }
             } else {
-                detail("Choose a private folder in iCloud Drive. Backups include your workouts and profile details. Senda checks for changes while you use the app and saves up to one copy a day.")
+                detail("Choose a private folder in iCloud Drive. Senda checks for changes while you use the app and saves up to one copy a day.")
                 action("Choose backup folder", id: "choose-backup-folder", perform: chooseFolder)
             }
             if let error = selectionError ?? backup.errorMessage {
@@ -85,7 +86,7 @@ struct TrainingAutomaticBackupSettings: View {
     private func backUpNow() {
         selectionError = nil
         Task {
-            let saved = await backup.backUpNow { try model.backupArchive() }
+            let saved = await backup.backUpNow { try model.backupArchive(includingManualMeasurements: false) }
             if let error = backup.errorMessage { TrainingAccessibility.announce(error) }
             else if saved { TrainingAccessibility.announce("Backup saved to the selected folder.") }
         }

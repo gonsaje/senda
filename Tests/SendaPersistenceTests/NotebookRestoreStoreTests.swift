@@ -24,6 +24,53 @@ import SendaDomain
         try FileProfileRepository(url: profile).save(archive.profile)
     }
 
+    @Test(arguments: [true, false])
+    func interruptedRestoreAfterWritingMeasurementsRestoresAllThreeFiles(hadReadings: Bool) throws {
+        let root = try directory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let journal = root.appendingPathComponent("journal.json"), profile = root.appendingPathComponent("profile.json")
+        let old = try archive(name: "Before"), new = try archive(name: "After", weight: 14_000)
+        try seed(old, journal: journal, profile: profile)
+        let reading = try BodyMeasurement(metric: .weight, value: 72, date: .now)
+        let target = NotebookArchive(snapshot: new.snapshot, profile: new.profile, manualMeasurements: [reading])
+        let before = hadReadings ? [try BodyMeasurement(metric: .waist, value: 83, date: .now)] : []
+        let current = NotebookArchive(snapshot: old.snapshot, profile: old.profile, manualMeasurements: before)
+        let reopened = FileNotebookRestoreStore(journalURL: journal, profileURL: profile)
+        if hadReadings { try reopened.measurementsRepository.save(before) }
+
+        var interrupted = false
+        let store = FileNotebookRestoreStore(journalURL: journal, profileURL: profile, writer: { data, url in
+            if interrupted { throw CocoaError(.fileWriteUnknown) }
+            try data.write(to: url, options: .atomic)
+            if url == reopened.measurementsURL { interrupted = true; throw CocoaError(.fileWriteUnknown) }
+        })
+        #expect(throws: (any Error).self) { try store.restore(target, current: current) }
+        try reopened.recoverInterruptedRestore()
+        #expect(try FileJournalRepository(url: journal).loadSnapshot() == current.snapshot)
+        #expect(try FileProfileRepository(url: profile).load() == current.profile)
+        #expect(try reopened.measurementsRepository.load() == before)
+        #expect(FileManager.default.fileExists(atPath: reopened.measurementsURL.path) == hadReadings)
+        #expect(try NotebookBackupCodec.decode(#require(try reopened.previousBackupData())) == current)
+    }
+
+    @Test func earlierStagedRestoreMarkerLeavesMeasurementFileAlone() throws {
+        let root = try directory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let journal = root.appendingPathComponent("journal.json"), profile = root.appendingPathComponent("profile.json")
+        let store = FileNotebookRestoreStore(journalURL: journal, profileURL: profile)
+        let readings = [try BodyMeasurement(metric: .weight, value: 72, date: .now)]
+        try store.measurementsRepository.save(readings)
+        let old = try archive(name: "Earlier")
+        let stage = journal.appendingPathExtension("restore-staging")
+        try FileManager.default.createDirectory(at: stage, withIntermediateDirectories: true)
+        try NotebookBackupCodec.encode(old).write(to: stage.appendingPathComponent("backup"))
+        let marker: [String: Any] = ["format": "senda-restore-checkpoint", "version": 1, "present": ["backup"]]
+        try JSONSerialization.data(withJSONObject: marker).write(to: store.pendingURL)
+        try store.recoverInterruptedRestore()
+        #expect(try store.measurementsRepository.load() == readings)
+        #expect(try NotebookBackupCodec.decode(#require(try store.previousBackupData())) == old)
+    }
+
     @Test func fileRestoreReplacesBothFilesAndRetainsTheLatestCurrentArchive() throws {
         let root = try directory(); defer { try? FileManager.default.removeItem(at: root) }
         let journalURL = root.appendingPathComponent("journal.json"), profileURL = root.appendingPathComponent("profile.json")
@@ -95,7 +142,10 @@ import SendaDomain
     @Test func writeThenFailureRollsBackBothAlreadyWrittenTargets() throws {
         let root = try directory(); defer { try? FileManager.default.removeItem(at: root) }
         let journalURL = root.appendingPathComponent("journal.json"), profileURL = root.appendingPathComponent("profile.json")
-        let old = try archive(name: "Old"), target = try archive(name: "Target", weight: 15_000)
+        let before = try archive(name: "Old"), target = try archive(name: "Target", weight: 15_000)
+        var original = before.snapshot
+        original.customExercises = [try ExerciseLibrary.custom(named: "Garage press", customMuscleTags: [.chest, .triceps])]
+        let old = NotebookArchive(snapshot: original, profile: before.profile)
         try seed(old, journal: journalURL, profile: profileURL)
         let journalBytes = try Data(contentsOf: journalURL), profileBytes = try Data(contentsOf: profileURL)
         var failed = false

@@ -7,8 +7,11 @@ private let notebookDateRange: ClosedRange<TimeInterval> = -62_135_596_800...253
 public struct NotebookArchive: Codable, Equatable, Sendable {
     public let snapshot: JournalSnapshot
     public let profile: ProfileDetails
+    /// Missing in workout-only and older backups. An empty array explicitly restores an empty history.
+    public let manualMeasurements: [BodyMeasurement]?
     public let createdAt: Date
-    public init(snapshot: JournalSnapshot, profile: ProfileDetails, createdAt: Date = Date()) {
+    public init(snapshot: JournalSnapshot, profile: ProfileDetails, manualMeasurements: [BodyMeasurement]? = nil, createdAt: Date = Date()) {
+        self.manualMeasurements = manualMeasurements
         self.snapshot = snapshot; self.profile = profile; self.createdAt = createdAt
     }
 
@@ -30,7 +33,9 @@ public struct NotebookArchive: Codable, Equatable, Sendable {
         default: break
         }
         do {
-            return try NotebookArchive(snapshot: snapshot.validated(), profile: profile.validated(), createdAt: createdAt)
+            if let manualMeasurements { try validateManualReadings(manualMeasurements) }
+            return try NotebookArchive(snapshot: snapshot.validated(), profile: profile.validated(),
+                manualMeasurements: manualMeasurements, createdAt: createdAt)
         } catch {
             throw NotebookBackupError.invalidBackup
         }
@@ -38,7 +43,8 @@ public struct NotebookArchive: Codable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case format, version, createdAt, snapshot, profile, workoutTemplateCount
-        case archivedCustomExerciseCount, customExerciseSetupCount, structuredTraining
+        case includesManualMeasurements, manualMeasurements, manualMeasurementCount
+        case archivedCustomExerciseCount, customExerciseSetupCount, customMuscleMetadata, structuredTraining
     }
 
     /// Backups require the library even when it is empty: a missing library must not silently erase names.
@@ -68,15 +74,19 @@ public struct NotebookArchive: Codable, Equatable, Sendable {
                 throw NotebookBackupError.incompatibleFormat
             }
             let version = try box.decode(Int.self, forKey: .version)
-            guard (1...10).contains(version) else { throw NotebookBackupError.unsupportedVersion(version) }
+            guard (1...13).contains(version) else { throw NotebookBackupError.unsupportedVersion(version) }
             let payload = try box.decode(SnapshotPayload.self, forKey: .snapshot)
             if version == 7, payload.training.workoutTemplates?.isEmpty != false {
                 throw NotebookBackupError.invalidBackup
             }
             let snapshot = payload.snapshot
             let structures = StructuredTrainingCounts(payload.training)
-            if version == 10 {
-                guard !structures.isEmpty, try box.decode(StructuredTrainingCounts.self, forKey: .structuredTraining) == structures
+            let muscleMetadata = CustomMuscleMetadata(payload.customExercises)
+            guard (version == 13) == (muscleMetadata != nil),
+                  try box.decodeIfPresent(CustomMuscleMetadata.self, forKey: .customMuscleMetadata) == muscleMetadata,
+                  version == 13 || (version == 12) == structures.hasManagement else { throw NotebookBackupError.invalidBackup }
+            if version >= 10 {
+                guard (version == 11 || version == 13 || !structures.isEmpty), try box.decode(StructuredTrainingCounts.self, forKey: .structuredTraining) == structures
                 else { throw NotebookBackupError.invalidBackup }
             } else if !structures.isEmpty { throw NotebookBackupError.invalidBackup }
             if version >= 9 {
@@ -91,8 +101,29 @@ public struct NotebookArchive: Codable, Equatable, Sendable {
             if version >= 8, try box.decode(Int.self, forKey: .workoutTemplateCount) != (payload.training.workoutTemplates?.count ?? 0) {
                 throw NotebookBackupError.invalidBackup
             }
+            let measurements: [BodyMeasurement]?
+            let includesMeasurements: Bool
+            if version >= 12 {
+                includesMeasurements = try box.decode(Bool.self, forKey: .includesManualMeasurements)
+            } else {
+                guard !box.contains(.includesManualMeasurements) else { throw NotebookBackupError.invalidBackup }
+                includesMeasurements = version == 11
+            }
+            if includesMeasurements {
+                let readings = try box.decode([BodyMeasurement].self, forKey: .manualMeasurements)
+                guard try box.decode(Int.self, forKey: .manualMeasurementCount) == readings.count else {
+                    throw NotebookBackupError.invalidBackup
+                }
+                measurements = readings
+            } else {
+                guard !box.contains(.manualMeasurements), !box.contains(.manualMeasurementCount) else {
+                    throw NotebookBackupError.invalidBackup
+                }
+                measurements = nil
+            }
             self = try NotebookArchive(snapshot: snapshot,
-                profile: box.decode(ProfileDetails.self, forKey: .profile), createdAt: box.decode(Date.self, forKey: .createdAt)).validated()
+                profile: box.decode(ProfileDetails.self, forKey: .profile), manualMeasurements: measurements,
+                createdAt: box.decode(Date.self, forKey: .createdAt)).validated()
         } catch let error as NotebookBackupError {
             throw error
         } catch {
@@ -106,7 +137,11 @@ public struct NotebookArchive: Codable, Equatable, Sendable {
         try box.encode("senda-backup", forKey: .format)
         let archived = archive.snapshot.archivedCustomExerciseCount
         let structures = StructuredTrainingCounts(archive.snapshot.training)
-        let version = if !structures.isEmpty { 10 }
+        let muscleMetadata = CustomMuscleMetadata(archive.snapshot.customExercises ?? [])
+        let version = if muscleMetadata != nil { 13 }
+            else if structures.hasManagement { 12 }
+            else if archive.manualMeasurements != nil { 11 }
+            else if !structures.isEmpty { 10 }
             else if archived > 0 { 9 }
             else if archive.snapshot.hasCustomExerciseSetups { 8 }
             else if archive.snapshot.training?.workoutTemplates?.isEmpty == false { 7 }
@@ -114,10 +149,16 @@ public struct NotebookArchive: Codable, Equatable, Sendable {
             else if !archive.profile.goals.isEmpty { 5 }
             else { 4 }
         try box.encode(version, forKey: .version)
+        try box.encodeIfPresent(muscleMetadata, forKey: .customMuscleMetadata)
         if version >= 8 {
             try box.encode(archive.snapshot.training?.workoutTemplates?.count ?? 0, forKey: .workoutTemplateCount)
         }
-        if version == 10 { try box.encode(structures, forKey: .structuredTraining) }
+        if version >= 10 { try box.encode(structures, forKey: .structuredTraining) }
+        if version >= 12 { try box.encode(archive.manualMeasurements != nil, forKey: .includesManualMeasurements) }
+        if let readings = archive.manualMeasurements {
+            try box.encode(readings, forKey: .manualMeasurements)
+            try box.encode(readings.count, forKey: .manualMeasurementCount)
+        }
         if version >= 9 {
             try box.encode(archived, forKey: .archivedCustomExerciseCount)
             try box.encode(archive.snapshot.customExerciseSetupCount, forKey: .customExerciseSetupCount)

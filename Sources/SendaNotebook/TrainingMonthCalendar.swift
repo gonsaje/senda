@@ -33,6 +33,14 @@ struct TrainingMonthCalendar: View {
                             dateList
                         }
                     }
+                    HStack(spacing: 18) {
+                        Label { Text("Planned") } icon: { marker(logged: false) }
+                        Label { Text("Logged") } icon: { marker(logged: true) }
+                    }
+                    .font(.caption).foregroundStyle(NotebookStyle.quiet)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 4)
+                    .accessibilityHidden(true)
                 }
                 .padding(.horizontal, 5)
                 .padding(.vertical, 12)
@@ -151,15 +159,26 @@ struct TrainingMonthCalendar: View {
         .padding(.horizontal, 15)
     }
 
+    private func marker(logged: Bool) -> some View {
+        Circle()
+            .fill(logged ? NotebookStyle.clay : .clear)
+            .overlay { Circle().strokeBorder(NotebookStyle.clay, lineWidth: 1.3) }
+            .frame(width: 7, height: 7)
+    }
+
     private func dateButton(_ day: TrainingDay, title: String, grid: Bool) -> some View {
-        let hasWorkout = model.summary(for: day).setCount > 0
+        let logged = model.summary(for: day).setCount > 0
+        let planned = model.workspace.days[day.rawValue].map {
+            !$0.exerciseIDs.isEmpty || !$0.rows.isEmpty || $0.programSession != nil
+        } ?? false
+        let marked = logged || planned
         let isToday = day == model.today
         let label = TrainingText.date(day, format: "EEEE, MMMM d, yyyy")
         let layout = grid
             ? AnyLayout(VStackLayout(spacing: 4))
             : AnyLayout(HStackLayout(spacing: 8))
         return Button {
-            if model.showWeek(containing: day) { dismiss() }
+            if marked ? model.openDay(day) : model.showWeek(containing: day) { dismiss() }
             else { showsJumpError = true }
         } label: {
             layout {
@@ -167,17 +186,14 @@ struct TrainingMonthCalendar: View {
                     .font(.body.weight(isToday ? .semibold : .regular).monospacedDigit())
                     .foregroundStyle(isToday ? NotebookStyle.clay : NotebookStyle.ink)
                     .fixedSize(horizontal: false, vertical: true)
-                Circle()
-                    .fill(hasWorkout ? NotebookStyle.clay : .clear)
-                    .frame(width: 5, height: 5)
-                    .accessibilityHidden(true)
+                marker(logged: logged).opacity(marked ? 1 : 0).accessibilityHidden(true)
             }
             .frame(maxWidth: .infinity, minHeight: 46, alignment: grid ? .center : .leading)
             .contentShape(Rectangle())
         }
         .accessibilityLabel(isToday ? "Today, \(label)" : label)
-        .accessibilityValue(hasWorkout ? "Workout logged" : "No workout logged")
-        .accessibilityHint("Opens the week containing this date")
+        .accessibilityValue(logged ? "Workout logged" : planned ? "Workout planned" : "No workout logged")
+        .accessibilityHint(marked ? "Opens this workout" : "Opens the week containing this date")
         .accessibilityIdentifier("calendar-day-\(day.rawValue)")
     }
 }

@@ -79,7 +79,7 @@ import Testing
 
     @Test func programsTravelWithReferencedCustomExercisesAndProtectExistingDefinitions() throws {
         let sender = try TrainingNotebookModel(repository: MemoryJournalRepository())
-        #expect(sender.createLibraryExercise(named: "Porch press", group: .chest, equipment: .dumbbell))
+        #expect(sender.createLibraryExercise(named: "Porch press", group: .chest, equipment: .dumbbell, customMuscleTags: [.chest, .triceps]))
         #expect(sender.createLibraryExercise(named: "Club curl", group: .arms, equipment: .cable))
         let porch = try #require(sender.snapshot.customExercises?.first)
         var program = TrainingProgram.catalog[0].copyForEditing()
@@ -89,6 +89,14 @@ import Testing
         let store = ProgramWriteStore()
         let recipient = try TrainingNotebookModel(repository: store)
         let prior = recipient.snapshot, priorStored = store.snapshot
+        var damaged = try #require(JSONSerialization.jsonObject(with: file) as? [String: Any])
+        #expect(damaged["version"] as? Int == 3)
+        var definitions = try #require(damaged["customExercises"] as? [[String: Any]])
+        definitions[0].removeValue(forKey: "customMuscleTags")
+        damaged["customExercises"] = definitions
+        #expect(throws: ProgramError.invalidFile) { try recipient.importProgram(JSONSerialization.data(withJSONObject: damaged)) }
+        #expect(recipient.snapshot == prior && store.snapshot == priorStored)
+
         store.reject = true
         #expect(throws: (any Error).self) { try recipient.importProgram(file) }
         #expect(recipient.snapshot == prior && store.snapshot == priorStored)
@@ -163,7 +171,7 @@ import Testing
         let program = TrainingProgram.catalog[0].copyForEditing()
         #expect(model.saveProgram(program) && model.scheduleProgram(program, starting: start))
         var local = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: journalURL)) as? [String: Any])
-        #expect(local["version"] as? Int == 11)
+        #expect(local["version"] as? Int == 12)
         var training = try #require(local["training"] as? [String: Any])
         training.removeValue(forKey: "programs")
         local["training"] = training
@@ -171,13 +179,72 @@ import Testing
         #expect(throws: StorageError.incompleteStructuredTraining) { try store.loadSnapshot() }
 
         var backup = try #require(JSONSerialization.jsonObject(with: model.backupData()) as? [String: Any])
-        #expect(backup["version"] as? Int == 10)
-        var counts = try #require(backup["structuredTraining"] as? [String: Int])
+        #expect(backup["version"] as? Int == 12)
+        var counts = try #require(backup["structuredTraining"] as? [String: Any])
         counts["supersets"] = 0
         backup["structuredTraining"] = counts
         #expect(throws: NotebookBackupError.invalidBackup) {
             try NotebookBackupCodec.decode(JSONSerialization.data(withJSONObject: backup))
         }
+    }
+
+    @Test func managedScheduleFormatsRequireEndedStateAndRetainManualBackupScope() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("journal.json")
+        let store = FileJournalRepository(url: url)
+        let today = try start.adding(days: 1).date()
+        let model = try TrainingNotebookModel(repository: store, now: { today })
+        let program = TrainingProgram.catalog[0]
+        let slot = try #require(try model.previewProgram(program, starting: start).first)
+        #expect(model.scheduleProgram(program, starting: start))
+        let enrollment = try #require(model.workspace.activeProgramEnrollments.first)
+        #expect(model.applyScheduleChange(try model.previewScheduleChange(enrollment, action: .end)))
+        #expect(try store.loadSnapshot() == model.snapshot)
+
+        let journal = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        var training = try #require(journal["training"] as? [String: Any])
+        var enrollments = try #require(training["programEnrollments"] as? [[String: Any]])
+        #expect(enrollments[0].removeValue(forKey: "endedOn") != nil)
+        training["programEnrollments"] = enrollments
+        var damagedJournal = journal
+        damagedJournal["training"] = training
+        try JSONSerialization.data(withJSONObject: damagedJournal).write(to: url)
+        #expect(throws: StorageError.incompleteStructuredTraining) { try store.loadSnapshot() }
+
+        for includesMeasurements in [false, true] {
+            let archive = try model.backupArchive(includingManualMeasurements: includesMeasurements)
+            let bytes = try NotebookBackupCodec.encode(archive)
+            #expect(try NotebookBackupCodec.decode(bytes) == archive)
+            var backup = try #require(JSONSerialization.jsonObject(with: bytes) as? [String: Any])
+            #expect(backup["version"] as? Int == 12)
+            #expect(backup["includesManualMeasurements"] as? Bool == includesMeasurements)
+            var damaged = backup
+            var snapshot = try #require(damaged["snapshot"] as? [String: Any])
+            snapshot["training"] = training
+            damaged["snapshot"] = snapshot
+            #expect(throws: NotebookBackupError.invalidBackup) {
+                try NotebookBackupCodec.decode(JSONSerialization.data(withJSONObject: damaged))
+            }
+            backup["version"] = includesMeasurements ? 11 : 10
+            backup.removeValue(forKey: "includesManualMeasurements")
+            #expect(throws: NotebookBackupError.invalidBackup) {
+                try NotebookBackupCodec.decode(JSONSerialization.data(withJSONObject: backup))
+            }
+        }
+
+        var legacy = model.snapshot
+        legacy.training!.programEnrollments![0].endedOn = nil
+        legacy.training!.days[start.rawValue]!.programSession = ScheduledProgramReference(program: program, start: start, slot: slot)
+        try store.saveSnapshot(legacy)
+        let oldJournal = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        #expect(oldJournal["version"] as? Int == 11)
+        #expect(try store.loadSnapshot() == legacy)
+        let oldArchive = NotebookArchive(snapshot: legacy, profile: model.profile.details)
+        let oldBytes = try NotebookBackupCodec.encode(oldArchive)
+        let oldBackup = try #require(JSONSerialization.jsonObject(with: oldBytes) as? [String: Any])
+        #expect(oldBackup["version"] as? Int == 10)
+        #expect(try NotebookBackupCodec.decode(oldBytes) == oldArchive)
     }
 
     @Test func failedScheduleDoesNotPartiallyPopulateTheCalendar() throws {

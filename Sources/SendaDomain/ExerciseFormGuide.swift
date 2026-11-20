@@ -16,6 +16,9 @@ public struct ExerciseFormGuide: Identifiable, Equatable, Sendable {
             if key.isEmpty || exercise.matchesCatalogSearch(key: key) { return true }
             let fields = [exercise.name, exercise.shortName, exercise.group.rawValue, exercise.equipmentType.rawValue]
             return ExerciseLibrary.matchingKey(fields.joined(separator: " ")).contains(key)
+                || exercise.taggedGroups.contains { group in
+                    ExerciseLibrary.matchingKey(group.rawValue + exercise.equipmentType.rawValue) == key
+                }
                 || exercise.muscleMap.map { ExerciseLibrary.matchingKey($0.variation).contains(key) } == true
         }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }

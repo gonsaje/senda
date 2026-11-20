@@ -8,6 +8,7 @@ struct TrainingInputDock: View {
     @Binding var weightEntry: TrainingWeightEntrySettings
     var beginInteraction: () -> Void = {}
     var advanceSuperset: (UUID) -> Void
+    @State private var showsPlateCalculator = false
     @FocusState private var typing: Bool
     @AccessibilityFocusState(for: .voiceOver) private var editorFocused: Bool
     @Environment(\.dynamicTypeSize) private var textSize
@@ -51,10 +52,10 @@ struct TrainingInputDock: View {
                     ViewThatFits(in: .horizontal) {
                         HStack(alignment: .firstTextBaseline, spacing: 12) {
                             contextTitle
-                            fieldTitle
+                            weightControlLabel
                         }
                         .fixedSize(horizontal: true, vertical: false)
-                        VStack(alignment: .leading, spacing: 0) { contextTitle; fieldTitle }
+                        VStack(alignment: .leading, spacing: 0) { contextTitle; weightControlLabel }
                     }
                 } else {
                     contextTitle
@@ -120,7 +121,7 @@ struct TrainingInputDock: View {
             }
             if focus.field == .weight {
                 HStack(spacing: 6) {
-                    if !textSize.isAccessibilitySize { fieldTitle }
+                    if !textSize.isAccessibilitySize { weightControlLabel }
                     Spacer(minLength: 0)
                     modeButton(plates: false)
                     modeButton(plates: true)
@@ -172,6 +173,9 @@ struct TrainingInputDock: View {
         .padding(.horizontal, 24).padding(.bottom, 12).frame(maxWidth: 560).frame(maxWidth: .infinity)
         .background(NotebookStyle.inputSurface, ignoresSafeAreaEdges: .bottom)
         .foregroundStyle(NotebookStyle.ink)
+        .sheet(isPresented: $showsPlateCalculator) {
+            TrainingPlateCalculator(model: model, focus: focus, close: { showsPlateCalculator = false })
+        }
         .task {
             await Task.yield()
             if !Task.isCancelled { typing = focus.keyboard; editorFocused = true }
@@ -183,6 +187,29 @@ struct TrainingInputDock: View {
             .font(textSize.isAccessibilitySize ? .caption2 : .caption).foregroundStyle(NotebookStyle.quiet)
             .fixedSize(horizontal: false, vertical: true)
             .accessibilityIdentifier("input-set-context")
+    }
+
+    @ViewBuilder private var weightControlLabel: some View {
+        if usesPlates {
+            Button {
+                beginInteraction()
+                typing = false
+                showsPlateCalculator = true
+            } label: {
+                Label("Plate math", systemImage: "function")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(NotebookStyle.clay)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(minWidth: 44, minHeight: 44, alignment: .leading)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(model.canRetrySave || model.backupRecoveryRequired)
+            .accessibilityHint("Enter the total weight to see the plates for each side")
+            .accessibilityIdentifier("input-plate-calculator")
+        } else {
+            fieldTitle
+        }
     }
 
     private var fieldTitle: some View {
@@ -243,6 +270,9 @@ struct TrainingInputDock: View {
             let magnitude = (size * Decimal(abs(count))).formatted(.number)
             title = "Undo " + (count > 0 ? "+" : "−") + magnitude + " " + model.unit.symbol
             accessibilityLabel = "Undo \(count > 0 ? "adding" : "removing") \(abs(count)) \(size.formatted(.number)) \(model.unit.symbol) \(abs(count) == 1 ? "plate" : "plates")"
+        case .plateLoad:
+            title = "Undo load"
+            accessibilityLabel = "Undo planned plate load"
         case .barbell:
             title = "Undo bar"
             accessibilityLabel = "Undo barbell change"

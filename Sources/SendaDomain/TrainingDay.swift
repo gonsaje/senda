@@ -34,6 +34,11 @@ public struct TrainingDay: RawRepresentable, Codable, Hashable, Comparable, Send
         guard let date = Self.utc.date(byAdding: .day, value: days, to: date(in: Self.utc)) else { throw TrainingError.invalidDay }
         return try TrainingDay(Self.key(date, calendar: Self.utc))
     }
+    package func days(until other: TrainingDay) throws -> Int {
+        guard let count = Self.utc.dateComponents([.day], from: date(in: Self.utc), to: other.date(in: Self.utc)).day
+        else { throw TrainingError.invalidDay }
+        return count
+    }
     public func week() throws -> [TrainingDay] {
         let weekday = Self.utc.component(.weekday, from: date(in: Self.utc))
         let monday = try adding(days: -(weekday == 1 ? 6 : weekday - 2))

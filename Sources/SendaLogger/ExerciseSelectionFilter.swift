@@ -29,7 +29,7 @@ public enum ExerciseSelectionFilter {
         var seen = Set<String>()
         return exercises.filter { exercise in
             !exercise.isArchived && exercise.isLibraryChoice
-                && (group == nil || exercise.group == group)
+                && (group.map { exercise.taggedGroups.contains($0) } ?? true)
                 && (equipment == nil || exercise.equipmentType == equipment)
                 && gymFilter.matches(exercise)
                 && (key.isEmpty || exercise.matchesCatalogSearch(key: key))

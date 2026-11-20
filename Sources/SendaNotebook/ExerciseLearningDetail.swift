@@ -49,7 +49,10 @@ public struct ExerciseLearningDetail: View {
                 VStack(alignment: .leading, spacing: 16) {
                     sectionTitle("Muscles worked")
                     ExerciseMuscleMapView(map: muscles)
-                }.accessibilityIdentifier("exercise-muscles-\(exercise.id)")
+                        .accessibilityIdentifier("exercise-muscles-\(exercise.id)")
+                }
+            } else if !exercise.taggedMuscles.isEmpty {
+                ExerciseMuscleTagsView(exercise: exercise)
             }
 
             if let guide {
@@ -75,6 +78,21 @@ public struct ExerciseLearningDetail: View {
             sectionTitle(title)
             Text(text).font(.body).lineSpacing(3).fixedSize(horizontal: false, vertical: true)
         }
+    }
+}
+
+struct ExerciseMuscleTagsView: View {
+    let exercise: Exercise
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Muscle tags").font(.subheadline.weight(.semibold))
+            Text(exercise.taggedMuscles.map(\.name).joined(separator: ", "))
+                .font(.subheadline).foregroundStyle(NotebookStyle.quiet)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("exercise-muscle-tags-\(exercise.id)")
     }
 }
 

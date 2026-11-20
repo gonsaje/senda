@@ -1,5 +1,6 @@
 import SwiftUI
 import SendaDomain
+import SendaLogger
 
 struct TrainingWeekMuscleThumbnail: View {
     let counts: [MuscleRegion: Int]
@@ -16,11 +17,13 @@ struct TrainingWeekMuscleThumbnail: View {
 
 struct TrainingWeekMusclesView: View {
     let training: WeeklyMuscleTraining
-    let targets: [WeeklyMuscleTarget]
+    let profile: ProfileModel
+    private var targets: [WeeklyMuscleTarget] { profile.details.weeklyMuscleTargets }
     let exerciseName: (String) -> String
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dynamicTypeSize) private var textSize
     @State private var selection: MuscleRegion?
+    @State private var editsTarget = false
 
     private var listedMuscles: [MuscleRegion] {
         let trained = training.regions.map(\.muscle)
@@ -29,7 +32,7 @@ struct TrainingWeekMusclesView: View {
     }
 
     private var selectedMuscle: MuscleRegion? {
-        selection ?? listedMuscles.first
+        selection.flatMap { listedMuscles.contains($0) ? $0 : nil } ?? listedMuscles.first
     }
 
     var body: some View {
@@ -40,25 +43,35 @@ struct TrainingWeekMusclesView: View {
         .background(NotebookStyle.ivory)
         .foregroundStyle(NotebookStyle.ink)
         .buttonStyle(.plain)
+        .sheet(isPresented: $editsTarget) {
+            if let selectedMuscle {
+                TrainingWeeklyMuscleTargetEditor(profile: profile,
+                    target: targets.first { $0.muscle == selectedMuscle },
+                    availableMuscles: [selectedMuscle], initialMuscle: selectedMuscle,
+                    close: { editsTarget = false })
+            }
+        }
     }
 
     private var content: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 if let selectedMuscle {
-                    Text("Working and drop sets by primary muscle.")
+                    Text("One working or drop set can train several muscles.")
                         .font(.subheadline)
                         .foregroundStyle(NotebookStyle.quiet)
                         .fixedSize(horizontal: false, vertical: true)
-                    figures(selected: selectedMuscle)
-                    legend
+                    if listedMuscles.contains(where: ExerciseMuscleMap.illustratedRegions.contains) {
+                        figures(selected: selectedMuscle)
+                        legend
+                    }
                     contribution(selectedMuscle)
                     muscles
                 } else {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("No muscles to show")
                             .font(.headline)
-                        Text("Log a working set or drop set for an exercise with a muscle guide.")
+                        Text("Log a working set or drop set for a tagged exercise.")
                             .font(.subheadline)
                             .foregroundStyle(NotebookStyle.quiet)
                     }
@@ -196,12 +209,27 @@ struct TrainingWeekMusclesView: View {
                 Text(volume(region))
                     .font(.subheadline.weight(.medium).monospacedDigit())
                     .accessibilityIdentifier("week-muscle-volume")
-                if let target {
-                    Text("Weekly target · \(target.setRangeText) \(target.maximumSets == 1 ? "set" : "sets")")
-                        .font(.subheadline.monospacedDigit())
-                        .foregroundStyle(NotebookStyle.quiet)
-                        .accessibilityIdentifier("week-muscle-target")
+                if let region, region.supportingCount > 0 {
+                    Text("\(region.primaryCount.formatted()) primary · \(region.supportingCount.formatted()) supporting")
+                        .font(.subheadline.monospacedDigit()).foregroundStyle(NotebookStyle.quiet)
+                        .accessibilityIdentifier("week-muscle-roles")
                 }
+                Button { editsTarget = true } label: {
+                    HStack(spacing: 8) {
+                        if let target {
+                            Text("Weekly target · \(target.setRangeText) primary \(target.maximumSets == 1 ? "set" : "sets")")
+                        } else {
+                            Text("Set weekly target")
+                        }
+                        Image(systemName: "chevron.right").font(.caption).accessibilityHidden(true)
+                    }
+                    .font(.subheadline.monospacedDigit())
+                    .foregroundStyle(NotebookStyle.clay)
+                    .frame(minHeight: 44)
+                    .contentShape(Rectangle())
+                }
+                .accessibilityHint("Edit the weekly set target for \(muscle.name)")
+                .accessibilityIdentifier("week-muscle-target")
             }
             .fixedSize(horizontal: false, vertical: true)
             ForEach(region?.lifts ?? []) { lift in
@@ -209,7 +237,7 @@ struct TrainingWeekMusclesView: View {
                     Text(exerciseName(lift.exerciseID))
                         .fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 0)
-                    Text(sets(lift.count))
+                    Text(lift.isPrimary ? sets(lift.count) : "\(sets(lift.count)) · supporting")
                         .monospacedDigit()
                         .foregroundStyle(NotebookStyle.quiet)
                 }

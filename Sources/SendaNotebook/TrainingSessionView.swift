@@ -14,21 +14,46 @@ public struct TrainingSessionView: View {
 
     public var body: some View {
         Group {
+            if let demo = session.demo {
+                content(for: demo.session, automaticBackup: nil)
+                    .defaultAppStorage(demo.preferences)
+                    .safeAreaInset(edge: .top, spacing: 0) {
+                        HStack {
+                            Text("Sample journal").font(.subheadline.weight(.semibold))
+                            Spacer()
+                            Button("Exit demo", action: session.closeDemo)
+                                .frame(minHeight: 44)
+                                .accessibilityIdentifier("exit-demo")
+                        }
+                        .padding(.horizontal, 24)
+                        .background(NotebookStyle.ivory)
+                    }
+            } else {
+                content(for: session, automaticBackup: automaticBackup)
+            }
+        }
+        .environment(session)
+    }
+
+    private func content(for session: TrainingSession, automaticBackup: NotebookAutomaticBackup?) -> some View {
+        Group {
             if let recovery = session.recovery {
                 LegacyTrainingRecoveryView(recovery: recovery, finished: session.open)
             } else if let model = session.notebook {
                 if let automaticBackup {
                     let trigger = backupTrigger(model: model, backup: automaticBackup)
                     TrainingNotebookView(model: model)
+                        .environment(model.bodyMeasurements)
                         .environment(automaticBackup)
                         .task(id: trigger) {
                             guard trigger != nil else { return }
                             do { try await Task.sleep(for: .seconds(4)) }
                             catch { return }
-                            await automaticBackup.backUpWhenDue { try model.backupArchive() }
+                            await automaticBackup.backUpWhenDue { try model.backupArchive(includingManualMeasurements: false) }
                         }
                 } else {
                     TrainingNotebookView(model: model)
+                        .environment(model.bodyMeasurements)
                 }
             } else {
                 ScrollView {

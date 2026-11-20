@@ -3,6 +3,23 @@ import SendaDomain
 @testable import SendaLogger
 
 struct ExerciseSelectionFilterTests {
+    @Test func secondaryTagsMatchInTheWorkoutPickerAndLibraryWithoutDuplicatingAnExercise() throws {
+        let rdl = try #require(Exercise.catalog.first { $0.id == "romanian-deadlift" })
+        let bench = try #require(Exercise.catalog.first { $0.id == "bench" })
+        #expect(rdl.group == .legs && bench.group == .chest)
+        for (lift, group, terms) in [(rdl, MuscleGroup.back, ["lower back", "erector spinae"]),
+                                     (bench, .arms, ["triceps"])] {
+            for term in terms {
+                let results = ExerciseSelectionFilter.results(in: [lift, lift], query: term, group: group, equipment: .barbell)
+                #expect(results.map(\.id) == [lift.id])
+                #expect(ExerciseFormGuide.search(term, in: [lift]) == [lift])
+            }
+            #expect(ExerciseSearchRecovery.find(query: lift.name, in: [lift], gymFilter: .init(), group: group) == nil)
+        }
+        #expect(ExerciseFormGuide.search("Back Barbell", in: [rdl]) == [rdl])
+        #expect(ExerciseSelectionFilter.results(in: [bench], query: "", group: .legs, equipment: nil).isEmpty)
+    }
+
     @Test func gymAndAvailableEquipmentNarrowPickerAndLearnSearches() throws {
         let ids = ["dumbbell-floor-press", "dumbbell-bench", "bench", "bodyweight-squat"]
         let exercises = Exercise.catalog.filter { ids.contains($0.id) }

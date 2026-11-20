@@ -5,7 +5,7 @@ import SendaLogger
 public struct TrainingExercisePicker: View {
     @Bindable private var model: TrainingNotebookModel
     private let close: () -> Void
-    private let inlineBrowse: ((String) -> Void)?
+    private let inlineBrowse: ((String, Bool) -> Void)?
     @State private var recentSuggestions: [Exercise] = []
     @State private var search = ""
     @State private var group: MuscleGroup?
@@ -39,12 +39,13 @@ public struct TrainingExercisePicker: View {
         }
     }
 
-    public init(model: TrainingNotebookModel, initialSearch: String = "", close: @escaping () -> Void) {
+    public init(model: TrainingNotebookModel, initialSearch: String = "", selectingSeveral: Bool = false, close: @escaping () -> Void) {
         self.model = model; self.close = close; inlineBrowse = nil
         _search = State(initialValue: initialSearch)
+        _selectingSeveral = State(initialValue: selectingSeveral)
     }
 
-    init(inline model: TrainingNotebookModel, close: @escaping () -> Void, browse: @escaping (String) -> Void) {
+    init(inline model: TrainingNotebookModel, close: @escaping () -> Void, browse: @escaping (String, Bool) -> Void) {
         self.model = model; self.close = close; inlineBrowse = browse
     }
 
@@ -115,7 +116,7 @@ public struct TrainingExercisePicker: View {
         #endif
     }
 
-    private func inlineChooser(browse: @escaping (String) -> Void) -> some View {
+    private func inlineChooser(browse: @escaping (String, Bool) -> Void) -> some View {
         let recent = ExerciseSelectionFilter.results(in: recentSuggestions, query: search, group: nil, equipment: nil,
                                                     gymFilter: gymFilter)
         let suggestions = ExerciseSelectionFilter.inlineSuggestions(from: recent + libraryMatches(excluding: recent), query: search)
@@ -138,22 +139,33 @@ public struct TrainingExercisePicker: View {
                 .accessibilityLabel("Cancel adding exercises")
                 .accessibilityIdentifier("close-exercise-picker")
             }
+            controls {
+                Button {
+                    cancelPendingAdd()
+                    searching = false
+                    browse(search, true)
+                } label: {
+                    Label("Select several", systemImage: "list.bullet")
+                        .frame(minHeight: 44).contentShape(Rectangle())
+                }
+                .accessibilityIdentifier("inline-select-several")
+                if !textSize.isAccessibilitySize { Spacer(minLength: 0) }
+                Button {
+                    cancelPendingAdd()
+                    searching = false
+                    browse(search, false)
+                } label: {
+                    Text(gymFilter.activeCount > 0 ? "Browse filtered exercises" : "Browse all exercises")
+                        .frame(minHeight: 44).contentShape(Rectangle())
+                }
+                .accessibilityIdentifier("browse-all-exercises")
+            }
+            .font(.subheadline.weight(.medium))
+            .foregroundStyle(NotebookStyle.clay)
             GymSetupSwitcher(onSwitch: { cancelPendingAdd(); searching = false }, onBrowseAll: {
                 group = nil
                 equipment = nil
             })
-            Button {
-                cancelPendingAdd()
-                searching = false
-                browse(search)
-            } label: {
-                Text(gymFilter.activeCount > 0 ? "Browse filtered exercises" : "Browse all exercises")
-                    .font(.subheadline.weight(.medium))
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(minWidth: 44, minHeight: 44, alignment: .leading).contentShape(Rectangle())
-            }
-            .foregroundStyle(NotebookStyle.clay)
-            .accessibilityIdentifier("browse-all-exercises")
             if let recovery {
                 ExerciseSearchRecoveryView(recovery: recovery, row: exerciseRow)
             }
@@ -319,19 +331,8 @@ public struct TrainingExercisePicker: View {
     }
 
     private var searchField: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "magnifyingglass").foregroundStyle(NotebookStyle.quiet).accessibilityHidden(true)
-            TextField("Find an exercise", text: $search).textFieldStyle(.plain).autocorrectionDisabled()
-                .focused($searching).submitLabel(.search).onSubmit { searching = false }
-                .accessibilityLabel("Find an exercise").accessibilityIdentifier(inlineBrowse == nil ? "exercise-search" : "picker-search")
-            if !search.isEmpty {
-                Button { search = "" } label: {
-                    Image(systemName: "xmark.circle.fill").foregroundStyle(NotebookStyle.quiet)
-                        .frame(width: 44, height: 44).contentShape(Rectangle())
-                }.accessibilityLabel("Clear search").accessibilityIdentifier("picker-clear-search")
-            }
-        }.padding(.leading, 12).padding(.trailing, search.isEmpty ? 12 : 0).frame(minHeight: 48)
-            .overlay { RoundedRectangle(cornerRadius: 7).stroke(NotebookStyle.rule, lineWidth: 1) }
+        ExerciseSearchField(search: $search, focus: $searching,
+            identifier: inlineBrowse == nil ? "exercise-search" : "picker-search", clearIdentifier: "picker-clear-search")
     }
 
     private var filterButton: some View {
@@ -477,11 +478,17 @@ public struct TrainingExercisePicker: View {
     private func exerciseRow(_ exercise: Exercise) -> some View {
         let added = visibleIDs.contains(exercise.id)
         let isCustom = model.snapshot.customExercises?.contains { $0.id == exercise.id } == true
-        let details = "\(exercise.group.rawValue) · \(exercise.equipmentLabel)"
+        var muscles = exercise.matchingMuscleTags(query: search)
+        if muscles.isEmpty, let group, group != exercise.group {
+            muscles = exercise.taggedMuscles.filter { $0.group == group }
+        }
+        let classification = muscles.isEmpty ? exercise.group.rawValue : muscles.map(\.name).joined(separator: ", ")
+        let details = "\(classification) · \(exercise.equipmentLabel)"
         let current = inlineBrowse != nil && model.exercise?.id == exercise.id
         let position = selectedIDs.firstIndex(of: exercise.id)
         let pending = pendingAdd?.ids.contains(exercise.id) == true
         var accessibilityDetails = [exercise.name, exercise.group.rawValue, exercise.equipmentLabel]
+        if !muscles.isEmpty { accessibilityDetails.append(classification) }
         if isCustom { accessibilityDetails.append("custom exercise") }
         if added { accessibilityDetails.append("added") }
         else if let position { accessibilityDetails.append("selected \(position + 1)") }
@@ -569,6 +576,7 @@ private struct CreateTrainingExercise: View {
     @State var group: MuscleGroup
     @State var equipment: ExerciseEquipment
     @State private var setup = CustomExerciseSetup()
+    @State private var muscleTags: [MuscleRegion] = []
     let back: () -> Void
     let close: () -> Void
     @State private var pendingDay: TrainingDay?
@@ -582,6 +590,7 @@ private struct CreateTrainingExercise: View {
                     .accessibilityIdentifier("custom-name")
                 Picker("Muscle group", selection: $group) { ForEach(MuscleGroup.allCases, id: \.self) { Text($0.rawValue).tag($0) } }.pickerStyle(.menu)
                     .frame(minHeight: 44).accessibilityIdentifier("custom-group")
+                CustomExerciseMusclePicker(selection: $muscleTags, mainGroup: group, onOpen: { typing = false })
                 Picker("Main equipment", selection: $equipment) { ForEach(ExerciseEquipment.allCases, id: \.self) { Text($0.rawValue).tag($0) } }.pickerStyle(.menu)
                     .frame(minHeight: 44).accessibilityIdentifier("custom-equipment")
                 CustomExerciseSetupButton(setup: $setup, onOpen: { typing = false })
@@ -602,7 +611,7 @@ private struct CreateTrainingExercise: View {
                 if let error = model.errorMessage { TrainingSaveError(model: model, message: error, retrySucceeded: completePending) }
             RecordButton(title: "Add exercise") {
                 cancelPending(); pendingDay = model.selectedDay
-                if model.createExercise(named: name, group: group, equipment: equipment, customSetup: setup) { completePending() }
+                if model.createExercise(named: name, group: group, equipment: equipment, customSetup: setup, customMuscleTags: muscleTags) { completePending() }
                 else if !model.canRetrySave { pendingDay = nil }
             }.disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || pendingDay != nil)
                 .accessibilityIdentifier("save-custom-exercise")
@@ -613,6 +622,7 @@ private struct CreateTrainingExercise: View {
         .onChange(of: name) { _, _ in cancelPending() }
         .onChange(of: group) { _, _ in cancelPending() }
         .onChange(of: equipment) { _, _ in cancelPending() }
+        .onChange(of: muscleTags) { _, _ in cancelPending() }
         .onChange(of: setup) { _, _ in cancelPending() }
         .onChange(of: model.canRetrySave) { _, _ in completePending() }
         .onChange(of: model.errorMessage) { _, _ in completePending() }
@@ -621,7 +631,7 @@ private struct CreateTrainingExercise: View {
     private func completePending() {
         guard let day = pendingDay, model.selectedDay == day, model.errorMessage == nil, !model.canRetrySave,
               let exercise = model.exercise, ExerciseLibrary.searchKey(exercise.name) == ExerciseLibrary.searchKey(name),
-              exercise.group == group, exercise.equipmentType == equipment, exercise.customSetup == setup else { return }
+              exercise.group == group, exercise.equipmentType == equipment, exercise.customSetup == setup, exercise.customMuscleTags == muscleTags else { return }
         pendingDay = nil; close()
     }
     private func cancelPending() {

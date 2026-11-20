@@ -14,6 +14,7 @@ struct TrainingStrengthGoalEditor: View {
     @State private var weight: String
     @State private var reps: String
     @State private var errorMessage: String?
+    @State private var choosingExercise = false
     @State private var confirmsRemoval = false
     @Environment(\.dynamicTypeSize) private var textSize
 
@@ -41,6 +42,20 @@ struct TrainingStrengthGoalEditor: View {
             exercises.append(exercise)
         }
         return exercises.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+
+    private var choiceGroups: [ExerciseChoiceSheet.Group] {
+        let catalog = exercises
+        let choices = Dictionary(uniqueKeysWithValues: catalog.map { ($0.id, $0) })
+        let recent = model.recentExercises().compactMap { choices[$0.id] }
+        let recentIDs = Set(recent.map(\.id))
+        let tracked = model.trackedStrengthExerciseIDs.filter { !recentIDs.contains($0) }.compactMap { choices[$0] }
+        let suggested = recentIDs.union(tracked.map(\.id))
+        return [
+            .init(title: "Recent", exercises: recent),
+            .init(title: "Tracked", exercises: tracked),
+            .init(title: "All exercises", exercises: catalog.filter { !suggested.contains($0.id) })
+        ]
     }
 
     private var hasDraft: Bool {
@@ -126,24 +141,12 @@ struct TrainingStrengthGoalEditor: View {
     private var exercisePicker: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text("Exercise").font(.subheadline).foregroundStyle(NotebookStyle.quiet)
-            Menu {
-                ForEach(exercises) { option in
-                    Button {
-                        exerciseID = option.id
-                        errorMessage = nil
-                    } label: {
-                        if exerciseID == option.id { Label(option.displayName, systemImage: "checkmark") }
-                        else { Text(option.displayName) }
-                    }
-                    .accessibilityAddTraits(exerciseID == option.id ? .isSelected : [])
-                    .accessibilityIdentifier("strength-goal-exercise-\(option.id)")
-                }
-            } label: {
+            Button { choosingExercise = true } label: {
                 HStack(spacing: 8) {
                     Text(exercise?.displayName ?? "Choose exercise")
                         .fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 0)
-                    Image(systemName: "chevron.down").font(.caption)
+                    Image(systemName: "chevron.right").font(.caption)
                         .accessibilityHidden(true)
                 }
                 .foregroundStyle(NotebookStyle.clay)
@@ -153,6 +156,12 @@ struct TrainingStrengthGoalEditor: View {
             .accessibilityLabel("Exercise")
             .accessibilityValue(exercise?.displayName ?? "Choose exercise")
             .accessibilityIdentifier("strength-goal-exercise")
+            .sheet(isPresented: $choosingExercise) {
+                ExerciseChoiceSheet(title: "Choose exercise", groups: choiceGroups, selectedID: exerciseID,
+                    identifierPrefix: "strength-goal-exercise-", emptyMessage: "No exercises available.",
+                    select: { id in exerciseID = id; errorMessage = nil; choosingExercise = false },
+                    close: { choosingExercise = false })
+            }
             rule
         }
     }

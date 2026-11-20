@@ -22,17 +22,40 @@ struct StructuredTrainingCounts: Codable, Equatable {
     var supersets = 0
     var templatePairs = 0
 
+    private struct Management: Codable, Equatable {
+        var endedEnrollments = 0
+        var rescheduledSessions = 0
+        var sessionsWithInitialUnit = 0
+        var hiddenSupersets = 0
+        var supersetUndo = 0
+    }
+    private var management: Management?
+    var hasManagement: Bool { management != nil }
+
     init(_ training: TrainingWorkspace?) {
         guard let training else { return }
         programs = training.programs?.count ?? 0
         enrollments = training.programEnrollments?.count ?? 0
         templatePairs = (training.workoutTemplates ?? []).reduce(0) { $0 + ($1.supersets?.count ?? 0) }
-        for day in training.days.values { include(day) }
-        if case let .removedFromWorkout(_, _, original, _)? = training.undo { include(original) }
+        var management = Management()
+        management.endedEnrollments = training.programEnrollments?.count(where: { $0.endedOn != nil }) ?? 0
+        switch training.undo {
+        case .unpaired?: supersets += 1; management.supersetUndo = 1
+        case .hidSuperset?: management.supersetUndo = 1
+        default: break
+        }
+        for day in training.days.values { include(day, management: &management) }
+        if case let .removedFromWorkout(_, _, original, _)? = training.undo { include(original, management: &management) }
+        if management != Management() { self.management = management }
     }
 
-    private mutating func include(_ day: DayWorkout) {
-        if day.programSession != nil { scheduledSessions += 1 }
+    private mutating func include(_ day: DayWorkout, management: inout Management) {
+        if let session = day.programSession {
+            scheduledSessions += 1
+            if session.initialUnit != nil { management.sessionsWithInitialUnit += 1 }
+            if session.rescheduledTo != nil { management.rescheduledSessions += 1 }
+        }
+        management.hiddenSupersets += day.hiddenSupersets.count
         supersets += day.supersets?.count ?? 0
     }
 
@@ -61,6 +84,7 @@ struct StructuredTrainingCounts: Codable, Equatable {
         let workoutTemplateCount: Int?
         let archivedCustomExerciseCount: Int?
         let customExerciseSetupCount: Int?
+        let customMuscleMetadata: CustomMuscleMetadata?
         let structuredTraining: StructuredTrainingCounts?
     }
 
@@ -73,6 +97,7 @@ struct StructuredTrainingCounts: Codable, Equatable {
         let workoutTemplateCount: Int?
         let archivedCustomExerciseCount: Int?
         let customExerciseSetupCount: Int?
+        let customMuscleMetadata: CustomMuscleMetadata?
         let structuredTraining: StructuredTrainingCounts?
     }
 
@@ -82,7 +107,7 @@ struct StructuredTrainingCounts: Codable, Equatable {
         catch let error as CocoaError where error.code == .fileReadNoSuchFile { return JournalSnapshot() }
         let decoder = JSONDecoder()
         let version = try decoder.decode(Header.self, from: data).version
-        guard (1...11).contains(version) else { throw StorageError.unsupportedVersion(version) }
+        guard (1...13).contains(version) else { throw StorageError.unsupportedVersion(version) }
         let envelope = try decoder.decode(Envelope.self, from: data)
         if version >= 3, envelope.customExercises == nil { throw StorageError.missingExerciseLibrary }
         if version >= 4 {
@@ -94,7 +119,12 @@ struct StructuredTrainingCounts: Codable, Equatable {
         let snapshot = JournalSnapshot(journal: envelope.journal, workspace: version == 1 ? nil : envelope.workspace,
             customExercises: version >= 3 ? envelope.customExercises : nil, training: version >= 4 ? envelope.training : nil, legacyBase: version >= 4 ? envelope.legacyBase : nil)
         let structures = StructuredTrainingCounts(snapshot.training)
-        guard version == 11 ? (!structures.isEmpty && envelope.structuredTraining == structures) : structures.isEmpty
+        let muscleMetadata = CustomMuscleMetadata(envelope.customExercises ?? [])
+        guard (version == 13) == (muscleMetadata != nil), envelope.customMuscleMetadata == muscleMetadata else {
+            throw StorageError.invalidCustomMuscleMetadata
+        }
+        guard version == 13 || (version == 12) == structures.hasManagement,
+              version >= 11 ? ((version == 13 || !structures.isEmpty) && envelope.structuredTraining == structures) : structures.isEmpty
         else { throw StorageError.incompleteStructuredTraining }
         if version >= 10 {
             guard (version > 10 || snapshot.archivedCustomExerciseCount > 0),
@@ -120,7 +150,10 @@ struct StructuredTrainingCounts: Codable, Equatable {
         let snapshot = checked.snapshot
         let archived = snapshot.archivedCustomExerciseCount
         let structures = StructuredTrainingCounts(snapshot.training)
-        let version = if !structures.isEmpty { 11 }
+        let muscleMetadata = CustomMuscleMetadata(snapshot.customExercises ?? [])
+        let version = if muscleMetadata != nil { 13 }
+            else if structures.hasManagement { 12 }
+            else if !structures.isEmpty { 11 }
             else if archived > 0 { 10 }
             else if snapshot.hasCustomExerciseSetups { 9 }
             else if snapshot.training?.workoutTemplates?.isEmpty == false { 8 }
@@ -130,7 +163,7 @@ struct StructuredTrainingCounts: Codable, Equatable {
             workoutTemplateCount: version >= 9 ? snapshot.training?.workoutTemplates?.count ?? 0 : nil,
             archivedCustomExerciseCount: version >= 10 ? archived : nil,
             customExerciseSetupCount: version >= 10 ? snapshot.customExerciseSetupCount : nil,
-            structuredTraining: version == 11 ? structures : nil)
+            customMuscleMetadata: muscleMetadata, structuredTraining: version >= 11 ? structures : nil)
         let data = try encoder.encode(header, journal: snapshot.journal, training: snapshot.training)
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try writer(data, url)
@@ -143,6 +176,7 @@ public enum StorageError: LocalizedError, Equatable {
     case missingTrainingWorkspace
     case missingWorkoutTemplates
     case missingExerciseSetups
+    case invalidCustomMuscleMetadata
     case invalidExerciseArchive
     case incompleteStructuredTraining
     public var errorDescription: String? {
@@ -155,6 +189,8 @@ public enum StorageError: LocalizedError, Equatable {
             "The saved exercise library is missing. The journal file has been left untouched."
         case .missingWorkoutTemplates:
             "This journal is missing its saved workouts."
+        case .invalidCustomMuscleMetadata:
+            "This journal has incomplete muscle details for a custom exercise."
         case .missingExerciseSetups:
             "This journal is missing its custom exercise gym and equipment details."
         case .incompleteStructuredTraining:
