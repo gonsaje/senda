@@ -15,6 +15,22 @@ import SendaDomain
     private let url: URL
     private let writer: (Data, URL) throws -> Void
     private struct Envelope: Codable { let version: Int; let details: ProfileDetails }
+    static func portableRecoveryData(_ data: Data) -> Data? {
+        struct RecoveryProfile: Decodable {
+            let version: Int
+            let details: ProfileDetails
+            private enum CodingKeys: CodingKey { case version, details }
+
+            init(from decoder: any Decoder) throws {
+                let box = try decoder.container(keyedBy: CodingKeys.self)
+                version = try box.decode(Int.self, forKey: .version)
+                details = try ProfileDetails(from: box.superDecoder(forKey: .details), includesTrainerApplication: false)
+            }
+        }
+        guard let profile = try? JSONDecoder().decode(RecoveryProfile.self, from: data), (1...3).contains(profile.version) else { return nil }
+        return try? JSONEncoder().encode(Envelope(version: profile.version, details: profile.details))
+    }
+
     public convenience init(url: URL) { self.init(url: url, writer: { try $0.write(to: $1, options: .atomic) }) }
     init(url: URL, writer: @escaping (Data, URL) throws -> Void) { self.url = url; self.writer = writer }
     public func load() throws -> ProfileDetails {

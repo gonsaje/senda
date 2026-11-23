@@ -4,52 +4,29 @@ import SendaLogger
 
 struct TrainingWeekNavigation: View {
     @Bindable var model: TrainingNotebookModel
+    let today: TrainingDay
+    let first: TrainingDay
     let week: [TrainingDay]
-    let training: WeeklyMuscleTraining
-    let showCalendar: () -> Void
+    let changeWeek: (Int) -> Void
     let showMuscles: () -> Void
     @Environment(\.dynamicTypeSize) private var textSize
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack { TrainingWordmark(); Spacer(); dateShortcuts }
-            VStack(alignment: .leading, spacing: 4) {
-                monthAndYear
-                dateAndControls
-                Rectangle().fill(NotebookStyle.coverRule)
-                    .frame(height: 0.5).accessibilityHidden(true)
-                    .padding(.top, 4)
-                overview
-            }
-            .padding(.horizontal, 16)
-            .padding(.top, 13).padding(.bottom, 5)
-            .foregroundStyle(NotebookStyle.onCover)
-            .background(NotebookStyle.cover, in: RoundedRectangle(cornerRadius: 17))
+        VStack(alignment: .leading, spacing: 4) {
+            monthAndYear
+            dateAndControls
+            Rectangle().fill(NotebookStyle.coverRule)
+                .frame(height: 0.5).accessibilityHidden(true)
+                .padding(.top, 4)
+            overview
         }
+        .padding(.horizontal, 16)
+        .padding(.top, 13).padding(.bottom, 5)
+        .foregroundStyle(NotebookStyle.onCover)
+        .background(NotebookStyle.cover, in: RoundedRectangle(cornerRadius: 17))
     }
 
-    private var dateShortcuts: some View {
-        HStack(spacing: 4) {
-            today
-            Button(action: showCalendar) {
-                Image(systemName: "calendar")
-                    .font(.system(size: 19, weight: .medium))
-                    .foregroundStyle(NotebookStyle.clay)
-                    .frame(width: 44, height: 44)
-                    .contentShape(Rectangle())
-            }
-            .accessibilityLabel("Calendar")
-            .accessibilityHint("Browse workout dates by month")
-            .accessibilityIdentifier("week-calendar")
-        }
-    }
-
-    private var first: TrainingDay { model.workspace.visibleWeek }
     private var last: TrainingDay { week.last ?? first }
-    private var isCurrentWeek: Bool { week.contains(model.today) }
-    private var dateTransition: ContentTransition { reduceMotion ? .identity : .opacity }
-    private var dateAnimation: Animation? { reduceMotion ? nil : .easeInOut(duration: 0.18) }
 
     private var monthAndYear: some View {
         let startYear = TrainingText.date(first, format: "yyyy")
@@ -60,8 +37,6 @@ struct TrainingWeekNavigation: View {
         return layout {
             Text(TrainingText.weekMonths(first: first, last: last, abbreviated: false))
                 .font(NotebookTypography.heading(22, italic: true, relativeTo: .title2))
-                .contentTransition(dateTransition)
-                .animation(dateAnimation, value: first)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityAddTraits(.isHeader)
@@ -70,8 +45,6 @@ struct TrainingWeekNavigation: View {
             Text(startYear == endYear ? startYear : "\(startYear)–\(endYear)")
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(NotebookStyle.onCover.opacity(0.78))
-                .contentTransition(dateTransition)
-                .animation(dateAnimation, value: first)
                 .accessibilityHidden(true)
         }
     }
@@ -84,8 +57,6 @@ struct TrainingWeekNavigation: View {
             Text("\(TrainingText.date(first, format: "d"))–\(TrainingText.date(last, format: "d"))")
                 .font(NotebookTypography.heading(54, relativeTo: .largeTitle))
                 .tracking(-2)
-                .contentTransition(dateTransition)
-                .animation(dateAnimation, value: first)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityHidden(true)
@@ -94,8 +65,10 @@ struct TrainingWeekNavigation: View {
     }
 
     private var overview: some View {
-        let days = model.trainingDayCount
-        let sets = model.weekSetCount
+        let setCounts = week.map { model.summary(for: $0).setCount }
+        let days = setCounts.filter { $0 > 0 }.count
+        let sets = setCounts.reduce(0, +)
+        let training = model.snapshot.weeklyMuscleTraining(days: week, through: today, calendar: model.calendar)
         let summary = "\(days) \(days == 1 ? "workout" : "workouts") · \(sets) \(sets == 1 ? "set" : "sets")"
         let layout = textSize.isAccessibilitySize
             ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4))
@@ -108,58 +81,111 @@ struct TrainingWeekNavigation: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityLabel(days == 0 ? "No workouts logged, 0 sets" : summary)
                 .accessibilityIdentifier("week-summary")
-            Button(action: showMuscles) {
-                HStack(spacing: 6) {
-                    TrainingWeekMuscleThumbnail(counts: training.counts)
-                        .accessibilityHidden(true)
-                    Text("Muscles").font(.footnote.weight(.semibold))
-                        .fixedSize(horizontal: false, vertical: true)
-                    Image(systemName: "chevron.right")
-                        .font(.caption2.weight(.semibold))
-                        .accessibilityHidden(true)
-                }
-                .frame(minHeight: 44)
-                .contentShape(Rectangle())
-            }
-            .accessibilityLabel("Muscles trained")
-            .accessibilityValue(muscleSummary)
-            .accessibilityIdentifier("week-muscles")
+            TrainingWeekMusclesButton(training: training,
+                hasTargets: !model.profile.details.weeklyMuscleTargets.isEmpty,
+                title: "Muscles", action: showMuscles)
+                .accessibilityIdentifier("week-muscles")
         }
-    }
-
-    private var muscleSummary: String {
-        let count = training.regions.count
-        if count == 0 {
-            return model.profile.details.weeklyMuscleTargets.isEmpty ? "No muscles to show" : "No sets logged"
-        }
-        return "\(count) \(count == 1 ? "area" : "areas")"
-    }
-
-    private var today: some View {
-        Button { model.showCurrentWeek() } label: {
-            Text("Today").font(.subheadline.weight(isCurrentWeek ? .semibold : .medium))
-                .frame(minWidth: 44, minHeight: 44)
-                .foregroundStyle(NotebookStyle.clay)
-                .contentShape(Rectangle())
-        }
-        .accessibilityAddTraits(isCurrentWeek ? .isSelected : [])
-        .accessibilityValue(isCurrentWeek ? "Current week" : "")
-        .accessibilityHint(isCurrentWeek ? "Showing the current week" : "Return to the current week")
-        .accessibilityIdentifier("today-week")
     }
 
     private var controls: some View {
-        HStack(spacing: 0) {
-            arrow("chevron.left", label: "Previous week", identifier: "previous-week", direction: -1)
-            arrow("chevron.right", label: "Next week", identifier: "next-week", direction: 1)
-        }.fixedSize().accessibilityElement(children: .contain).accessibilityIdentifier("week-navigation-controls")
+        HStack(alignment: .trainingTodayIconCenter, spacing: 2) {
+            TrainingTodayButton(day: today, isVisible: !week.contains(today)) {
+                model.showWeek(containing: model.today)
+            }
+            .accessibilityIdentifier("today-week")
+            VStack(spacing: 0) {
+                arrow("chevron.up", label: "Previous week", identifier: "previous-week", direction: -1)
+                arrow("chevron.down", label: "Next week", identifier: "next-week", direction: 1)
+            }
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("week-navigation-controls")
+        }
+        .fixedSize()
     }
 
     private func arrow(_ symbol: String, label: String, identifier: String, direction: Int) -> some View {
-        Button { model.changeWeek(direction) } label: {
+        Button { changeWeek(direction) } label: {
             Image(systemName: symbol).font(.subheadline.weight(.medium))
                 .frame(width: 44, height: 44).contentShape(Rectangle())
         }
         .accessibilityLabel(label).accessibilityIdentifier(identifier)
+    }
+}
+
+extension VerticalAlignment {
+    private enum TrainingTodayIconCenter: AlignmentID {
+        static func defaultValue(in dimensions: ViewDimensions) -> CGFloat { dimensions[VerticalAlignment.center] }
+    }
+
+    static let trainingTodayIconCenter = VerticalAlignment(TrainingTodayIconCenter.self)
+}
+
+struct TrainingTodayButton: View {
+    let day: TrainingDay
+    let isVisible: Bool
+    let action: () -> Void
+    @ScaledMetric(relativeTo: .caption) private var tileSize: CGFloat = 19
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 3) {
+                Text(TrainingText.date(day, format: "d"))
+                    .font(.system(size: tileSize * 0.48, weight: .semibold).monospacedDigit())
+                    .frame(width: tileSize, height: tileSize)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: tileSize * 0.23).strokeBorder(lineWidth: 1.25)
+                    }
+                    .alignmentGuide(.trainingTodayIconCenter) { $0[VerticalAlignment.center] }
+                    .accessibilityHidden(true)
+                Text("Today")
+                    .font(.caption.weight(.semibold))
+            }
+            .fixedSize()
+            .frame(minWidth: 44, minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .accessibilityLabel("Go to today")
+        .opacity(isVisible ? 1 : 0)
+        .disabled(!isVisible)
+        .accessibilityHidden(!isVisible)
+    }
+}
+
+struct TrainingCalendarMasthead: View {
+    let showsMonth: Bool
+    let toggle: () -> Void
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack { TrainingWordmark(width: 110); Spacer(minLength: 8); toggleButtons.fixedSize() }
+            VStack(alignment: .leading, spacing: 8) { TrainingWordmark(width: 110); toggleButtons }
+        }
+    }
+
+    private var toggleButtons: some View {
+        HStack(spacing: 2) {
+            option(.week, selected: !showsMonth)
+            option(.month, selected: showsMonth)
+        }
+        .padding(3)
+        .background(NotebookStyle.todayFill, in: RoundedRectangle(cornerRadius: 12))
+        .accessibilityElement(children: .contain)
+    }
+
+    private func option(_ layout: TrainingCalendarLayout, selected: Bool) -> some View {
+        Button { if !selected { toggle() } } label: {
+            Text(layout == .week ? "Week" : "Month")
+                .font(.subheadline.weight(selected ? .semibold : .regular))
+                .foregroundStyle(selected ? NotebookStyle.ink : NotebookStyle.quiet)
+                .padding(.horizontal, 9)
+                .frame(minWidth: 44, minHeight: 44)
+                .background {
+                    if selected { RoundedRectangle(cornerRadius: 9).fill(NotebookStyle.ivory) }
+                }
+                .contentShape(Rectangle())
+        }
+        .accessibilityAddTraits(selected ? .isSelected : [])
+        .accessibilityIdentifier(layout == .month ? "week-calendar" : "month-toggle-week")
     }
 }

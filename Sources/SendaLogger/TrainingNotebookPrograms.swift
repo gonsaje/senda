@@ -104,6 +104,25 @@ extension TrainingNotebookModel {
         workspace.activeProgramEnrollments.first { $0.programID == program.id && $0.start == start }?.program
     }
 
+    public var nextScheduledSession: (day: TrainingDay, session: ScheduledProgramSession)? {
+        // Use the dates in the journal so moved sessions and skipped dates are reflected.
+        for key in workspace.days.keys.sorted() where key >= today.rawValue {
+            guard let workout = workspace.days[key], let reference = workout.programSession,
+                  let day = TrainingDay(rawValue: key),
+                  let enrollment = workspace.activeProgramEnrollments.first(where: {
+                      $0.programID == reference.programID && $0.start == reference.start && $0.endedOn == nil
+                  }), let session = enrollment.session(for: reference) else { continue }
+            let remaining = workout.exerciseIDs.contains { id in
+                let logged = (workout.rows[id] ?? []).filter {
+                    $0.performedSetID != nil && $0.pendingCorrection != true && $0.kind?.countsTowardWorkingPlan == true
+                }.count
+                return logged < (workout.exercisePlans?[id]?.workingSets ?? 1)
+            }
+            if remaining { return (day, session) }
+        }
+        return nil
+    }
+
     public func programSession(on day: TrainingDay) -> ScheduledProgramSession? {
         guard let reference = workspace.days[day.rawValue]?.programSession else { return nil }
         let enrollment = workspace.programEnrollments?.first { $0.programID == reference.programID && $0.start == reference.start }

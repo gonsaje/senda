@@ -50,6 +50,12 @@ import SendaPersistence
         candidate.weeklyMuscleTargets.removeAll { $0.muscle == muscle }
         return persist(candidate)
     }
+    @discardableResult public func saveTrainerApplication(_ application: TrainerApplication) -> Bool {
+        var candidate = details
+        candidate.trainerApplication = application
+        return persist(candidate)
+    }
+
     private func persist(_ next: ProfileDetails) -> Bool {
         guard openingError == nil else { errorMessage = openingError; return false }
         do {

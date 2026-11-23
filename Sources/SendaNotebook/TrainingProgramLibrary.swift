@@ -5,6 +5,7 @@ import SendaLogger
 
 struct TrainingProgramLibrary: View {
     @Bindable var model: TrainingNotebookModel
+    var savedOnly = false
     @Environment(\.dismiss) private var dismiss
     @State private var path: [String] = []
     @State private var editor: TrainingProgram?
@@ -15,11 +16,17 @@ struct TrainingProgramLibrary: View {
     @State private var filename = "Training program"
     @State private var message: String?
 
+    init(model: TrainingNotebookModel, savedOnly: Bool = false, initialProgramID: String? = nil) {
+        self.model = model
+        self.savedOnly = savedOnly
+        _path = State(initialValue: initialProgramID.map { [$0] } ?? [])
+    }
+
     var body: some View {
         NavigationStack(path: $path) {
             List {
                 let enrollments = model.workspace.activeProgramEnrollments.filter { $0.endedOn == nil }.sorted { $0.start > $1.start }
-                if !enrollments.isEmpty {
+                if !savedOnly && !enrollments.isEmpty {
                     Section("On Week") {
                         ForEach(Array(enrollments.enumerated()), id: \.offset) { _, enrollment in
                             Button {
@@ -38,8 +45,10 @@ struct TrainingProgramLibrary: View {
                         }
                     }
                 }
-                Section("Curated programs") {
-                    ForEach(model.programs.filter { program in TrainingProgram.catalog.contains { $0.id == program.id } }) { program in programLink(program) }
+                if !savedOnly {
+                    Section("Curated programs") {
+                        ForEach(model.programs.filter { program in TrainingProgram.catalog.contains { $0.id == program.id } }) { program in programLink(program) }
+                    }
                 }
                 Section("My programs") {
                     ForEach(model.customPrograms) { program in programLink(program) }
@@ -52,7 +61,7 @@ struct TrainingProgramLibrary: View {
                 }
             }
             .programPageStyle()
-            .navigationTitle("Programs")
+            .navigationTitle(savedOnly ? "Saved programs" : "Programs")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } }
             }
@@ -104,6 +113,7 @@ struct TrainingProgramLibrary: View {
         NavigationLink(value: program.id) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(program.title).font(.body.weight(.semibold))
+                if let version = program.trainerVersion { Text("Version \(version)").font(.caption).foregroundStyle(NotebookStyle.quiet) }
                 Text("\(program.weeks) weeks · \(program.blocks.count == 1 ? "Standalone block" : "\(program.blocks.count) blocks")")
                     .font(.subheadline).foregroundStyle(NotebookStyle.quiet)
                 HStack(spacing: 4) {
@@ -238,6 +248,7 @@ private struct ProgramDetail: View {
                 ForEach(slots.filter { $0.week == week }, id: \.day) { slot in
                     WorkoutLibraryRule()
                     DisclosureGroup {
+                        TrainerWorkoutNotes(details: slot.session.trainerDetails)
                         ProgramPrescriptionList(exercises: slot.session.exercises, pairs: slot.session.supersets, model: model)
                     } label: {
                         HStack(spacing: 12) {
@@ -271,7 +282,7 @@ private struct ProgramDetail: View {
                     if model.showWeek(containing: startDay), model.selectSection(.log) { openWeek() }
                     else { showError() }
                 } label: {
-                    Text(enrollment != nil ? "Manage schedule" : scheduled ? "View on Week" : "Schedule \(free) \(free == 1 ? "workout" : "workouts")")
+                    Text(enrollment != nil ? "Manage schedule" : scheduled ? "View in Train" : "Schedule \(free) \(free == 1 ? "workout" : "workouts")")
                         .font(.headline).frame(maxWidth: .infinity, minHeight: 44)
                 }
                 .buttonStyle(.borderedProminent).tint(NotebookStyle.primaryFill).foregroundStyle(NotebookStyle.onPrimary)

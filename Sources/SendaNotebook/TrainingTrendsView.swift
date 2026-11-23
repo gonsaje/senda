@@ -6,18 +6,16 @@ private enum TrendsDestination: Hashable {
     case records
 }
 
+private enum TrendsArea: String, CaseIterable {
+    case training = "Training", body = "Body"
+}
+
 /// Recorded training across the notebook. Opening history preserves the current workout.
 public struct TrainingTrendsView: View {
     @Bindable private var model: TrainingNotebookModel
     @Environment(\.dynamicTypeSize) private var textSize
-    @Environment(BodyMeasurementsModel.self) private var bodyMeasurements: BodyMeasurementsModel?
-    private struct BodyChartRequest: Identifiable {
-        let id = UUID()
-        let selection: BodyChartSelection
-    }
-
-    @AppStorage("senda.bodyMeasurements.chartSelection") private var storedBodyChart = Data()
-    @State private var bodyChart: BodyChartRequest?
+    @AppStorage("senda.trends.area") private var area: TrendsArea = .training
+    @AppStorage(BodyChartSelection.preferenceKey) private var storedBodyChart = Data()
     @State private var showAllBests = false
     @State private var showAllComparisons = false
     @State private var navigationPath: [TrendsDestination] = []
@@ -54,25 +52,15 @@ public struct TrainingTrendsView: View {
     }
 
     private var overview: some View {
-        let trends = model.snapshot.trends(range: model.progressRange, through: model.today,
-            calendar: model.calendar, exercises: model.exercises)
-        let hasHistory = !model.snapshot.journal.batches.isEmpty
-        return ScrollView {
+        ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                heading(hasHistory: hasHistory)
-                if bodyMeasurements != nil { bodyMeasurementsButton }
-                window(trends)
-                strengthProgress(trends)
-                if trends.setCount == 0 {
-                    emptyState(hasHistory: hasHistory)
-                } else {
-                    performance(trends)
-                    if !trends.recentBests.isEmpty { recordedBests(trends) }
-                }
-                if trends.setCount > 0 {
-                    periodSummary(trends)
-                    thisWeek(trends)
-                    ExerciseProgressFrequencyChart(weeks: trends.weeks, calendar: model.calendar)
+                heading(hasHistory: area == .training && !model.snapshot.journal.batches.isEmpty)
+                areaPicker
+                switch area {
+                case .training:
+                    trainingOverview
+                case .body:
+                    BodyMeasurementsView(model: model.bodyMeasurements, notebook: model, selection: rememberedBodyChart)
                 }
             }
             .padding(24)
@@ -88,53 +76,49 @@ public struct TrainingTrendsView: View {
         .tint(NotebookStyle.clay)
         .buttonStyle(.plain)
         .accessibilityIdentifier("trends-scroll")
-        .sheet(item: $bodyChart, onDismiss: { bodyMeasurements?.disconnectHealth() }) { request in
-            if let bodyMeasurements {
-                BodyMeasurementsView(model: bodyMeasurements, notebook: model, selection: request.selection,
-                    remember: rememberBodyChart, close: { bodyChart = nil })
+        .id(area)
+    }
+
+    private var areaPicker: some View {
+        LibrarySegments(stacked: textSize.isAccessibilitySize) {
+            ForEach(TrendsArea.allCases, id: \.self) { choice in
+                let selected = area == choice
+                Button { area = choice } label: {
+                    LibrarySegmentLabel(title: choice.rawValue, selected: selected, expands: true)
+                }
+                .accessibilityAddTraits(selected ? .isSelected : [])
+                .accessibilityIdentifier("trends-area-\(choice.rawValue.lowercased())")
             }
+        }
+    }
+
+    @ViewBuilder private var trainingOverview: some View {
+        let trends = model.snapshot.trends(range: model.progressRange, through: model.today,
+            calendar: model.calendar, exercises: model.exercises)
+        window(trends)
+        strengthProgress(trends)
+        if trends.setCount == 0 {
+            emptyState(hasHistory: !model.snapshot.journal.batches.isEmpty)
+        } else {
+            performance(trends)
+            if !trends.recentBests.isEmpty { recordedBests(trends) }
+            periodSummary(trends)
+            if trends.thisWeek.startDay > trends.startDay { thisWeek(trends) }
+            ExerciseProgressFrequencyChart(weeks: trends.weeks, calendar: model.calendar)
         }
     }
 
     private var rememberedBodyChart: BodyChartSelection {
-        (try? JSONDecoder().decode(BodyChartSelection.self, from: storedBodyChart))
-            ?? BodyChartSelection(range: model.progressRange)
+        BodyChartSelection.restored(for: model, from: storedBodyChart)
     }
 
-    private func openBodyChart(comparing exerciseID: String? = nil) {
+    private func openBodyChart(comparing exerciseID: String) {
         var selection = rememberedBodyChart
-        if let exerciseID {
-            selection.exerciseID = exerciseID
-            selection.range = model.progressRange
-            selection.customDays = nil
-        } else {
-            if let id = selection.exerciseID, !model.exercises.contains(where: { $0.id == id }) { selection.exerciseID = nil }
-            if let dates = selection.customDays, dates.upperBound > model.today {
-                selection.customDays = dates.lowerBound <= model.today ? dates.lowerBound...model.today : nil
-            }
-        }
-        rememberBodyChart(selection)
-        bodyChart = BodyChartRequest(selection: selection)
-    }
-
-    private func rememberBodyChart(_ selection: BodyChartSelection) {
+        selection.exerciseID = exerciseID
+        selection.range = model.progressRange
+        selection.customDays = nil
         if let data = try? JSONEncoder().encode(selection) { storedBodyChart = data }
-    }
-
-    private var bodyMeasurementsButton: some View {
-        Button { openBodyChart() } label: {
-            HStack(spacing: 12) {
-                Text("Body measurements")
-                    .font(.body.weight(.medium))
-                    .fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 0)
-                Image(systemName: "chevron.right").font(.caption).accessibilityHidden(true)
-            }
-            .foregroundStyle(NotebookStyle.clay)
-            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-            .contentShape(Rectangle())
-        }
-        .accessibilityIdentifier("trends-body-measurements")
+        area = .body
     }
 
     private func heading(hasHistory: Bool) -> some View {
@@ -306,17 +290,15 @@ public struct TrainingTrendsView: View {
                         .font(.subheadline).foregroundStyle(NotebookStyle.quiet)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                if bodyMeasurements != nil {
-                    Button { openBodyChart(comparing: current) } label: {
-                        Label("Compare with \(rememberedBodyChart.metric.title.lowercased())", systemImage: "chart.xyaxis.line")
-                            .font(.subheadline.weight(.medium))
-                            .fixedSize(horizontal: false, vertical: true)
-                            .frame(minHeight: 44, alignment: .leading)
-                    }
-                    .foregroundStyle(NotebookStyle.clay)
-                    .accessibilityHint("Compare \(exercise.displayName) over the selected period")
-                    .accessibilityIdentifier("trends-compare-body")
+                Button { openBodyChart(comparing: current) } label: {
+                    Label("Compare with \(rememberedBodyChart.metric.title.lowercased())", systemImage: "chart.xyaxis.line")
+                        .font(.subheadline.weight(.medium))
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(minHeight: 44, alignment: .leading)
                 }
+                .foregroundStyle(NotebookStyle.clay)
+                .accessibilityHint("Compare \(exercise.displayName) over the selected period")
+                .accessibilityIdentifier("trends-compare-body")
             } else {
                 Text("No exercises tracked yet.")
                     .font(.subheadline).foregroundStyle(NotebookStyle.quiet)

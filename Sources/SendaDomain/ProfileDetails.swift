@@ -3,6 +3,7 @@ import Foundation
 public struct ProfileDetails: Codable, Equatable, Sendable {
     public var name: String
     public var email: String
+    public var trainerApplication: TrainerApplication?
     public var goals: [StrengthGoal]
     public var weeklyMuscleTargets: [WeeklyMuscleTarget]
 
@@ -14,12 +15,17 @@ public struct ProfileDetails: Codable, Equatable, Sendable {
         self.weeklyMuscleTargets = weeklyMuscleTargets
     }
 
-    private enum CodingKeys: String, CodingKey { case name, email, goals, weeklyMuscleTargets }
+    private enum CodingKeys: String, CodingKey { case name, email, goals, weeklyMuscleTargets, trainerApplication }
 
     public init(from decoder: any Decoder) throws {
+        try self.init(from: decoder, includesTrainerApplication: true)
+    }
+
+    public init(from decoder: any Decoder, includesTrainerApplication: Bool) throws {
         let box = try decoder.container(keyedBy: CodingKeys.self)
         name = try box.decode(String.self, forKey: .name)
         email = try box.decode(String.self, forKey: .email)
+        trainerApplication = includesTrainerApplication ? try box.decodeIfPresent(TrainerApplication.self, forKey: .trainerApplication) : nil
         goals = box.contains(.goals) ? try box.decode([StrengthGoal].self, forKey: .goals) : []
         weeklyMuscleTargets = box.contains(.weeklyMuscleTargets)
             ? try box.decode([WeeklyMuscleTarget].self, forKey: .weeklyMuscleTargets) : []
@@ -40,7 +46,11 @@ public struct ProfileDetails: Codable, Equatable, Sendable {
             throw WeeklyMuscleTargetError.duplicateMuscle
         }
         for target in weeklyMuscleTargets { try target.validate() }
-        return ProfileDetails(name: name, email: email, goals: goals, weeklyMuscleTargets: weeklyMuscleTargets)
+        try trainerApplication?.validate()
+        var copy = self
+        copy.name = name
+        copy.email = email
+        return copy
     }
 }
 public enum ProfileDetailsError: LocalizedError {

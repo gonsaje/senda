@@ -409,7 +409,7 @@ private enum NotebookExportKind {
         case .csv: "Recorded sets exported."
         case .previous: "Pre-restore backup saved."
         case .original: "Original notebook file saved."
-        case .originalRecovery: "Pre-restore original files saved for recovery. This copy cannot be restored as a Senda full backup."
+        case .originalRecovery: "Saved the pre-restore recovery files. The export includes readable notebook profile fields and omits trainer applications."
         }
     }
 }

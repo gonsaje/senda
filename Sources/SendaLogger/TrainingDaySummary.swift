@@ -6,7 +6,7 @@ public struct TrainingDaySummary: Equatable, Sendable {
     public let setCount: Int
     public let weekFocus: String?
 
-    init(performed: [Exercise], setCount: Int) {
+    init(performed: [Exercise], setCount: Int, planned: [Exercise] = []) {
         self.setCount = setCount
         exercises = performed.map(\.name)
         let groups = performed.reduce(into: Set<MuscleGroup>()) { result, exercise in
@@ -17,7 +17,7 @@ public struct TrainingDaySummary: Equatable, Sendable {
             }
         }
         muscleGroups = MuscleGroup.allCases.filter(groups.contains)
-        weekFocus = Self.weekFocus(for: performed)
+        weekFocus = Self.weekFocus(for: performed.isEmpty ? planned : performed)
     }
 
     private static func weekFocus(for performed: [Exercise]) -> String? {

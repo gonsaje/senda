@@ -66,21 +66,20 @@ public struct TrainingDayExerciseList: View {
     }
 
     private var exerciseList: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
+        let exerciseCount = exercises.count
+        let setCount = model.summary(for: day).setCount
+        return ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
                 navigation
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("All exercises").font(NotebookTypography.heading(32))
+                    Text("Workout overview").font(NotebookTypography.heading(32))
                         .accessibilityAddTraits(.isHeader)
                         .accessibilityIdentifier("day-exercises-title")
-                    Text("\(TrainingText.date(day, format: "EEEE, MMM d")) · \(exercises.count) exercises")
+                    Text("\(exerciseCount) \(exerciseCount == 1 ? "exercise" : "exercises") · \(setCount) \(setCount == 1 ? "set" : "sets") logged")
                         .font(.subheadline).foregroundStyle(NotebookStyle.quiet)
-                    if exercises.contains(where: { !visibleIDs.contains($0.id) }) {
-                        Text("Tap a hidden exercise to show it again. Paired tabs return together.")
-                            .font(.callout).foregroundStyle(NotebookStyle.quiet).fixedSize(horizontal: false, vertical: true)
-                    }
                 }
                 VStack(spacing: 0) {
+                    Divider()
                     ForEach(exercises) { exercise in
                         let member = memberships[exercise.id]
                         if let member, member.group.plan.first == exercise.id {
@@ -93,6 +92,12 @@ public struct TrainingDayExerciseList: View {
                         Text("No exercises yet").font(.callout).foregroundStyle(NotebookStyle.quiet).padding(.vertical, 20)
                     }
                 }
+                Button {
+                    if model.selectedDay == day { cancelPendingSelection(); add() }
+                } label: {
+                    Label("Add exercise", systemImage: "plus")
+                        .font(.body.weight(.semibold)).frame(minHeight: 48)
+                }.foregroundStyle(NotebookStyle.clay).accessibilityIdentifier("day-list-add-exercise")
                 if availableToPair.count >= 2 {
                     Button {
                         cancelPendingSelection()
@@ -102,15 +107,10 @@ public struct TrainingDayExerciseList: View {
                         pairing = true
                     } label: {
                         Label("Create superset", systemImage: "link")
-                            .font(.body.weight(.semibold)).frame(maxWidth: .infinity, minHeight: 46)
-                    }.buttonStyle(SupersetPrimaryStyle())
+                            .font(.subheadline.weight(.medium)).frame(minHeight: 44)
+                    }.foregroundStyle(NotebookStyle.clay)
                         .accessibilityIdentifier("create-superset")
                 }
-                Button {
-                    if model.selectedDay == day { cancelPendingSelection(); add() }
-                } label: {
-                    Label("Add exercise", systemImage: "plus").frame(minHeight: 48)
-                }.foregroundStyle(NotebookStyle.clay).accessibilityIdentifier("day-list-add-exercise")
             }
             .padding(.horizontal, 24).padding(.vertical, 12).frame(maxWidth: 560).frame(maxWidth: .infinity)
         }
@@ -125,8 +125,13 @@ public struct TrainingDayExerciseList: View {
 
     private func exerciseRow(_ exercise: Exercise, member: SupersetMembership?) -> some View {
         let count = model.loggedSetCount(for: exercise.id, on: day)
+        let rows = model.workspace.days[day.rawValue]?.rows[exercise.id] ?? []
+        let last = rows.reversed().lazy.compactMap { model.recordedValues(for: $0) }.first
+        let setSummary = [countLabel(count), last.map { ProgressFormatting.set($0, exercise: exercise, unit: model.unit) }]
+            .compactMap { $0 }.joined(separator: " · ")
         let selected = model.exercise?.id == exercise.id
-        let hidden = !visibleIDs.contains(exercise.id)
+        let position = visibleIDs.firstIndex(of: exercise.id).map { $0 + 1 }
+        let hidden = position == nil
         return HStack(spacing: 2) {
             Button {
                 cancelPendingSelection()
@@ -137,29 +142,38 @@ public struct TrainingDayExerciseList: View {
                 else if !model.canRetrySave { pendingExerciseID = nil }
             } label: {
                 HStack(spacing: 12) {
-                    if let member {
-                        Text(member.code(for: exercise.id)).font(.caption.bold())
-                            .foregroundStyle(NotebookStyle.clay)
+                    if let position {
+                        Text("\(position)").font(.subheadline.weight(.semibold).monospacedDigit())
+                            .padding(4).frame(minWidth: 28, minHeight: 28)
+                            .foregroundStyle(selected ? NotebookStyle.onPrimary : NotebookStyle.ink)
+                            .background(selected ? NotebookStyle.primaryFill : .clear, in: Capsule())
+                            .overlay { Capsule().strokeBorder(selected ? .clear : NotebookStyle.quiet, lineWidth: 1) }
+                    } else {
+                        Image(systemName: "eye.slash").foregroundStyle(NotebookStyle.quiet).frame(minWidth: 28)
                     }
                     VStack(alignment: .leading, spacing: 4) {
                         Text(exercise.displayName).font(.body.weight(selected ? .bold : .regular))
                             .foregroundStyle(NotebookStyle.ink).fixedSize(horizontal: false, vertical: true)
-                        Text(countLabel(count)).font(.caption.monospacedDigit()).foregroundStyle(NotebookStyle.quiet)
+                        Text(setSummary).font(.subheadline.monospacedDigit()).foregroundStyle(NotebookStyle.quiet)
+                            .fixedSize(horizontal: false, vertical: true)
+                        if selected || member != nil {
+                            Text([selected ? "Viewing" : nil, member?.code(for: exercise.id)].compactMap { $0 }.joined(separator: " · "))
+                                .font(.caption.weight(.semibold)).foregroundStyle(NotebookStyle.clay)
+                        }
                         if hidden {
-                            Text(member != nil ? "Show both tabs" : count == 0 ? "Hidden tab · Input retained" : "Hidden tab · Sets retained")
+                            Text(member != nil ? "Show both exercises" : "Show exercise")
                                 .font(.caption).foregroundStyle(NotebookStyle.clay).fixedSize(horizontal: false, vertical: true)
                         }
                     }.frame(maxWidth: .infinity, alignment: .leading)
-                    Image(systemName: hidden ? "eye" : "chevron.right")
-                        .font(.body).foregroundStyle(NotebookStyle.quiet)
+                    Image(systemName: "chevron.right")
+                        .font(.footnote).foregroundStyle(NotebookStyle.quiet)
                         .accessibilityHidden(true)
                 }
-                .padding(.horizontal, 10).padding(.vertical, 14).frame(minHeight: 70)
-                .background(selected ? NotebookStyle.clay.opacity(0.14) : .clear, in: RoundedRectangle(cornerRadius: 8))
+                .padding(.vertical, 10).frame(minHeight: 60)
                 .contentShape(Rectangle())
             }
-            .accessibilityLabel("\(member.map { $0.code(for: exercise.id) + ", " } ?? "")\(exercise.displayName), \(countLabel(count))\(hidden ? ", Hidden tab, retained work" : "")")
-            .accessibilityHint(hidden ? (member != nil ? "Show both tabs and open this exercise" : "Show this tab and open its sets") : "Open exercise")
+            .accessibilityLabel([position.map { "Exercise \($0)" }, exercise.displayName, member?.code(for: exercise.id), setSummary, hidden ? "Hidden exercise" : nil].compactMap { $0 }.joined(separator: ", "))
+            .accessibilityHint(hidden ? (member != nil ? "Show both exercises and open this one" : "Show this exercise and open its sets") : "Open exercise")
             .accessibilityAddTraits(selected ? .isSelected : [])
             .accessibilityIdentifier("day-exercise-\(exercise.id)")
             Menu {
@@ -168,7 +182,7 @@ public struct TrainingDayExerciseList: View {
                         cancelPendingSelection()
                         _ = model.removeExercise(exercise.id)
                     } label: {
-                        Label(member == nil ? "Hide tab" : "Hide both tabs", systemImage: "eye.slash")
+                        Label(member == nil ? "Hide exercise" : "Hide both exercises", systemImage: "eye.slash")
                     }.accessibilityIdentifier("hide-exercise-\(exercise.id)")
                 }
                 Button(role: .destructive) {
@@ -350,7 +364,7 @@ public struct TrainingDayExerciseList: View {
     private var navigation: some View {
         HStack {
             Button { cancelPendingListAction(); close() } label: {
-                Label("Day", systemImage: "chevron.left").frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+                Text("Close").frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
             }
             .accessibilityIdentifier("close-day-exercises")
             Spacer()

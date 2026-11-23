@@ -3,6 +3,17 @@ import SendaDomain
 import SendaLogger
 
 struct BodyChartSelection: Codable, Equatable {
+    static let preferenceKey = "senda.bodyMeasurements.chartSelection"
+
+    @MainActor static func restored(for model: TrainingNotebookModel, from data: Data) -> Self {
+        var selection = (try? JSONDecoder().decode(Self.self, from: data)) ?? Self(range: model.progressRange)
+        if let id = selection.exerciseID, !model.exercises.contains(where: { $0.id == id }) { selection.exerciseID = nil }
+        if let dates = selection.customDays, dates.upperBound > model.today {
+            selection.customDays = dates.lowerBound <= model.today ? dates.lowerBound...model.today : nil
+        }
+        return selection
+    }
+
     var metric: BodyMetric = .weight
     var range: ExerciseProgressRange
     var customDays: ClosedRange<TrainingDay>?
@@ -12,10 +23,11 @@ struct BodyChartSelection: Codable, Equatable {
 struct BodyMeasurementsView: View {
     let model: BodyMeasurementsModel
     let notebook: TrainingNotebookModel
-    let close: () -> Void
-    let remember: (BodyChartSelection) -> Void
+    @AppStorage(BodyChartSelection.preferenceKey) private var storedBodyChart = Data()
+    @State private var confirmsSharing = false
 
     @AppStorage("senda.bodyMeasurements.readAppleHealth") private var readsAppleHealth = false
+    @AppStorage("senda.bodyMeasurements.requestedActivityAccess") private var requestedActivityAccess = false
     @Environment(\.scenePhase) private var scenePhase
     @State private var metric: BodyMetric = .weight
     @State private var destination: BodyMeasurementsDestination?
@@ -24,12 +36,9 @@ struct BodyMeasurementsView: View {
     @State private var comparisonID: String?
     @State private var saveNotice: String?
 
-    init(model: BodyMeasurementsModel, notebook: TrainingNotebookModel, selection: BodyChartSelection,
-         remember: @escaping (BodyChartSelection) -> Void, close: @escaping () -> Void) {
+    init(model: BodyMeasurementsModel, notebook: TrainingNotebookModel, selection: BodyChartSelection) {
         self.model = model
         self.notebook = notebook
-        self.close = close
-        self.remember = remember
         _range = State(initialValue: selection.range)
         _metric = State(initialValue: selection.metric)
         _customDays = State(initialValue: selection.customDays)
@@ -45,79 +54,60 @@ struct BodyMeasurementsView: View {
         let readings = period.readings
         let exercise = comparisonID.map { notebook.exercise($0) }
         let progress = exercise.map { notebook.snapshot.progress(for: $0, in: days, calendar: calendar) }
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 12) {
-                actions
-                if model.manualLoadFailed {
-                    Text("Manual measurements couldn’t be opened.").font(.callout)
-                    Button("Try again", action: model.reloadManual)
-                        .foregroundStyle(NotebookStyle.clay)
-                        .frame(minHeight: 44)
-                }
-                metricPicker
-                intervalPicker
-                if let saveNotice {
-                    Text(saveNotice).font(.callout).foregroundStyle(NotebookStyle.quiet)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                comparisonButton(exercise)
-                healthStatus(hasImportedReadings: model.hasHealthReadings(for: metric))
-                if readings.isEmpty && period.precedingWeight == nil {
-                    Text(model.hasReadings(for: metric)
-                         ? "No \(metric.title.lowercased()) readings in this period."
-                         : "No \(metric.title.lowercased()) readings")
-                        .font(.body.weight(.medium))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                if !readings.isEmpty || period.precedingWeight != nil || progress?.sessions.isEmpty == false {
-                    BodyMeasurementTrendChart(metric: metric, readings: readings, precedingWeight: period.precedingWeight, days: days,
-                        comparison: progress, exercise: exercise, unit: unit, calendar: calendar)
-                }
-                if let exercise, progress?.sessions.isEmpty == true {
-                    Text("No recorded sets for \(exercise.displayName) in this period.")
-                        .font(.callout).foregroundStyle(NotebookStyle.quiet)
-                }
-                if !readings.isEmpty {
-                    Text("History")
-                        .font(NotebookTypography.heading(22, relativeTo: .title2))
-                        .accessibilityAddTraits(.isHeader)
-                    ForEach(readings) { reading in
-                        rule
-                        readingRow(reading)
-                    }
-                }
+        LazyVStack(alignment: .leading, spacing: 12) {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) { measurementsHeading; Spacer(minLength: 0); logButton }
+                VStack(alignment: .leading, spacing: 0) { measurementsHeading; logButton }
             }
-            .padding(.horizontal, 24).padding(.vertical, 16)
-            .frame(maxWidth: 560).frame(maxWidth: .infinity)
-        }
-        .safeAreaInset(edge: .top, spacing: 0) {
-            VStack(alignment: .leading, spacing: 4) {
-                Button(action: close) {
-                    Label("Trends", systemImage: "chevron.left")
-                        .frame(minWidth: 44, minHeight: 44, alignment: .leading)
-                        .contentShape(Rectangle())
-                }
-                .foregroundStyle(NotebookStyle.clay)
-                .accessibilityIdentifier("close-body-measurements")
-                Text("Body measurements")
-                    .font(NotebookTypography.heading(31))
-                    .accessibilityAddTraits(.isHeader)
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.7)
+            if model.manualLoadFailed {
+                Text("Manual measurements couldn’t be opened.").font(.callout)
+                Button("Try again", action: model.reloadManual)
+                    .foregroundStyle(NotebookStyle.clay)
+                    .frame(minHeight: 44)
+            }
+            metricPicker
+            intervalPicker
+            if let saveNotice {
+                Text(saveNotice).font(.callout).foregroundStyle(NotebookStyle.quiet)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            .frame(maxWidth: 512, alignment: .leading)
-            .padding(.horizontal, 24).padding(.top, 8).padding(.bottom, 12)
-            .frame(maxWidth: .infinity)
-            .background(NotebookStyle.ivory)
-            .overlay(alignment: .bottom) { rule }
+            comparisonButton(exercise)
+            healthStatus(hasImportedReadings: model.hasHealthReadings(for: metric))
+            if readings.isEmpty && period.precedingWeight == nil {
+                Text(model.hasReadings(for: metric)
+                     ? "No \(metric.title.lowercased()) readings in this period."
+                     : "No \(metric.title.lowercased()) readings")
+                    .font(.body.weight(.medium))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if !readings.isEmpty || period.precedingWeight != nil || progress?.sessions.isEmpty == false {
+                BodyMeasurementTrendChart(metric: metric, readings: readings, precedingWeight: period.precedingWeight, days: days,
+                    comparison: progress, exercise: exercise, unit: unit, calendar: calendar)
+            }
+            if let exercise, progress?.sessions.isEmpty == true {
+                Text("No recorded sets for \(exercise.displayName) in this period.")
+                    .font(.callout).foregroundStyle(NotebookStyle.quiet)
+            }
+            if model.supportsAppleHealth {
+                rule.padding(.top, 8)
+                activitySection
+            }
+            if !readings.isEmpty {
+                Text("History")
+                    .font(NotebookTypography.heading(22, relativeTo: .title2))
+                    .accessibilityAddTraits(.isHeader)
+                ForEach(readings) { reading in
+                    rule
+                    readingRow(reading)
+                }
+            }
         }
         .background(NotebookStyle.ivory)
         .foregroundStyle(NotebookStyle.ink)
         .tint(NotebookStyle.clay)
         .buttonStyle(.plain)
         .onChange(of: BodyChartSelection(metric: metric, range: range, customDays: customDays, exerciseID: comparisonID)) { _, selection in
-            remember(selection)
+            if let data = try? JSONEncoder().encode(selection) { storedBodyChart = data }
         }
         .onChange(of: days) { _, _ in saveNotice = nil }
         .task { model.reloadManual() }
@@ -126,8 +116,24 @@ struct BodyMeasurementsView: View {
                 await model.refreshHealth()
             }
         }
+        .task(id: readsAppleHealth && requestedActivityAccess && scenePhase == .active) {
+            guard readsAppleHealth, requestedActivityAccess, scenePhase == .active else { return }
+            while !Task.isCancelled {
+                await model.refreshActivity()
+                do { try await Task.sleep(for: .seconds(60)) } catch { return }
+            }
+        }
+        .onDisappear { model.disconnectHealth() }
+        .alert("Sync measurements to Apple Health?", isPresented: $confirmsSharing) {
+            Button("Cancel", role: .cancel) {}
+            Button("Choose measurements") { Task { await model.enableMeasurementSharing() } }
+        } message: {
+            Text("Senda will share saved readings for the types you allow. New readings, edits and deletions will sync too.")
+        }
         .sheet(item: $destination) { sheet in
             switch sheet {
+            case .activity:
+                HealthActivityEditor(model: model, close: { destination = nil })
             case .add, .edit:
                 BodyMeasurementEditor(model: model, unit: unit,
                     reading: sheet.reading, close: { destination = nil }) { savedMetrics, date in
@@ -153,30 +159,68 @@ struct BodyMeasurementsView: View {
                     clearTitle: "No comparison", select: { comparisonID = $0; destination = nil }, close: { destination = nil })
             }
         }
-        #if os(macOS)
-        .frame(minWidth: 320, idealWidth: 440, minHeight: 540, idealHeight: 720)
-        #endif
     }
 
-    private var actions: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 16) {
-                logButton
-                Spacer(minLength: 0)
-                healthAction
+    private var measurementsHeading: some View {
+        Text("Body measurements")
+            .font(NotebookTypography.heading(22, relativeTo: .title2))
+            .accessibilityAddTraits(.isHeader)
+    }
+
+    private var activitySection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) { activityHeading; Spacer(minLength: 0); healthAction }
+                VStack(alignment: .leading, spacing: 0) { activityHeading; healthAction }
             }
-            VStack(alignment: .leading, spacing: 0) {
-                logButton
-                healthAction
+            if readsAppleHealth && requestedActivityAccess {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 32) { activityValues }.fixedSize(horizontal: true, vertical: false)
+                    VStack(alignment: .leading, spacing: 8) { activityValues }
+                }
+                Button("Add activity") { destination = .activity }
+                    .foregroundStyle(NotebookStyle.clay).frame(minHeight: 44)
+                    .accessibilityIdentifier("body-add-activity")
+                if let error = model.activityError { Text(error).font(.callout) }
+            } else if readsAppleHealth {
+                Button("Connect steps and active calories") { Task { await connectHealth() } }
+                    .foregroundStyle(NotebookStyle.clay)
+                    .frame(minHeight: 44).disabled(model.isRequestingHealthAccess)
+            } else {
+                Text("Connect Apple Health to see your steps and active calories.")
+                    .font(.callout).foregroundStyle(NotebookStyle.quiet)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var activityHeading: some View {
+        Text("Today’s activity")
+            .font(NotebookTypography.heading(22, relativeTo: .title2))
+            .accessibilityAddTraits(.isHeader)
+    }
+
+    @ViewBuilder private var activityValues: some View {
+        activityValue("Steps", model.activity.steps, suffix: "")
+        activityValue("Active calories", model.activity.activeCalories, suffix: " kcal")
+    }
+
+    private func activityValue(_ title: String, _ value: Double?, suffix: String) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title).font(.subheadline).foregroundStyle(NotebookStyle.quiet)
+            if let value {
+                Text(value.formatted(.number.precision(.fractionLength(0))) + suffix)
+                    .font(.title3.weight(.semibold).monospacedDigit())
+            } else {
+                Text("No data").font(.body)
+            }
+        }
+        .accessibilityElement(children: .combine)
     }
 
     private var logButton: some View {
         Button { saveNotice = nil; destination = .add } label: {
-            Label("Log a reading", systemImage: "plus")
-                .font(.body.weight(.semibold))
+            Text("Log a reading")
+                .font(.subheadline.weight(.semibold))
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(minHeight: 44, alignment: .leading)
                 .contentShape(Rectangle())
@@ -189,10 +233,24 @@ struct BodyMeasurementsView: View {
         if model.supportsAppleHealth {
             if readsAppleHealth {
                 Menu {
-                    Button("Refresh readings") { Task { await model.refreshHealth() } }
+                    Button("Refresh") { Task {
+                        await model.refreshHealth()
+                        if requestedActivityAccess { await model.refreshActivity() }
+                        await model.syncPendingMeasurements()
+                    } }
                         .disabled(model.isRefreshingHealth)
+                    Button("Review read access") { Task {
+                        await connectHealth()
+                    } }
+                    if model.sharesMeasurements {
+                        Button("Stop sharing measurements") { model.stopMeasurementSharing() }
+                    } else {
+                        Button("Sync measurements to Health") { confirmsSharing = true }
+                    }
                     Button("Disconnect Apple Health", role: .destructive) {
+                        guard model.stopMeasurementSharing() else { return }
                         readsAppleHealth = false
+                        requestedActivityAccess = false
                         model.disconnectHealth()
                     }
                 } label: {
@@ -201,9 +259,7 @@ struct BodyMeasurementsView: View {
                 .accessibilityIdentifier("body-measurements-apple-health")
             } else {
                 Button {
-                    Task {
-                        if await model.requestHealthAccess() { readsAppleHealth = true }
-                    }
+                    Task { await connectHealth() }
                 } label: {
                     healthActionLabel("Connect Apple Health")
                 }
@@ -213,7 +269,20 @@ struct BodyMeasurementsView: View {
         }
     }
 
+    private func connectHealth() async {
+        guard await model.requestHealthAccess() else { return }
+        let refreshExisting = readsAppleHealth
+        let refreshActivity = requestedActivityAccess
+        readsAppleHealth = true
+        requestedActivityAccess = true
+        if refreshExisting { await model.refreshHealth() }
+        if refreshActivity { await model.refreshActivity() }
+    }
+
     @ViewBuilder private func healthStatus(hasImportedReadings: Bool) -> some View {
+        if let message = model.sharingError {
+            Text(message).font(.callout).foregroundStyle(NotebookStyle.clay)
+        }
         if let error = model.healthError {
             Text(error)
                 .font(.callout).foregroundStyle(NotebookStyle.quiet)
@@ -383,7 +452,7 @@ struct BodyMeasurementsView: View {
 }
 
 private enum BodyMeasurementsDestination: Identifiable {
-    case add, edit(BodyMeasurement), dates, strength
+    case add, edit(BodyMeasurement), dates, strength, activity
     var reading: BodyMeasurement? {
         if case .edit(let reading) = self { return reading }
         return nil
@@ -394,6 +463,7 @@ private enum BodyMeasurementsDestination: Identifiable {
         case .edit(let reading): reading.id.uuidString
         case .dates: "dates"
         case .strength: "strength"
+        case .activity: "activity"
         }
     }
 }

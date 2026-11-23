@@ -6,7 +6,7 @@ import UIKit
 #endif
 
 private enum TrainingDaySheet: Hashable, Identifiable {
-    case catalog(String, multiple: Bool), exercises, library, saveTemplate, history(String)
+    case catalog(String, multiple: Bool), exercises, library, saveTemplate, history(String), guide(String, TrainingExerciseGuideTab)
     var id: Self { self }
 }
 
@@ -19,6 +19,12 @@ private struct TrainingPendingNavigation {
     let day: TrainingDay
     let exerciseID: String?
     let rowIDs: [UUID]
+}
+
+private struct TrainingPageSwipeOrigin {
+    let edges: VerticalEdge.Set
+    let inHeader: Bool
+    let inMarkers: Bool
 }
 
 private struct TrainingFocusedRowLayout: Equatable {
@@ -36,18 +42,34 @@ private enum TrainingFocusedRowPreference: PreferenceKey {
 struct TrainingDayView: View {
     @Bindable var model: TrainingNotebookModel
     let day: TrainingDay
+    let layout: TrainingCalendarLayout
     @State private var presentedSheet: TrainingDaySheet?
     @State private var weightEntry = TrainingWeightEntrySettings()
     @State private var showingSearch = false
     @State private var searchAfterDismissal: TrainingDay?
     @State private var pendingNavigation: TrainingPendingNavigation?
     @State private var planContext: TrainingMetadataContext?
-    @State private var stripScrolledPast = false
+    @GestureState private var isDraggingPage = false
+    @State private var swipeOrigin: TrainingPageSwipeOrigin?
+    @State private var scrollEdges: VerticalEdge.Set = .all
+    @State private var headerBounds: CGRect = .zero
+    @State private var markerBounds: CGRect = .zero
+    @State private var markerScrollOffset: Int?
+    @State private var markerActivity = 0
+    @State private var markersRecentlyActive = false
+    @State private var pagingCueBounds: CGRect = .zero
+    @State private var pagingForward = true
     @State private var measuredFocusLayout: TrainingFocusedRowLayout?
     @State private var showsFirstSetConfirmation = false
     @State private var awaitingSupersetFinish: UUID?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dynamicTypeSize) private var textSize
+
+    init(model: TrainingNotebookModel, day: TrainingDay, layout: TrainingCalendarLayout) {
+        self.model = model
+        self.day = day
+        self.layout = layout
+    }
 
     private var firstSetConfirmation: some View {
         Label("First set saved", systemImage: "checkmark")
@@ -67,69 +89,93 @@ struct TrainingDayView: View {
     var body: some View {
         let hasExercises = model.exercise != nil || !model.indexedExercises(on: day).isEmpty
         let isFirstWorkout = !hasExercises && model.isFirstWorkout
+        let showsPagingCue = model.exercise != nil && model.focus == nil && !showingSearch
+        let showsExerciseMarkers = model.exercise != nil && !showingSearch
         return ScrollViewReader { scroll in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
-                    if hasExercises {
-                        dayNavigation.id("day-header")
-                            .onGeometryChange(for: Bool.self) {
-                                $0.frame(in: .scrollView(axis: .vertical)).maxY < 0
-                            } action: { stripScrolledPast = $0 }
-                        // An unpinned anchor restores the first sets even when the tab strip is pinned.
-                        Color.clear.frame(height: 0).id("active-exercise")
-                            .accessibilityHidden(true)
-                    } else {
-                        emptyDayNavigation(isFirstWorkout: isFirstWorkout).id("day-header")
-                    }
+                VStack(alignment: .leading, spacing: 0) {
+                    Color.clear.frame(height: 0).id("day-top").accessibilityHidden(true)
+                    if !hasExercises { emptyDayNavigation(isFirstWorkout: isFirstWorkout).id("day-header") }
                     if let session = model.programSession(on: day) {
                         ScheduledProgramContext(session: session, model: model)
                     }
-                    if textSize.isAccessibilitySize { supersetStatus }
-                    Section {
-                        VStack(alignment: .leading, spacing: 8) {
-                            if showingSearch {
-                                TrainingExercisePicker(inline: model, close: { showingSearch = false },
-                                    browse: { query, multiple in open(.sheet(.catalog(query, multiple: multiple))) })
-                            } else if let exercise = model.exercise {
-                                exerciseControls(exercise)
-                                if let last = model.lastReference {
-                                    TrainingLastTimeRow(
-                                        summary: ProgressFormatting.set(last.values, exercise: exercise, unit: model.unit),
-                                        day: last.day,
-                                        showSet: { pendingNavigation = nil; model.openReference(last) },
-                                        showHistory: { open(.sheet(.history(exercise.id))) })
-                                }
-                                TrainingSetRows(model: model, records: model.workoutPersonalRecords,
-                                                beginInteraction: { pendingNavigation = nil }, advanceSuperset: advanceSuperset,
-                                                showExercises: { open(.sheet(.exercises)) }).id("\(day.rawValue)/\(exercise.id)")
-                                if let best = model.personalBest {
-                                    TrainingPersonalBest(model: model, best: best, beginNavigation: { pendingNavigation = nil })
-                                }
-                                if model.focus == nil && model.errorMessage == nil && !model.canRetrySave {
-                                    TrainingNextWorkoutFeedback(model: model, day: day, exercise: exercise)
-                                }
-                            } else {
-                                TrainingEmptyWorkout(isFirstWorkout: isFirstWorkout, unit: model.unit,
-                                    addExercise: hasExercises ? nil : { open(.addExercise) },
-                                    chooseTemplate: { open(.sheet(.library)) })
-                            }
-                        }
-                        .padding(.top, 8)
-                    } header: {
-                        if hasExercises {
-                            VStack(alignment: .leading, spacing: 0) { workoutExercises(scroll) }
-                                .background(NotebookStyle.ivory)
-                        }
+                    if showingSearch {
+                        TrainingExercisePicker(inline: model, close: { showingSearch = false },
+                            browse: { query, multiple in open(.sheet(.catalog(query, multiple: multiple))) })
+                    } else if let exercise = model.exercise {
+                        exercisePage(exercise)
+                    } else {
+                        TrainingEmptyWorkout(addExercise: { open(.addExercise) },
+                                             chooseTemplate: { open(.sheet(.library)) })
                     }
                 }
-                .padding(.horizontal, hasExercises ? 24 : 20).padding(.top, 2).padding(.bottom, 28)
+                .padding(.leading, 20)
+                .padding(.trailing, showsExerciseMarkers ? 44 : 20)
+                .padding(.top, 2).padding(.bottom, 20)
                 .frame(maxWidth: 560).frame(maxWidth: .infinity)
-                .id("day-top")
+                .onGeometryChange(for: VerticalEdge.Set.self) { geometry in
+                    guard let viewport = geometry.bounds(of: .scrollView(axis: .vertical)) else { return .all }
+                    var edges: VerticalEdge.Set = []
+                    if viewport.minY <= 2 { edges.insert(.top) }
+                    if viewport.maxY >= geometry.size.height - 2 { edges.insert(.bottom) }
+                    return edges
+                } action: { scrollEdges = $0 }
+                .onGeometryChange(for: Int?.self) { geometry in
+                    geometry.bounds(of: .scrollView(axis: .vertical)).map { Int(($0.minY / 4).rounded()) }
+                } action: { offset in
+                    if markerScrollOffset != nil, showsExerciseMarkers { registerMarkerActivity() }
+                    markerScrollOffset = offset
+                }
             }
             .clipped()
             .accessibilityIdentifier("day-scroll")
+            .simultaneousGesture(pageSwipe())
+            .onChange(of: isDraggingPage) { _, dragging in
+                if !dragging {
+                    swipeOrigin = nil
+                    if showsExerciseMarkers { registerMarkerActivity() }
+                }
+            }
+            .overlay(alignment: .trailing) {
+                if let exercise = model.exercise, showsExerciseMarkers {
+                    TrainingExerciseMarkerRail(exercises: model.tabs, selectedID: exercise.id,
+                        isExpanded: isDraggingPage || markersRecentlyActive,
+                        select: selectExercise, add: { open(.addExercise) })
+                        .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { markerBounds = $0 }
+                        .frame(minWidth: 0, maxWidth: 560, alignment: .trailing)
+                        .frame(maxWidth: .infinity)
+                }
+            }
+            .task(id: markerActivity) {
+                guard markersRecentlyActive else { return }
+                do { try await Task.sleep(for: .milliseconds(550)) }
+                catch { return }
+                markersRecentlyActive = false
+            }
+            .safeAreaInset(edge: .top, spacing: 0) {
+                if hasExercises {
+                    HStack(spacing: 8) {
+                        calendarBackButton
+                        Spacer(minLength: 4)
+                        if textSize.isAccessibilitySize {
+                            workoutOptions.labelStyle(.iconOnly)
+                        } else {
+                            workoutOptions
+                        }
+                    }
+                    .padding(.horizontal, 20).frame(maxWidth: 560)
+                    .frame(maxWidth: .infinity).background(NotebookStyle.ivory)
+                }
+            }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 VStack(spacing: 0) {
+                    if showsPagingCue {
+                        pagingCue
+                            .padding(.horizontal, 20).padding(.bottom, 4)
+                            .frame(maxWidth: 560)
+                            .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { pagingCueBounds = $0 }
+                            .highPriorityGesture(pageSwipe(fromCue: true))
+                    }
                     if let error = model.errorMessage ?? (model.canRetrySave ? model.saveStatus : nil) {
                         TrainingSaveError(model: model, message: error, retrySucceeded: presentPendingNavigation)
                             .padding(.horizontal, 24).padding(.top, 8)
@@ -172,7 +218,7 @@ struct TrainingDayView: View {
             }
             .sheet(item: $presentedSheet, onDismiss: {
                 if searchAfterDismissal == day && model.selectedDay == day && model.section == .log {
-                    showingSearch = true
+                    open(.addExercise)
                 }
                 searchAfterDismissal = nil
             }) { destination in
@@ -188,6 +234,8 @@ struct TrainingDayView: View {
                 case .saveTemplate:
                     TrainingWorkoutTemplateEditor(model: model, template: nil, isEditing: false, copiesCurrentDay: true,
                         close: { presentedSheet = nil }, saved: { _ in presentedSheet = nil })
+                case let .guide(exerciseID, tab):
+                    TrainingExerciseGuide(exercise: model.exercise(exerciseID), initialTab: tab, close: { presentedSheet = nil })
                 case .history(let exerciseID):
                     TrainingWorkoutExerciseHistory(model: model, exercise: model.exercise(exerciseID), before: day,
                         close: { presentedSheet = nil })
@@ -251,16 +299,21 @@ struct TrainingDayView: View {
                     searchAfterDismissal = nil
                 }
             }
-            .onChange(of: showingSearch) { _, isOpen in
-                if !isOpen && presentedSheet == nil && model.section == .log && model.selectedDay == day {
-                    scroll.scrollTo(hasExercises ? "active-exercise" : "day-header", anchor: .top)
+            .onChange(of: showingSearch) { _, _ in
+                if showingSearch { markerBounds = .zero }
+                if presentedSheet == nil && model.section == .log && model.selectedDay == day {
+                    scroll.scrollTo("day-top", anchor: .top)
                 }
             }
             .onChange(of: model.rows) { _, _ in reconcilePendingNavigation() }
-            .onChange(of: model.focus?.id) { _, _ in reconcilePendingNavigation() }
+            .onChange(of: model.focus?.id) { _, _ in
+                reconcilePendingNavigation()
+            }
             .onChange(of: model.canRetrySave) { _, _ in reconcilePendingNavigation() }
             .onChange(of: model.errorMessage) { _, _ in reconcilePendingNavigation() }
             .onChange(of: model.exercise?.id) { _, _ in
+                if showsExerciseMarkers { registerMarkerActivity() }
+                if model.revealRowID == nil { scroll.scrollTo("day-top", anchor: .top) }
                 pendingNavigation = nil
                 planContext = nil
             }
@@ -275,6 +328,15 @@ struct TrainingDayView: View {
 
     private func open(_ destination: TrainingDayDestination) {
         pendingNavigation = nil
+        // Peeking at the guide or overview leaves the current number editor in place.
+        if case .sheet(let sheet) = destination, model.errorMessage == nil, !model.canRetrySave {
+            switch sheet {
+            case .guide, .exercises:
+                present(destination)
+                return
+            default: break
+            }
+        }
         if model.finishEditing() { present(destination) }
         else {
             pendingNavigation = TrainingPendingNavigation(destination: destination, day: day,
@@ -342,7 +404,7 @@ struct TrainingDayView: View {
             : AnyLayout(HStackLayout(alignment: .center, spacing: 4))
         return VStack(alignment: .leading, spacing: 4) {
             HStack {
-                weekButton
+                calendarBackButton
                 if day != model.today && !textSize.isAccessibilitySize { todayControl }
                 Spacer(minLength: 8)
                 TrainingWordmark(width: 103)
@@ -362,39 +424,8 @@ struct TrainingDayView: View {
         }
     }
 
-    private var dayNavigation: some View {
-        let stackDateControls = textSize.isAccessibilitySize
-        let dateLayout = stackDateControls
-            ? AnyLayout(VStackLayout(alignment: .trailing, spacing: 4))
-            : AnyLayout(HStackLayout(alignment: .center, spacing: 8))
-        return VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 8) {
-                weekButton
-                Spacer(minLength: 8)
-                todayControl
-            }
-            dateLayout {
-                dayHeading.frame(maxWidth: .infinity, alignment: .leading)
-                dateControls.fixedSize()
-            }.padding(.bottom, 8)
-            Rectangle().fill(NotebookStyle.rule).frame(height: 0.5).accessibilityHidden(true)
-        }
-        .padding(.bottom, 4)
-    }
-
     private var fullDateFormat: String {
         day.rawValue.prefix(4) == model.today.rawValue.prefix(4) ? "EEEE, MMMM d" : "EEEE, MMMM d, yyyy"
-    }
-
-    private var dayHeading: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            TrainingDateStamp(day: day, isToday: day == model.today, isHeading: true)
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel(TrainingText.date(day, format: "EEEE"))
-                .accessibilityAddTraits(.isHeader)
-                .accessibilityIdentifier("day-title")
-            dateTitle(day == model.today ? "MMMM" : "MMMM yyyy", font: .subheadline)
-        }
     }
 
     @ViewBuilder private var todayControl: some View {
@@ -434,45 +465,118 @@ struct TrainingDayView: View {
         }
     }
 
-    @ViewBuilder private func workoutExercises(_ scroll: ScrollViewProxy) -> some View {
-        if model.tabs.isEmpty {
-            HStack {
-                Text("Exercises").font(NotebookTypography.heading(17, relativeTo: .headline)).accessibilityAddTraits(.isHeader)
-                Spacer()
-                if !model.indexedExercises(on: day).isEmpty { workoutOptions }
-                addExerciseButton
+    private func exercisePage(_ exercise: Exercise) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(exercise.displayName)
+                    .font(NotebookTypography.heading(32, relativeTo: .title))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityAddTraits(.isHeader).accessibilityIdentifier("exercise-title")
+                TrainingExerciseTargets(exercise: exercise) { tab in
+                    open(.sheet(.guide(exercise.id, tab)))
+                }
+                if let last = model.lastReference {
+                    TrainingLastTimeRow(summary: ProgressFormatting.set(last.values, exercise: exercise, unit: model.unit),
+                        day: last.day, showSet: { pendingNavigation = nil; model.openReference(last) },
+                        showHistory: { open(.sheet(.history(exercise.id))) })
+                }
+                exerciseControls(exercise)
             }
-        } else {
-            let memberships = model.supersetMemberships
-            if !textSize.isAccessibilitySize { supersetStatus }
-            TrainingWorkoutExerciseList(exercises: model.tabs, selectedID: model.exercise?.id,
-                                        memberships: memberships, select: { id in
-                if id == model.exercise?.id {
-                    if showingSearch { showingSearch = false }
-                    return true
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { frame in
+                if model.exercise?.id == exercise.id { headerBounds = frame }
+            }
+            .id(exercise.id)
+            .transition(pageTransition)
+            VStack(alignment: .leading, spacing: 8) {
+                supersetStatus
+                TrainingSetRows(model: model, records: model.workoutPersonalRecords,
+                    beginInteraction: { pendingNavigation = nil }, advanceSuperset: advanceSuperset,
+                    showExercises: { open(.sheet(.exercises)) })
+                if let best = model.personalBest {
+                    TrainingPersonalBest(model: model, best: best, beginNavigation: { pendingNavigation = nil })
                 }
-                pendingNavigation = nil
-                guard model.selectExercise(id) else { return false }
-                showingSearch = false
-                if stripScrolledPast { scroll.scrollTo("active-exercise", anchor: .top) }
-                return true
-            }, add: {
-                HStack(spacing: 0) {
-                    workoutOptions
-                    addExerciseButton
+                if model.focus == nil && model.errorMessage == nil && !model.canRetrySave {
+                    TrainingNextWorkoutFeedback(model: model, day: day, exercise: exercise)
                 }
-            })
+            }
+            .id("ledger-" + exercise.id)
+            .transition(pageTransition)
         }
+        .padding(.top, 2)
     }
-    private var addExerciseButton: some View {
-        Button { open(.addExercise) } label: {
-            Image(systemName: "plus").font(.body.weight(.medium))
-                .frame(width: 44, height: 46).contentShape(Rectangle())
+
+    private var pageTransition: AnyTransition {
+        reduceMotion ? .identity : .push(from: pagingForward ? .bottom : .top)
+    }
+
+    private func registerMarkerActivity() {
+        markersRecentlyActive = true
+        markerActivity &+= 1
+    }
+
+    private var pagingCue: some View {
+        Button { turnPage(forward: true) } label: {
+            Label(nextExercise.map { "Next: " + $0.displayName } ?? "Swipe up to add exercise",
+                  systemImage: "chevron.up")
+                .font(.subheadline.weight(.medium))
+                .frame(maxWidth: .infinity, minHeight: 44).contentShape(Rectangle())
         }
         .foregroundStyle(NotebookStyle.clay)
-        .disabled(showingSearch)
-        .accessibilityLabel("Add exercise")
-        .accessibilityIdentifier("add-exercise")
+        .accessibilityHint(nextExercise == nil ? "Opens the exercise picker" : "Opens the next exercise")
+        .accessibilityIdentifier("next-exercise-page")
+    }
+
+    private var nextExercise: Exercise? {
+        let exercises = model.tabs
+        guard let index = exercises.firstIndex(where: { $0.id == model.exercise?.id }),
+              exercises.indices.contains(index + 1) else { return nil }
+        return exercises[index + 1]
+    }
+
+    private func selectExercise(_ id: String) {
+        guard let current = model.exercise?.id, id != current else { return }
+        pendingNavigation = nil
+        let ids = model.tabs.map(\.id)
+        guard let from = ids.firstIndex(of: current), let to = ids.firstIndex(of: id) else { return }
+        pagingForward = to > from
+        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) {
+            if model.selectExercise(id) { showingSearch = false }
+        }
+    }
+
+    private func turnPage(forward: Bool) {
+        let exercises = model.tabs
+        guard let index = exercises.firstIndex(where: { $0.id == model.exercise?.id }) else { return }
+        let destination = index + (forward ? 1 : -1)
+        if exercises.indices.contains(destination) { selectExercise(exercises[destination].id) }
+        else if forward { open(.addExercise) }
+    }
+
+    private func pageSwipe(fromCue: Bool = false) -> some Gesture {
+        DragGesture(minimumDistance: 14, coordinateSpace: .global)
+            .updating($isDraggingPage) { _, active, _ in active = true }
+            .onChanged { drag in
+                if swipeOrigin == nil {
+                    swipeOrigin = TrainingPageSwipeOrigin(edges: scrollEdges,
+                        inHeader: headerBounds.contains(drag.startLocation),
+                        inMarkers: markerBounds.contains(drag.startLocation))
+                }
+            }
+            .onEnded { drag in
+                // The scroll view extends beneath its safe-area footer. Let the cue own that drag.
+                if !fromCue && pagingCueBounds.contains(drag.startLocation) { return }
+                guard let origin = swipeOrigin else { return }
+                swipeOrigin = nil
+                guard !showingSearch, presentedSheet == nil, model.exercise != nil, model.focus == nil,
+                      !model.canRetrySave, model.errorMessage == nil,
+                      !origin.inMarkers else { return }
+                let dy = drag.translation.height
+                guard abs(dy) >= 54, abs(dy) > abs(drag.translation.width) * 1.35 else { return }
+                // In a long ledger a drag scrolls the sets first. The exercise heading always pages.
+                guard fromCue || origin.inHeader || origin.edges.contains(dy < 0 ? .bottom : .top) else { return }
+                turnPage(forward: dy < 0)
+            }
     }
 
     private func exerciseControls(_ exercise: Exercise) -> some View {
@@ -494,11 +598,11 @@ struct TrainingDayView: View {
 
     private var workoutOptions: some View {
         Button { open(.sheet(.exercises)) } label: {
-            Text("Edit").font(.subheadline.weight(.medium)).frame(minWidth: 44, minHeight: 46)
+            Label("Overview", systemImage: "list.bullet").font(.subheadline.weight(.semibold)).frame(minWidth: 44, minHeight: 44)
                 .contentShape(Rectangle())
         }
-        .foregroundStyle(NotebookStyle.quiet)
-        .accessibilityLabel("Edit workout exercises")
+        .foregroundStyle(NotebookStyle.clay)
+        .accessibilityLabel("Workout overview")
         .accessibilityIdentifier("all-exercises")
     }
     private func progressButton(_ exercise: Exercise) -> some View {
@@ -509,10 +613,12 @@ struct TrainingDayView: View {
         .accessibilityLabel("View \(exercise.displayName) progress")
         .accessibilityIdentifier("exercise-progress")
     }
-    private var weekButton: some View {
+    private var calendarBackButton: some View {
         Button { pendingNavigation = nil; model.showWeek() } label: {
-            Label("Week", systemImage: "chevron.left").font(.subheadline).fixedSize(horizontal: true, vertical: true).frame(minHeight: 44).contentShape(Rectangle())
-        }.accessibilityIdentifier("back-to-week")
+            Label(layout == .week ? "Week" : "Month", systemImage: "chevron.left").font(.subheadline).fixedSize(horizontal: true, vertical: true).frame(minHeight: 44).contentShape(Rectangle())
+        }
+        .accessibilityValue(TrainingText.date(day, format: "EEEE, MMMM d, yyyy"))
+        .accessibilityIdentifier(layout == .week ? "back-to-week" : "back-to-month")
     }
 
     private var unitToggle: some View {
@@ -930,7 +1036,7 @@ struct TrainingSetRows: View {
     }
 
     private var newSetButton: some View {
-        Button { beginInteraction(); model.newSet() } label: { WorkoutPrimaryActionLabel(title: "New set") }
+        Button { beginInteraction(); model.newSet() } label: { WorkoutPrimaryActionLabel(title: "Add set") }
         .accessibilityIdentifier("new-set")
     }
     private var repeatButton: some View {
@@ -1041,12 +1147,10 @@ struct TrainingSetRows: View {
         let previous = ProgressFormatting.set(record.previousValues, exercise: exercise, unit: row.unit)
         let result = ProgressFormatting.set(record.values, exercise: exercise, unit: row.unit)
         let title = Text("Personal record").fontWeight(.semibold).foregroundColor(NotebookStyle.clay)
-        let crown = Image(systemName: "crown.fill").foregroundStyle(NotebookStyle.clay)
         return HStack(alignment: .firstTextBaseline, spacing: 5) {
-            Group {
-                if reduceMotion { crown }
-                else { crown.symbolEffect(.pulse, options: .nonRepeating, value: celebratedRows.contains(row.id)) }
-            }.accessibilityHidden(true)
+            Image(systemName: "crown.fill")
+                .foregroundStyle(NotebookStyle.clay)
+                .accessibilityHidden(true)
             Text("\(title) · was \(previous)")
                 .foregroundStyle(NotebookStyle.quiet)
                 .fixedSize(horizontal: false, vertical: true)

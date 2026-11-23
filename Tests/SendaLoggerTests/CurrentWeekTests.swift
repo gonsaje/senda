@@ -18,6 +18,27 @@ import SendaPersistence
         let reopened = try TrainingNotebookModel(repository: store, calendar: calendar, now: { today.date(in: calendar) })
         #expect(reopened.workspace.visibleWeek.rawValue == "2026-11-02" && reopened.selectedDay == nil)
     }
+    @Test func monthBrowsingKeepsDatesSeparateFromWorkoutEditsAndFailedNavigation() throws {
+        let store = CurrentWeekFailureStore()
+        let model = try TrainingNotebookModel(repository: store, calendar: calendar, now: { today.date(in: calendar) })
+        let first = try today.adding(days: 8)
+        let second = try today.adding(days: 15)
+        let untouched = model.snapshot
+        model.selectCalendarDay(first)
+        #expect(model.snapshot == untouched && model.selectedDay == nil && model.calendarDay == first)
+        store.reject = true
+        var opened = false
+        #expect(!model.openDay(first) { opened = true })
+        #expect(model.canRetrySave && !opened)
+        model.selectCalendarDay(second)
+        #expect(!model.canRetrySave && model.calendarDay == second)
+        #expect(model.retrySave() && !opened && model.selectedDay == nil)
+        store.reject = false
+        #expect(model.openDay(second) && model.showWeek())
+        #expect(model.calendarDay == second && model.selectedDay == nil)
+        #expect(model.selectDockSection(.log) && model.calendarDay == today)
+    }
+
     @Test func failedTodayNavigationKeepsInputAndRetryRecordsOnlyOnce() throws {
         let store = CurrentWeekFailureStore()
         let model = try TrainingNotebookModel(repository: store, calendar: calendar, now: { today.date(in: calendar) })

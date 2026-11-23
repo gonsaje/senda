@@ -120,8 +120,13 @@ struct ExerciseProgressTests {
         #expect(single.sessions.map(\.day) == [singleDay])
     }
 
-    @Test func calendarRangesClampToTheLastDayOfShorterMonths() {
+    @Test func calendarRangesHandleYearBoundariesAndShorterMonths() {
         let cases: [(ExerciseProgressRange, String, String)] = [
+            (.oneDay, "2024-02-29", "2024-02-29"),
+            (.oneWeek, "2026-01-04", "2025-12-29"),
+            (.oneWeek, "0001-01-02", "0001-01-01"),
+            (.yearToDate, "2026-01-01", "2026-01-01"),
+            (.yearToDate, "2024-02-29", "2024-01-01"),
             (.oneMonth, "2024-03-31", "2024-02-29"),
             (.threeMonths, "2025-05-31", "2025-02-28"),
             (.sixMonths, "2024-08-31", "2024-02-29"),

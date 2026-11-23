@@ -19,3 +19,5 @@
 ## Existing work
 
 Preserve uncommitted and unrelated changes. Use focused reversible edits and verify the native preview. Do not commit or push unless requested.
+
+After each app update, build and run the Senda scheme from the edited checkout on the user's current iPhone simulator. Verify the updated app is running and leave it open on the changed screen when practical. If the command-line simulator service is unavailable, use Xcode's Run action and verify the result in Simulator.

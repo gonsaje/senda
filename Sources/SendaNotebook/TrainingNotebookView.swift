@@ -7,6 +7,8 @@ import UIKit
 
 public struct TrainingNotebookView: View {
     @Bindable private var model: TrainingNotebookModel
+    @AppStorage(TrainingCalendarLayout.preferenceKey) private var layout: TrainingCalendarLayout = .week
+    @Environment(\.scenePhase) private var scenePhase
     @State private var isSoftwareKeyboardVisible = false
     public init(model: TrainingNotebookModel) { self.model = model }
     public var body: some View {
@@ -21,7 +23,7 @@ public struct TrainingNotebookView: View {
                     }.padding(24).frame(maxWidth: 560).frame(maxWidth: .infinity)
                 }.accessibilityIdentifier("backup-recovery-screen")
             } else {
-                TrainingNotebookPages(model: model)
+                TrainingNotebookPages(model: model, layout: $layout)
             }
         }
         .safeAreaInset(edge: .top, spacing: 0) {
@@ -30,7 +32,7 @@ public struct TrainingNotebookView: View {
                     HStack(spacing: 8) {
                         Image(systemName: "arrow.uturn.backward")
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(model.historyReturnsToWeek ? "Return to week" : "Return to workout")
+                            Text(model.historyReturnsToWeek ? "Return to \(layout.rawValue)" : "Return to workout")
                                 .font(.subheadline.weight(.medium))
                             if let day = model.selectedDay {
                                 Text("Editing \(TrainingText.date(day, format: "MMM d, yyyy"))")
@@ -64,6 +66,9 @@ public struct TrainingNotebookView: View {
         .tint(NotebookStyle.clay).buttonStyle(.plain)
         .sheet(isPresented: $model.isProgressPresented, onDismiss: { model.progressSheetDidDismiss() }) {
             TrainingProgressView(model: model, close: { model.dismissProgress() })
+        }
+        .task(id: scenePhase) {
+            if scenePhase == .active { await model.bodyMeasurements.syncPendingMeasurements() }
         }
         .onChange(of: model.errorMessage) { _, message in
             if let message { TrainingAccessibility.announce("Could not save. \(message)") }
@@ -122,79 +127,182 @@ struct TrainingDateStamp: View {
     }
 }
 
-struct TrainingWeekView: View {
-    private enum Sheet: String, Identifiable {
-        case calendar, muscles
-        var id: Self { self }
-    }
+enum TrainingCalendarLayout: String {
+    case week, month
+    static let preferenceKey = "senda.train.layout"
+}
 
+struct TrainingWeekView: View {
     @Bindable var model: TrainingNotebookModel
+    let today: TrainingDay
+    let showMonth: () -> Void
     @State private var swipe = WeekSwipeState()
-    @State private var sheet: Sheet?
+    @State private var dragOffset: CGFloat = 0
+    @State private var cardHeight: CGFloat = 0
+    @State private var rowsOverflow = false
+    @State private var showsMuscles = false
     @GestureState private var dragging = false
     @ScaledMetric(relativeTo: .title3) private var dateColumnWidth: CGFloat = 74
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dynamicTypeSize) private var textSize
 
     var body: some View {
-        let week = model.weekDays
-        let weekdayLabels = week.map { TrainingText.date($0, format: "EEE") }
-        let training = model.snapshot.weeklyMuscleTraining(days: week, through: model.today, calendar: model.calendar)
-        GeometryReader { viewport in
-            ScrollView {
-                VStack(alignment: .leading, spacing: 10) {
-                    TrainingWeekLayout(availableHeight: viewport.size.height - 30, expandsRows: !textSize.isAccessibilitySize) {
-                        TrainingWeekNavigation(model: model, week: week, training: training,
-                            showCalendar: { sheet = .calendar }, showMuscles: { sheet = .muscles })
-                            .weekContentColumn()
-                        ForEach(week, id: \.self) { day in
-                            dayRow(day, weekdayLabels: weekdayLabels)
+        let current = model.workspace.visibleWeek
+        let scrolls = rowsOverflow || textSize.isAccessibilitySize || model.errorMessage != nil
+        let spacing: CGFloat = 10
+        let bottomPadding: CGFloat = 20
+        VStack(spacing: 8) {
+            TrainingCalendarMasthead(showsMonth: false, toggle: showMonth)
+                .trainingCalendarColumn()
+                .padding(.top, 10)
+            GeometryReader { viewport in
+                let rowsHeight = max(0, viewport.size.height - cardHeight - spacing - bottomPadding)
+                let slides = !scrolls && !reduceMotion && cardHeight > 0 && rowsHeight > 0
+                let travel = slides ? rowsHeight : nil
+                ScrollView {
+                    VStack(spacing: spacing) {
+                        weekCard(current: current, travel: travel)
+                        weekRows(current: current, availableHeight: rowsHeight, travel: travel, scrolls: scrolls)
+                        if let error = model.errorMessage {
+                            TrainingSaveError(model: model, message: error).trainingCalendarColumn()
                         }
                     }
-                    if let error = model.errorMessage {
-                        TrainingSaveError(model: model, message: error).weekContentColumn()
+                    .padding(.bottom, bottomPadding)
+                }
+                .scrollDisabled(!scrolls)
+                .scrollBounceBehavior(.basedOnSize, axes: .vertical)
+                .accessibilityIdentifier("week-view")
+                .onChange(of: dragging) { _, active in
+                    if !active {
+                        Task { @MainActor in
+                            // Give a completed drag its release handler before settling a cancellation.
+                            await Task.yield()
+                            if !dragging { settleWeek(animates: slides) }
+                        }
                     }
                 }
-                .padding(.top, 10).padding(.bottom, 20)
-                .buttonStyle(WeekButtonStyle())
-                .disabled(swipe.isHorizontal)
-            }
-            .scrollBounceBehavior(.basedOnSize, axes: .vertical)
-            .accessibilityIdentifier("week-view")
-        }
-        .contentShape(Rectangle())
-        .simultaneousGesture(DragGesture(minimumDistance: 16)
-            .updating($dragging) { _, active, _ in active = true }
-            .onChanged { value in swipe.move(value.translation) }
-            .onEnded { value in
-                if let direction = swipe.finish(value.translation) { model.changeWeek(direction) }
-            })
-        .onChange(of: dragging) { _, active in
-            if !active {
-                Task { @MainActor in
-                    // Ended gestures settle first; cancelled drags only reset controls.
-                    await Task.yield()
-                    if !dragging { swipe.cancel() }
-                }
             }
         }
-        .onDisappear { swipe.cancel() }
-        .sheet(item: $sheet) { destination in
-            switch destination {
-            case .calendar:
-                TrainingMonthCalendar(model: model,
-                    initialDay: week.contains(model.today) ? model.today : model.workspace.visibleWeek)
-            case .muscles:
-                TrainingWeekMusclesView(training: training, profile: model.profile,
-                    exerciseName: { model.exercise($0).displayName })
-            }
+        .onDisappear { settleWeek(animates: false) }
+        .sheet(isPresented: $showsMuscles) {
+            let training = model.snapshot.weeklyMuscleTraining(days: model.weekDays, through: today, calendar: model.calendar)
+            TrainingWeekMusclesView(training: training, profile: model.profile,
+                exerciseName: { model.exercise($0).displayName })
         }
         .background(NotebookStyle.ivory)
+    }
+
+    @ViewBuilder
+    private func weekCard(current: TrainingDay, travel: CGFloat?) -> some View {
+        let card = TrainingWeekNavigation(model: model, today: today, first: current, week: model.weekDays,
+            changeWeek: { settleWeek($0, animates: travel != nil) }, showMuscles: { showsMuscles = true })
+            .trainingCalendarColumn()
+            .fixedSize(horizontal: false, vertical: true)
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { cardHeight = $0 }
+            .contentShape(Rectangle())
+            .transaction { $0.animation = nil }
+        #if os(iOS)
+        if #available(iOS 18.0, *) {
+            card.gesture(weekPan(travel: travel, axis: .vertical))
+        } else {
+            card.highPriorityGesture(weekSwipe(travel: travel))
+        }
+        #else
+        card.highPriorityGesture(weekSwipe(travel: travel))
+        #endif
+    }
+
+    @ViewBuilder
+    private func weekRows(current: TrainingDay, availableHeight: CGFloat, travel: CGFloat?, scrolls: Bool) -> some View {
+        let offsets = travel == nil ? 0...0 : -1...1
+        let pages = offsets.compactMap { offset in
+            (try? current.adding(days: offset * 7)).map { (start: $0, offset: offset) }
+        }
+        let rows = ZStack(alignment: .top) {
+            ForEach(pages, id: \.start) { page in
+                let isCurrent = page.offset == 0
+                let days = (try? page.start.week()) ?? []
+                let weekdayLabels = days.map { TrainingText.date($0, format: "EEE") }
+                TrainingWeekRowsLayout(availableHeight: availableHeight, expandsRows: !textSize.isAccessibilitySize) {
+                    ForEach(days, id: \.self) { day in
+                        dayRow(day, weekdayLabels: weekdayLabels)
+                    }
+                }
+                .fixedSize(horizontal: false, vertical: true)
+                .onGeometryChange(for: Bool?.self) { geometry in
+                    isCurrent ? geometry.size.height > availableHeight + 1 : nil
+                } action: { overflows in
+                    if let overflows { rowsOverflow = overflows }
+                }
+                .frame(height: travel, alignment: .top)
+                .clipped()
+                .offset(y: travel.map { CGFloat(page.offset) * $0 + dragOffset } ?? 0)
+                .allowsHitTesting(isCurrent)
+                .accessibilityHidden(!isCurrent)
+                .transition(.identity)
+            }
+        }
+        .clipped()
+        .contentShape(Rectangle())
+        #if os(iOS)
+        if #available(iOS 18.0, *) {
+            if scrolls {
+                // Cancel sideways drags on full-width day buttons while letting vertical drags scroll.
+                rows.gesture(CalendarPan(axis: .horizontal, axisRatio: 1))
+            } else {
+                rows.gesture(weekPan(travel: travel, axis: nil))
+            }
+        } else {
+            rows.highPriorityGesture(weekSwipe(travel: travel), including: scrolls ? .subviews : .all)
+        }
+        #else
+        rows.highPriorityGesture(weekSwipe(travel: travel), including: scrolls ? .subviews : .all)
+        #endif
+    }
+
+    #if os(iOS)
+    @available(iOS 18.0, *)
+    private func weekPan(travel: CGFloat?, axis: Axis?) -> CalendarPan {
+        CalendarPan(axis: axis, axisRatio: 1.2,
+            onChange: { moveWeek($0, travel: travel) },
+            onEnd: { finishWeek($0, animates: travel != nil) },
+            onCancel: { settleWeek(animates: travel != nil) })
+    }
+    #endif
+
+    private func weekSwipe(travel: CGFloat?) -> some Gesture {
+        DragGesture(minimumDistance: 16, coordinateSpace: .global)
+            .updating($dragging) { _, active, _ in active = true }
+            .onChanged { moveWeek($0.translation, travel: travel) }
+            .onEnded { finishWeek($0.translation, animates: travel != nil) }
+    }
+
+    private func moveWeek(_ translation: CGSize, travel: CGFloat?) {
+        guard translation != .zero else { return }
+        swipe.move(translation)
+        if let travel, swipe.isVertical {
+            dragOffset = min(max(translation.height, -travel), travel)
+        }
+    }
+
+    private func finishWeek(_ translation: CGSize, animates: Bool) {
+        swipe.move(translation)
+        let direction = swipe.finish(translation)
+        settleWeek(direction, animates: animates)
+    }
+
+    private func settleWeek(_ direction: Int? = nil, animates: Bool) {
+        withAnimation(animates ? .easeOut(duration: 0.36) : nil) {
+            swipe.cancel()
+            dragOffset = 0
+            if let direction { model.changeWeek(direction) }
+        }
     }
 
     private func dayRow(_ day: TrainingDay, weekdayLabels: [String]) -> some View {
         let summary = model.summary(for: day)
         let unfinished = model.unfinishedSetCount(for: day)
-        let isToday = day == model.today
+        let isToday = day == today
         let workout = model.workspace.days[day.rawValue]
         let program = workout?.programSession
         let exerciseCount = workout?.exerciseIDs.count ?? 0
@@ -215,6 +323,9 @@ struct TrainingWeekView: View {
         let setLabel = "\(summary.setCount) \(summary.setCount == 1 ? "set" : "sets")"
         let needsValues = "\(unfinished) \(unfinished == 1 ? "set needs" : "sets need") values"
         var detail = [summary.weekFocus ?? program?.sessionTitle ?? action]
+        if summary.weekFocus != nil && summary.setCount == 0 && unfinished == 0 && exerciseCount > 0 {
+            detail.append(action)
+        }
         if let program { detail.append("\(program.programTitle), week \(program.week)") }
         if unfinished > 0 {
             detail.append(needsValues)
@@ -268,7 +379,7 @@ struct TrainingWeekView: View {
                 Rectangle().fill(NotebookStyle.rule).frame(height: 0.5)
                     .allowsHitTesting(false).accessibilityHidden(true)
             }
-            .weekContentColumn()
+            .trainingCalendarColumn()
             .background(isToday ? NotebookStyle.todayFill : .clear)
             .contentShape(Rectangle())
         }
@@ -277,52 +388,42 @@ struct TrainingWeekView: View {
     }
 }
 
-private extension View {
-    func weekContentColumn() -> some View {
+extension View {
+    func trainingCalendarColumn() -> some View {
         padding(.horizontal, 20)
             .frame(maxWidth: 560, alignment: .leading)
             .frame(maxWidth: .infinity)
     }
 }
 
-/// A horizontal swipe cancels pending taps while the other controls retain their contrast.
-private struct WeekButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label.opacity(configuration.isPressed ? 0.65 : 1)
-    }
-}
-
-private struct TrainingWeekLayout: Layout {
+private struct TrainingWeekRowsLayout: Layout {
     let availableHeight: CGFloat
     let expandsRows: Bool
-    private let headerSpacing: CGFloat = 10
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         let sizes = sizes(for: proposal.width, subviews: subviews)
         return CGSize(
             width: proposal.width ?? sizes.map(\.width).max() ?? 0,
-            height: sizes.reduce(0) { $0 + $1.height } + (sizes.count > 1 ? headerSpacing : 0)
+            height: sizes.reduce(0) { $0 + $1.height }
         )
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
         let sizes = sizes(for: bounds.width, subviews: subviews)
         var top = bounds.minY
-        for (index, pair) in zip(subviews, sizes).enumerated() {
-            let (subview, size) = pair
+        for (subview, size) in zip(subviews, sizes) {
             subview.place(at: CGPoint(x: bounds.midX, y: top), anchor: .top,
                 proposal: ProposedViewSize(width: bounds.width, height: size.height))
-            top += size.height + (index == 0 ? headerSpacing : 0)
+            top += size.height
         }
     }
 
     private func sizes(for width: CGFloat?, subviews: Subviews) -> [CGSize] {
         let sizes = subviews.map { $0.sizeThatFits(ProposedViewSize(width: width, height: nil)) }
-        guard expandsRows, let header = sizes.first, sizes.count > 1 else { return sizes }
-        let days = sizes.dropFirst()
-        let fittingHeight = floor((availableHeight - header.height - headerSpacing) / CGFloat(days.count))
-        let rowHeight = max(days.map(\.height).max() ?? 54, min(72, fittingHeight))
-        return [header] + days.map { CGSize(width: $0.width, height: rowHeight) }
+        guard expandsRows, let minimumHeight = sizes.map(\.height).max() else { return sizes }
+        let fittingHeight = floor(availableHeight / CGFloat(sizes.count))
+        let rowHeight = max(minimumHeight, min(72, fittingHeight))
+        return sizes.map { CGSize(width: $0.width, height: rowHeight) }
     }
 }
 

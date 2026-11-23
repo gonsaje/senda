@@ -48,7 +48,7 @@ struct BodyMeasurementTrendChart: View {
         let bodySamples = measurementSamples, strength = strengthSamples
         let prior = precedingWeight.map(measurementSample)
         let weightSpans = metric == .weight ? WeightTrendSpan.make(
-            daily: bodySamples, preceding: prior, domain: dateDomain, singleDay: days.lowerBound == days.upperBound) : []
+            daily: bodySamples, preceding: prior, domain: dates.domain, singleDay: days.lowerBound == days.upperBound) : []
         let hasBodyValues = !bodySamples.isEmpty || !weightSpans.isEmpty
         VStack(alignment: .leading, spacing: 10) {
             ViewThatFits(in: .horizontal) {
@@ -116,12 +116,12 @@ struct BodyMeasurementTrendChart: View {
             marks(strength, scale: strengthScale, strength: true)
         }
         .chartYScale(domain: 0.0...1.0)
-        .chartXScale(domain: dateDomain, range: .plotDimension(padding: 5))
+        .chartXScale(domain: dates.domain, range: .plotDimension(padding: 5))
         .chartXAxis {
-            AxisMarks(values: dateTicks) { mark in
-                AxisValueLabel(anchor: mark.index == 0 ? .topLeading : mark.index == mark.count - 1 ? .topTrailing : .top) {
+            AxisMarks(values: dates.ticks(largeText: textSize >= .xxLarge)) { mark in
+                AxisValueLabel(anchor: dates.labelAnchor(mark)) {
                     if let date = mark.as(Date.self) {
-                        Text(ProgressFormatting.date(TrainingDay(date, calendar: calendar), format: dateFormat, calendar: calendar))
+                        Text(ProgressFormatting.date(TrainingDay(date, calendar: calendar), format: dates.labelFormat, calendar: calendar))
                             .foregroundStyle(NotebookStyle.quiet)
                     }
                 }
@@ -170,21 +170,9 @@ struct BodyMeasurementTrendChart: View {
         }
     }
 
-    private var dateDomain: ClosedRange<Date> {
-        let start = days.lowerBound.date(in: calendar), end = days.upperBound.date(in: calendar)
-        if start == end, let interval = calendar.dateInterval(of: .day, for: start) { return interval.start...interval.end }
-        return start...end
+    private var dates: ProgressChartDates {
+        ProgressChartDates(days: days, calendar: calendar)
     }
-
-    private var dateTicks: [Date] {
-        let start = days.lowerBound.date(in: calendar), end = days.upperBound.date(in: calendar)
-        if start == end { return [start] }
-        let span = calendar.dateComponents([.day], from: start, to: end).day ?? 0
-        guard span >= 2, textSize < .xxLarge, let middle = calendar.date(byAdding: .day, value: span / 2, to: start) else { return [start, end] }
-        return [start, middle, end]
-    }
-
-    private var dateFormat: String { dateDomain.upperBound.timeIntervalSince(dateDomain.lowerBound) > 365 * 86_400 ? "MMM yy" : "MMM d" }
 }
 
 struct MeasurementTrendSample: Identifiable {

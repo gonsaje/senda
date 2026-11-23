@@ -2,6 +2,41 @@ import SwiftUI
 import Charts
 import SendaDomain
 
+struct ProgressChartDates {
+    let days: ClosedRange<TrainingDay>
+    let calendar: Calendar
+
+    var domain: ClosedRange<Date> {
+        let start = days.lowerBound.date(in: calendar), end = days.upperBound.date(in: calendar)
+        if start == end, let interval = calendar.dateInterval(of: .day, for: start) {
+            return interval.start...interval.end
+        }
+        return start...end
+    }
+
+    func ticks(largeText: Bool) -> [Date] {
+        let start = days.lowerBound.date(in: calendar), end = days.upperBound.date(in: calendar)
+        if start == end { return [start] }
+        let span = calendar.dateComponents([.day], from: start, to: end).day ?? 0
+        guard span >= 2, !largeText, let middle = calendar.date(byAdding: .day, value: span / 2, to: start)
+        else { return [start, end] }
+        return [start, middle, end]
+    }
+
+    var labelFormat: String {
+        let span = calendar.dateComponents([.day], from: days.lowerBound.date(in: calendar),
+                                           to: days.upperBound.date(in: calendar)).day ?? 0
+        return span >= 365 ? "MMM yy" : "MMM d"
+    }
+
+    func labelAnchor(_ tick: AxisValue) -> UnitPoint {
+        guard tick.count > 1 else { return .top }
+        if tick.index == 0 { return .topLeading }
+        if tick.index == tick.count - 1 { return .topTrailing }
+        return .top
+    }
+}
+
 struct ExerciseProgressChart: View {
     let progress: ExerciseProgress
     let exercise: Exercise
@@ -38,20 +73,8 @@ struct ExerciseProgressChart: View {
         return max(0, floor(low - padding))...ceil(high + padding)
     }
 
-    private var xAxisTicks: AxisMarkValues {
-        let largerText = textSize >= .xxLarge
-        switch progress.range {
-        case .oneMonth:
-            return .stride(by: .weekOfYear, count: largerText ? 2 : 1, calendar: calendar)
-        case .threeMonths:
-            return .stride(by: .month, count: largerText ? 2 : 1, calendar: calendar)
-        case .sixMonths:
-            return .stride(by: .month, count: largerText ? 3 : 2, calendar: calendar)
-        case .oneYear:
-            return .stride(by: .month, count: largerText ? 6 : 3, calendar: calendar)
-        case nil:
-            return .automatic(desiredCount: largerText ? 3 : 5)
-        }
+    private var dates: ProgressChartDates {
+        ProgressChartDates(days: progress.startDay...progress.endDay, calendar: calendar)
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -95,16 +118,16 @@ struct ExerciseProgressChart: View {
                     .accessibilityValue(ProgressFormatting.set(session.bestSet.values, exercise: exercise, unit: unit))
             }
         }
-        .chartXScale(domain: progress.startDay.date(in: calendar)...progress.endDay.date(in: calendar),
+        .chartXScale(domain: dates.domain,
             range: .plotDimension(padding: selection == nil ? 0 : 6))
         .chartYScale(domain: yDomain)
         .chartXAxis {
-            AxisMarks(values: xAxisTicks) { axis in
+            AxisMarks(values: dates.ticks(largeText: textSize >= .xxLarge)) { axis in
                 AxisGridLine().foregroundStyle(NotebookStyle.rule)
-                AxisValueLabel(anchor: axis.index == axis.count - 1 ? .topTrailing : .topLeading) {
+                AxisValueLabel(anchor: dates.labelAnchor(axis)) {
                     if let value = axis.as(Date.self) {
                         Text(ProgressFormatting.date(TrainingDay(value, calendar: calendar),
-                            format: progress.range == .oneMonth ? "MMM d" : "MMM", calendar: calendar))
+                            format: dates.labelFormat, calendar: calendar))
                             .foregroundStyle(NotebookStyle.quiet)
                     }
                 }
@@ -190,6 +213,9 @@ struct ExerciseProgressChart: View {
 
     private var explanation: String {
         if let explanationOverride { return explanationOverride }
+        if progress.startDay == progress.endDay {
+            return progress.metric == .reps ? "Highest rep count recorded today." : "Heaviest set recorded today."
+        }
         let observation = progress.sessions.count == 1
             ? "One recorded day in this window. More training days will add points to the chart."
             : "Each point is a recorded day. Straight lines join observed top sets; days between them have no plotted result."

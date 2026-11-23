@@ -1,19 +1,49 @@
 import Foundation
 
+public struct TrainerWorkoutDetails: Codable, Equatable, Sendable {
+    public var minutes: Int?
+    public var equipment = ""
+    public var notes = ""
+
+    public init(minutes: Int? = nil, equipment: String = "", notes: String = "") {
+        self.minutes = minutes
+        self.equipment = equipment
+        self.notes = notes
+    }
+
+    public func validate() throws {
+        guard minutes.map({ (1...1440).contains($0) }) ?? true,
+              TrainingProgram.validText(equipment, max: 200),
+              TrainingProgram.validText(notes, max: 2000) else { throw TrainerPageError.workoutDetails }
+    }
+}
+
 public struct WorkoutTemplate: Codable, Identifiable, Equatable, Sendable {
-    public let id: String
+    public private(set) var id: String
     public let name: String
     public let exerciseIDs: [String]
-    public let exercisePlans: [String: ExercisePlan]
+    public var exercisePlans: [String: ExercisePlan]
+    public var trainerDetails: TrainerWorkoutDetails?
+    public var trainerOriginID: String?
+    public let trainerCredit: String?
     public let supersets: [SupersetPlan]?
 
     public init(id: String = UUID().uuidString.lowercased(), name: String, exerciseIDs: [String],
-                exercisePlans: [String: ExercisePlan] = [:], supersets: [SupersetPlan]? = nil) {
+                exercisePlans: [String: ExercisePlan] = [:], supersets: [SupersetPlan]? = nil, trainerCredit: String? = nil,
+                trainerDetails: TrainerWorkoutDetails? = nil, trainerOriginID: String? = nil) {
         self.id = id
         self.name = Self.cleanName(name)
+        self.trainerCredit = trainerCredit
+        self.trainerDetails = trainerDetails
+        self.trainerOriginID = trainerOriginID
         self.exerciseIDs = exerciseIDs
         self.exercisePlans = exercisePlans
         self.supersets = supersets?.isEmpty == true ? nil : supersets
+    }
+
+    mutating func startNewTrainerVersion() {
+        trainerOriginID = trainerOriginID ?? id
+        id = UUID().uuidString.lowercased()
     }
 
     public func validated(against knownExerciseIDs: Set<String>) throws -> Self {
@@ -29,6 +59,7 @@ public struct WorkoutTemplate: Codable, Identifiable, Equatable, Sendable {
               exercisePlans.values.allSatisfy({ (try? $0.validated()) != nil }) else {
             throw WorkoutTemplateError.invalidPlan
         }
+        try trainerDetails?.validate()
         try SupersetPlan.validate(supersets ?? [], order: exerciseIDs)
         return self
     }

@@ -225,6 +225,31 @@ import SendaDomain
         #expect(try reopened.originalJournalData() == nil)
     }
 
+    @Test func recoveryExportRedactsTheDeviceProfileAndLegacyBackup() throws {
+        let root = try directory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let profileURL = root.appendingPathComponent("profile.json")
+        let store = FileNotebookRestoreStore(journalURL: root.appendingPathComponent("journal.json"), profileURL: profileURL)
+        let profiles = FileProfileRepository(url: profileURL)
+        var local = ProfileDetails(name: "On device")
+        local.trainerApplication = TrainerApplication(name: "Example", credential: "Sample", credentialID: "LOCAL-SECRET",
+            expires: try TrainingDay("2026-11-23"))
+        try profiles.save(local)
+        let incoming = try archive(name: "Incoming")
+        try store.restore(incoming, current: nil)
+        #expect(try profiles.load().trainerApplication == local.trainerApplication)
+        let raw = try #require(try store.previousOriginalFilesData())
+        let files = try JSONDecoder().decode(RetainedOriginalFixture.self, from: raw)
+        let portable = String(decoding: try #require(files.profile.contents), as: UTF8.self)
+        #expect(portable.contains("On device"))
+        #expect(!portable.contains("trainerApplication") && !portable.contains("LOCAL-SECRET"))
+        var legacy = try #require(JSONSerialization.jsonObject(with: NotebookBackupCodec.encode(incoming)) as? [String: Any])
+        legacy["profile"] = ["name": "Old", "email": "", "trainerApplication": ["credentialID": "LOCAL-SECRET"]]
+        try JSONSerialization.data(withJSONObject: legacy).write(to: store.backupURL)
+        let previous = String(decoding: try #require(try store.previousBackupData()), as: UTF8.self)
+        #expect(!previous.contains("trainerApplication") && !previous.contains("LOCAL-SECRET"))
+    }
+
     @Test func missingFilesCanBeRestoredAndCurrentRawExportUsesLiveBytes() throws {
         let root = try directory(); defer { try? FileManager.default.removeItem(at: root) }
         let journalURL = root.appendingPathComponent("nested/journal.json"), profileURL = root.appendingPathComponent("nested/profile.json")
@@ -251,7 +276,7 @@ import SendaDomain
         #expect(try store.previousBackupData() == nil)
     }
 
-    @Test func rawRecoveryCopyReplacesAnEarlierValidBackupAndExportsExactOriginalFiles() throws {
+    @Test func rawRecoveryExportPreservesJournalAndOmitsUnreadableDeviceProfile() throws {
         let root = try directory(); defer { try? FileManager.default.removeItem(at: root) }
         let journalURL = root.appendingPathComponent("journal.json"), profileURL = root.appendingPathComponent("profile.json")
         let old = try archive(name: "Old"), target = try archive(name: "Target")
@@ -264,8 +289,8 @@ import SendaDomain
         try store.restore(old, current: nil)
         #expect(try store.previousBackupData() == nil)
         let retained = try JSONDecoder().decode(RetainedOriginalFixture.self, from: #require(try store.previousOriginalFilesData()))
-        #expect(retained.journal.contents == rawJournal && retained.profile.contents == rawProfile)
-        #expect(retained.journal.existed && retained.profile.existed)
+        #expect(retained.journal.contents == rawJournal && retained.profile.contents == nil)
+        #expect(retained.journal.existed && !retained.profile.existed)
         #expect(!FileManager.default.fileExists(atPath: store.backupURL.path))
         #expect(try FileJournalRepository(url: journalURL).loadSnapshot() == old.snapshot)
     }
@@ -463,7 +488,7 @@ import SendaDomain
         try Data("original damaged journal".utf8).write(to: journal)
         let setup = FileNotebookRestoreStore(journalURL: journal, profileURL: profile)
         try setup.restore(current, current: nil)
-        let raw = try #require(try setup.previousOriginalFilesData())
+        let raw = try Data(contentsOf: setup.originalsURL)
         var interrupted = false
         let failing = FileNotebookRestoreStore(journalURL: journal, profileURL: profile, writer: { data, url in
             if interrupted { throw CocoaError(.fileWriteOutOfSpace) }
@@ -478,7 +503,7 @@ import SendaDomain
         try reopened.recoverInterruptedRestore()
         #expect(try FileJournalRepository(url: journal).loadSnapshot() == current.snapshot)
         #expect(try FileProfileRepository(url: profile).load() == current.profile)
-        #expect(try reopened.previousOriginalFilesData() == raw)
+        #expect(try Data(contentsOf: reopened.originalsURL) == raw)
         #expect(try reopened.previousBackupData() == nil)
     }
 

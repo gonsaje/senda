@@ -14,6 +14,7 @@ struct TrainingWorkoutLibrary: View {
     @State private var chosenDay: TrainingDay?
     @State private var editor: EditorRequest?
     @State private var showsPrograms = false
+    @State private var browsingTrainers = false
     @State private var confirmsDeletion = false
     @State private var pending: PendingAction?
     @Environment(\.dynamicTypeSize) private var textSize
@@ -30,13 +31,14 @@ struct TrainingWorkoutLibrary: View {
     }
 
     init(model: TrainingNotebookModel, destinationDay: TrainingDay? = nil, initialTab: Tab = .starters,
-         back: (() -> Void)? = nil, embedded: Bool = false, close: @escaping () -> Void) {
+         back: (() -> Void)? = nil, embedded: Bool = false, initialWorkout: WorkoutTemplate? = nil, close: @escaping () -> Void) {
         self.model = model
         self.destinationDay = destinationDay
         self.back = back
         self.embedded = embedded
         self.close = close
         _tab = State(initialValue: initialTab)
+        _selection = State(initialValue: initialWorkout.map { .template($0, personal: true) })
     }
 
     private var destination: TrainingDay {
@@ -91,7 +93,8 @@ struct TrainingWorkoutLibrary: View {
             switch self {
             case .edit(let workout): workout
             case .copy(let workout): WorkoutTemplate(name: workout.name, exerciseIDs: workout.exerciseIDs,
-                exercisePlans: workout.exercisePlans, supersets: workout.supersets)
+                exercisePlans: workout.exercisePlans, supersets: workout.supersets, trainerCredit: workout.trainerCredit,
+                trainerDetails: workout.trainerDetails)
             case .new, .currentDay: nil
             }
         }
@@ -113,6 +116,14 @@ struct TrainingWorkoutLibrary: View {
     }
 
     var body: some View {
+        if browsingTrainers {
+            TrainerDirectory(model: model, close: { browsingTrainers = false })
+        } else {
+            cataloguePage
+        }
+    }
+
+    private var cataloguePage: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
                 switch selection {
@@ -211,6 +222,11 @@ struct TrainingWorkoutLibrary: View {
         VStack(alignment: .leading, spacing: 16) {
             if embedded {
                 TrainingLibraryHeader(model: model)
+                Button { browsingTrainers = true } label: {
+                    TrainerNavigationRow(title: "Browse trainers", detail: "Workouts and programs from coaches")
+                }
+                .accessibilityIdentifier("browse-trainers")
+                WorkoutLibraryRule()
                 Button { showsPrograms = true } label: {
                     HStack(spacing: 10) {
                         Image(systemName: "calendar")
@@ -392,6 +408,8 @@ struct TrainingWorkoutLibrary: View {
         let customIDs = Set(model.snapshot.customExercises?.map(\.id) ?? [])
         return VStack(alignment: .leading, spacing: 18) {
             heading(workout.name)
+            if let credit = workout.trainerCredit { Text("Adapted from " + credit).font(.subheadline).foregroundStyle(NotebookStyle.quiet) }
+            TrainerWorkoutNotes(details: workout.trainerDetails)
             let plans = workout.exercisePlans.values
             let count = exerciseCount(workout.exerciseIDs.count)
             Text(plans.count == workout.exerciseIDs.count

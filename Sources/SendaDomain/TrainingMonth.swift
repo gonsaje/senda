@@ -27,6 +27,17 @@ public struct TrainingMonth: Equatable, Sendable {
         return (weekday + 5) % 7
     }
 
+    /// Six Monday-first weeks, including adjacent dates wherever the calendar permits them.
+    public var calendarSlots: [TrainingDay?] {
+        let leading = leadingEmptyDays
+        return (0..<42).map { index in
+            let offset = index - leading
+            guard let date = try? firstDay.adding(days: offset),
+                  offset >= 0 || date < firstDay else { return nil }
+            return date
+        }
+    }
+
     public func adding(months: Int) -> TrainingMonth? {
         let calendar = TrainingDay.utc
         let components = calendar.dateComponents([.year, .month], from: firstDay.date(in: calendar))

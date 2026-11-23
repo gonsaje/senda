@@ -4,6 +4,15 @@ import Testing
 @testable import SendaNotebook
 
 struct BodyMeasurementTrendChartTests {
+    @Test func singleDayChartHasOneTickAndSpansTheLocalDayAcrossDST() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try #require(TimeZone(identifier: "America/New_York"))
+        let day = try TrainingDay("2026-03-08")
+        let dates = ProgressChartDates(days: day...day, calendar: calendar)
+        #expect(dates.ticks(largeText: false) == [day.date(in: calendar)])
+        #expect(dates.domain.upperBound.timeIntervalSince(dates.domain.lowerBound) == 23 * 3600)
+    }
+
     private func sample(_ day: String, _ value: Double) throws -> MeasurementTrendSample {
         let day = try TrainingDay(day)
         return MeasurementTrendSample(day: day, date: day.date(), value: value, spokenValue: String(value))

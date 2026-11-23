@@ -5,21 +5,19 @@ import SendaDomain
 /// Filled regions are primary muscles; outlined regions support the movement.
 public struct ExerciseMuscleMapView: View {
     private let map: ExerciseMuscleMap
+    private let showsAnatomicalNames: Bool
+    private let emphasizesUpperChest: Bool
 
-    public init(map: ExerciseMuscleMap) {
+    public init(map: ExerciseMuscleMap, showsAnatomicalNames: Bool = false, emphasizesUpperChest: Bool = false) {
         self.map = map
+        self.showsAnatomicalNames = showsAnatomicalNames
+        self.emphasizesUpperChest = emphasizesUpperChest
     }
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            if map.hasIllustratedRegion {
-                HStack(alignment: .top, spacing: 28) {
-                    figure(.front, title: "Front")
-                    figure(.back, title: "Back")
-                }
-                .frame(maxWidth: 360)
-                .frame(maxWidth: .infinity)
-            }
+            ExerciseMuscleFigures(primary: map.primary, supporting: map.supporting + map.loadedStabilizers,
+                emphasizesUpperChest: emphasizesUpperChest)
 
             VStack(alignment: .leading, spacing: 13) {
                 legend("Primary", muscles: map.primary, filled: true)
@@ -47,18 +45,6 @@ public struct ExerciseMuscleMapView: View {
         .accessibilityLabel(accessibilityDescription)
     }
 
-    private func figure(_ aspect: MuscleFigureAspect, title: String) -> some View {
-        VStack(spacing: 8) {
-            MuscleFigure(aspect: aspect, primary: map.primary, supporting: map.supporting + map.loadedStabilizers)
-                .aspectRatio(132.0 / 294.0, contentMode: .fit)
-                .frame(maxHeight: 288)
-            Text(title)
-                .font(.caption.weight(.medium))
-                .foregroundStyle(NotebookStyle.quiet)
-        }
-        .frame(maxWidth: .infinity)
-    }
-
     private func legend(_ title: String, muscles: [MuscleRegion], filled: Bool) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 9) {
             RoundedRectangle(cornerRadius: 3)
@@ -81,7 +67,7 @@ public struct ExerciseMuscleMapView: View {
     }
 
     private func names(_ muscles: [MuscleRegion]) -> String {
-        muscles.map(\.name).joined(separator: ", ")
+        muscles.map { showsAnatomicalNames ? $0.anatomicalName : $0.name }.joined(separator: ", ")
     }
 
     private var otherStabilizers: [MuscleRegion] {
@@ -106,19 +92,64 @@ public struct ExerciseMuscleMapView: View {
     }
 }
 
-/// Compact anatomy artwork for exercises without a matching form illustration.
-struct ExerciseMuscleThumbnail: View {
-    let map: ExerciseMuscleMap
+struct ExerciseMuscleFigures: View {
+    let primary: [MuscleRegion]
+    let supporting: [MuscleRegion]
+    var emphasizesUpperChest = false
 
     var body: some View {
-        if map.hasIllustratedRegion {
-            HStack(spacing: 2) {
-                MuscleFigure(aspect: .front, primary: map.primary, supporting: map.supporting + map.loadedStabilizers)
-                    .frame(width: 26, height: 58)
-                MuscleFigure(aspect: .back, primary: map.primary, supporting: map.supporting + map.loadedStabilizers)
-                    .frame(width: 26, height: 58)
+        if (primary + supporting).contains(where: ExerciseMuscleMap.illustratedRegions.contains) {
+            HStack(alignment: .top, spacing: 28) {
+                figure(.front, title: "Front")
+                figure(.back, title: "Back")
             }
-            .frame(width: 58, height: 58)
+            .frame(maxWidth: 360)
+            .frame(maxWidth: .infinity)
+        }
+    }
+
+    private func figure(_ aspect: MuscleFigureAspect, title: String) -> some View {
+        VStack(spacing: 8) {
+            MuscleFigure(aspect: aspect, primary: primary, supporting: supporting,
+                emphasizesUpperChest: emphasizesUpperChest)
+                .aspectRatio(132.0 / 294.0, contentMode: .fit)
+                .frame(maxHeight: 288)
+            Text(title)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(NotebookStyle.quiet)
+        }
+        .frame(maxWidth: .infinity)
+    }
+}
+
+struct ExerciseMuscleThumbnail: View {
+    let primary: [MuscleRegion]
+    let supporting: [MuscleRegion]
+    let emphasizesUpperChest: Bool
+    let height: CGFloat
+
+    init(map: ExerciseMuscleMap) {
+        self.init(primary: map.primary, supporting: map.supporting + map.loadedStabilizers)
+    }
+
+    init(primary: [MuscleRegion], supporting: [MuscleRegion], emphasizesUpperChest: Bool = false, height: CGFloat = 58) {
+        self.primary = primary
+        self.supporting = supporting
+        self.emphasizesUpperChest = emphasizesUpperChest
+        self.height = height
+    }
+
+    var body: some View {
+        if (primary + supporting).contains(where: ExerciseMuscleMap.illustratedRegions.contains) {
+            let width = height * 132 / 294
+            HStack(spacing: 2) {
+                MuscleFigure(aspect: .front, primary: primary, supporting: supporting,
+                    emphasizesUpperChest: emphasizesUpperChest)
+                    .frame(width: width, height: height)
+                MuscleFigure(aspect: .back, primary: primary, supporting: supporting)
+                    .frame(width: width, height: height)
+            }
+            .frame(width: height, height: height)
             .accessibilityHidden(true)
         }
     }
@@ -191,16 +222,18 @@ struct MuscleFigure: View {
     let aspect: MuscleFigureAspect
     private let highlight: Highlight
     private let onRegionTap: ((MuscleRegion) -> Void)?
+    private let emphasizesUpperChest: Bool
 
     private let neutral = NotebookStyle.pair(Color(red: 225 / 255, green: 218 / 255, blue: 205 / 255),
                                              Color(red: 82 / 255, green: 69 / 255, blue: 59 / 255))
     private let muscleNeutral = NotebookStyle.pair(Color(red: 214 / 255, green: 205 / 255, blue: 188 / 255),
                                                    Color(red: 107 / 255, green: 89 / 255, blue: 75 / 255))
 
-    init(aspect: MuscleFigureAspect, primary: [MuscleRegion], supporting: [MuscleRegion]) {
+    init(aspect: MuscleFigureAspect, primary: [MuscleRegion], supporting: [MuscleRegion], emphasizesUpperChest: Bool = false) {
         self.aspect = aspect
         highlight = .exercise(primary: primary, supporting: supporting)
         onRegionTap = nil
+        self.emphasizesUpperChest = emphasizesUpperChest && primary.contains(.chest)
     }
 
     init(aspect: MuscleFigureAspect, counts: [MuscleRegion: Int], selected: MuscleRegion? = nil,
@@ -208,6 +241,7 @@ struct MuscleFigure: View {
         self.aspect = aspect
         highlight = .heat(counts: counts, selected: selected, onCharcoal: onCharcoal)
         self.onRegionTap = onRegionTap
+        emphasizesUpperChest = false
     }
 
     var body: some View {
@@ -253,7 +287,14 @@ struct MuscleFigure: View {
 
             for (region, path) in Self.regions(for: aspect) {
                 let (fill, outline, lineWidth) = regionColors(region)
-                context.fill(path, with: .color(fill))
+                if region == .chest && emphasizesUpperChest {
+                    context.fill(path, with: .color(fill.opacity(0.40)))
+                    var upperChest = context
+                    upperChest.clip(to: path)
+                    upperChest.fill(Path(CGRect(x: 0, y: 0, width: 132, height: 66)), with: .color(fill))
+                } else {
+                    context.fill(path, with: .color(fill))
+                }
                 context.stroke(path, with: .color(outline), style: StrokeStyle(lineWidth: lineWidth, lineCap: .round, lineJoin: .round))
             }
 

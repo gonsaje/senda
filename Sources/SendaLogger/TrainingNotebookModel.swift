@@ -39,9 +39,9 @@ public enum TrainingRowStatus: Equatable, Sendable { case empty, unfinished, rec
 
 @Observable @MainActor public final class TrainingNotebookModel {
     public func rowStatus(for row: TrainingRow) -> TrainingRowStatus {
-        if let values = recordedValues(for: row) {
-            guard let id = journal.reference(to: row.performedSetID!)?.batch.exerciseID else { return .recorded }
-            return row.pendingCorrection == true || row.parsed(for: exercise(id)) != values ? .pendingCorrection : .recorded
+        if let id = row.performedSetID, let saved = journal.reference(to: id) {
+            return row.pendingCorrection == true || row.parsed(for: exercise(saved.batch.exerciseID)) != saved.set.values
+                ? .pendingCorrection : .recorded
         }
         return row.weight.isEmpty && row.reps.isEmpty ? .empty : .unfinished
     }
@@ -69,7 +69,10 @@ public enum TrainingRowStatus: Equatable, Sendable { case empty, unfinished, rec
     public func unfinishedSetCount(for day: TrainingDay) -> Int {
         workspace.days[day.rawValue]?.rows.values.reduce(0) { count, rows in
             count + TrainingSetEntry.grouping(rows).filter { entry in
-                entry.rows.contains { rowStatus(for: $0) == .unfinished || rowStatus(for: $0) == .pendingCorrection }
+                entry.rows.contains { row in
+                    let status = rowStatus(for: row)
+                    return status == .unfinished || status == .pendingCorrection
+                }
             }.count
         } ?? 0
     }
@@ -92,9 +95,11 @@ public enum TrainingRowStatus: Equatable, Sendable { case empty, unfinished, rec
     public private(set) var snapshot: JournalSnapshot
     public private(set) var hasSavedFirstSet: Bool
     public private(set) var latestWorkoutSetWrite: TrainingPerformanceReference?
-    public private(set) var errorMessage: String?
+    public internal(set) var errorMessage: String?
     public internal(set) var revealRowID: UUID?
     public private(set) var section: TrainingSection = .log
+    /// Browsing a calendar date does not create or edit a workout.
+    public private(set) var calendarDay: TrainingDay
     public private(set) var landingResetID: UInt = 0
     public var isProgressPresented = false
     public var progressExerciseID: String?
@@ -141,6 +146,7 @@ public enum TrainingRowStatus: Equatable, Sendable { case empty, unfinished, rec
     @ObservationIgnored private var lastWritten: JournalSnapshot
     private struct PendingSave {
         let checked: ValidatedJournalSnapshot
+        let isCalendarNavigation: Bool
         let onSuccess: (() -> Void)?
     }
     private var pendingSave: PendingSave?
@@ -165,7 +171,7 @@ public enum TrainingRowStatus: Equatable, Sendable { case empty, unfinished, rec
         }
     }
 
-    public init(repository: any JournalRepository, isSample: Bool = false, calendar: Calendar = .current,
+    public init(repository: any JournalRepository, isSample: Bool = false, calendar: Calendar = .autoupdatingCurrent,
                 now: @escaping () -> Date = Date.init, profileRepository: (any ProfileRepository)? = nil,
                 restoreStore: (any NotebookRestoreStore)? = nil, health: (any BodyMeasurementsHealthSource)? = nil) throws {
         let profileRepository = profileRepository ?? MemoryProfileRepository()
@@ -178,7 +184,9 @@ public enum TrainingRowStatus: Equatable, Sendable { case empty, unfinished, rec
         let saved = try repository.loadSnapshot().validated()
         lastWritten = saved
         hasSavedFirstSet = !saved.journal.batches.isEmpty
-        let training = try TrainingWorkspace.migrate(saved, today: TrainingDay(now(), calendar: calendar), calendar: calendar)
+        let today = TrainingDay(now(), calendar: calendar)
+        let training = try TrainingWorkspace.migrate(saved, today: today, calendar: calendar)
+        calendarDay = training.selectedDay ?? today
         snapshot = try JournalSnapshot(journal: saved.journal, customExercises: saved.customExercises, training: training).validated()
     }
     public func backupArchive(includingManualMeasurements: Bool = true) throws -> NotebookArchive {
@@ -217,6 +225,7 @@ public enum TrainingRowStatus: Equatable, Sendable { case empty, unfinished, rec
                 manualMeasurements: bodyMeasurements.manualReadings, createdAt: now()).validated()
             try restoreStore.restore(archive, current: current)
             snapshot = archive.snapshot; lastWritten = archive.snapshot
+            calendarDay = selectedDay ?? today
             plateUndo = nil
             if !archive.snapshot.journal.batches.isEmpty { hasSavedFirstSet = true }
             pendingSave = nil; pendingProfileAction = nil; revealRowID = nil
@@ -319,6 +328,7 @@ public enum TrainingRowStatus: Equatable, Sendable { case empty, unfinished, rec
         }) { try finalize(&$0) }
     }
     @discardableResult public func selectDockSection(_ section: TrainingSection) -> Bool {
+        if section == .log { return showCurrentWeek() }
         guard section == self.section else { return selectSection(section) }
         return commit(onSuccess: { [weak self] in
             guard let self else { return }
@@ -326,20 +336,9 @@ public enum TrainingRowStatus: Equatable, Sendable { case empty, unfinished, rec
             progressExerciseID = nil
             progressSessionDay = nil
             progressSetID = nil
-            if section == .log {
-                revealRowID = nil
-                historyReturnContext = nil
-            } else if section == .learn {
-                resetLibrary()
-            }
+            if section == .learn { resetLibrary() }
             landingResetID &+= 1
-        }) { state in
-            try finalize(&state)
-            if section == .log {
-                state.training!.selectedDay = nil
-                state.training!.undo = nil
-            }
-        }
+        }) { try finalize(&$0) }
     }
     @discardableResult public func retryProfileAction() -> Bool {
         switch pendingProfileAction {
@@ -527,7 +526,8 @@ public enum TrainingRowStatus: Equatable, Sendable { case empty, unfinished, rec
         guard let workout = workspace.days[day.rawValue] else { return TrainingDaySummary(performed: [], setCount: 0) }
         let order = workout.exerciseIDs + workout.rows.keys.sorted().filter { !workout.exerciseIDs.contains($0) }
         let performed = order.filter { id in workout.rows[id]?.contains { $0.performedSetID != nil } == true }
-        return TrainingDaySummary(performed: performed.map { exercise($0) }, setCount: recordedSetCount(in: workout))
+        return TrainingDaySummary(performed: performed.map(exercise), setCount: recordedSetCount(in: workout),
+                                  planned: performed.isEmpty ? indexedExercises(on: day) : [])
     }
     private func recordedSetCount(in workout: DayWorkout) -> Int {
         workout.rows.values.reduce(0) { count, rows in
@@ -740,8 +740,24 @@ public enum TrainingRowStatus: Equatable, Sendable { case empty, unfinished, rec
             return best
         }
     }
-    @discardableResult public func openDay(_ day: TrainingDay) -> Bool {
-        return commit(onSuccess: { [weak self] in self?.revealRowID = nil }) { state in
+    public func selectCalendarDay(_ day: TrainingDay) {
+        guard day != calendarDay else { return }
+        // Browsing supersedes a failed calendar navigation without writing or creating a workout.
+        if pendingSave?.isCalendarNavigation == true {
+            pendingSave = nil
+            errorMessage = nil
+        } else if canRetrySave && !cancelPendingAction() {
+            return
+        }
+        calendarDay = day
+    }
+
+    @discardableResult public func openDay(_ day: TrainingDay, onSuccess: (() -> Void)? = nil) -> Bool {
+        return commit(isCalendarNavigation: selectedDay == nil && focus == nil, onSuccess: { [weak self] in
+            self?.revealRowID = nil
+            self?.calendarDay = day
+            onSuccess?()
+        }) { state in
             try finalize(&state)
             state.training!.selectedDay = day; state.training!.visibleWeek = try day.week()[0]
             if state.training!.days[day.rawValue] == nil { state.training!.days[day.rawValue] = DayWorkout(unit: state.training!.preferredUnit) }
@@ -753,16 +769,39 @@ public enum TrainingRowStatus: Equatable, Sendable { case empty, unfinished, rec
         return openDay(destination)
     }
     @discardableResult public func showWeek() -> Bool {
-        return commit(onSuccess: { [weak self] in self?.revealRowID = nil }) { state in try finalize(&state); state.training!.selectedDay = nil; state.training!.undo = nil }
+        let leavingDay = selectedDay
+        return commit(onSuccess: { [weak self] in
+            self?.revealRowID = nil
+            if let leavingDay { self?.calendarDay = leavingDay }
+        }) { state in try finalize(&state); state.training!.selectedDay = nil; state.training!.undo = nil }
     }
     @discardableResult public func showCurrentWeek() -> Bool {
-        showWeek(containing: today)
+        navigateToWeek(containing: today, returningToToday: true)
     }
-    @discardableResult public func showWeek(containing day: TrainingDay) -> Bool {
-        commit(onSuccess: { [weak self] in self?.revealRowID = nil }) { state in
+    @discardableResult public func showWeek(containing day: TrainingDay, onSuccess: (() -> Void)? = nil) -> Bool {
+        navigateToWeek(containing: day, onSuccess: onSuccess)
+    }
+    private func navigateToWeek(containing day: TrainingDay, returningToToday: Bool = false,
+                                onSuccess: (() -> Void)? = nil) -> Bool {
+        commit(isCalendarNavigation: selectedDay == nil && focus == nil, onSuccess: { [weak self] in
+            guard let self else { return }
+            revealRowID = nil
+            calendarDay = day
+            if returningToToday {
+                section = .log
+                historyReturnContext = nil
+                isProgressPresented = false
+                progressExerciseID = nil
+                progressSessionDay = nil
+                progressSetID = nil
+                landingResetID &+= 1
+            }
+            onSuccess?()
+        }) { state in
             try finalize(&state)
             state.training!.visibleWeek = try day.week()[0]
-            state.training!.selectedDay = nil; state.training!.undo = nil
+            state.training!.selectedDay = nil
+            state.training!.undo = nil
         }
     }
     @discardableResult public func changeWeek(_ direction: Int) -> Bool {
@@ -1435,7 +1474,7 @@ public enum TrainingRowStatus: Equatable, Sendable { case empty, unfinished, rec
         }, update)
     }
 
-    func commit(recover: Bool = false, synchronizeInput: Bool = true, onSuccess: (() -> Void)? = nil,
+    func commit(recover: Bool = false, synchronizeInput: Bool = true, isCalendarNavigation: Bool = false, onSuccess: (() -> Void)? = nil,
                         _ update: (inout JournalSnapshot) throws -> Void) -> Bool {
         guard !backupRecoveryRequired else { errorMessage = NotebookBackupWorkflowError.recoveryRequired.localizedDescription; return false }
         var candidate = snapshot
@@ -1471,7 +1510,7 @@ public enum TrainingRowStatus: Equatable, Sendable { case empty, unfinished, rec
         pendingSave = nil
         pendingProfileAction = nil
         pendingProgressAction = false
-        let transaction = PendingSave(checked: checked, onSuccess: onSuccess)
+        let transaction = PendingSave(checked: checked, isCalendarNavigation: isCalendarNavigation, onSuccess: onSuccess)
         if candidate == lastWritten {
             snapshot = candidate; errorMessage = nil; onSuccess?()
             return true

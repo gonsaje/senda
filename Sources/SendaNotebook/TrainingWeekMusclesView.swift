@@ -15,6 +15,36 @@ struct TrainingWeekMuscleThumbnail: View {
     }
 }
 
+struct TrainingWeekMusclesButton: View {
+    let training: WeeklyMuscleTraining
+    let hasTargets: Bool
+    let title: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                TrainingWeekMuscleThumbnail(counts: training.counts)
+                Text(title).font(.footnote.weight(.semibold))
+                    .fixedSize(horizontal: false, vertical: true)
+                Image(systemName: "chevron.right")
+                    .font(.caption2.weight(.semibold))
+                    .accessibilityHidden(true)
+            }
+            .frame(minWidth: 44, minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .accessibilityLabel("Muscles trained")
+        .accessibilityValue(summary)
+    }
+
+    private var summary: String {
+        let count = training.regions.count
+        if count == 0 { return hasTargets ? "No sets logged" : "No muscles to show" }
+        return "\(count) \(count == 1 ? "area" : "areas")"
+    }
+}
+
 struct TrainingWeekMusclesView: View {
     let training: WeeklyMuscleTraining
     let profile: ProfileModel

@@ -19,6 +19,23 @@ struct TrainingMonthTests {
         #expect(january.adding(months: 1)?.days.count == 28)
     }
 
+    @Test(arguments: [
+        ("2021-02-15", "2021-02-01", "2021-03-14"),
+        ("2024-02-17", "2024-01-29", "2024-03-10"),
+        ("2026-11-21", "2026-10-26", "2026-12-06")
+    ])
+    func fixedGridIncludesSixFullWeeks(_ date: String, first: String, last: String) throws {
+        let slots = TrainingMonth(containing: try TrainingDay(date)).calendarSlots
+        #expect(slots.count == 42)
+        let dates = slots.compactMap { $0 }
+        #expect(dates.count == 42)
+        #expect(dates.first?.rawValue == first)
+        #expect(dates.last?.rawValue == last)
+        for (day, next) in zip(dates, dates.dropFirst()) {
+            #expect(try day.adding(days: 1) == next)
+        }
+    }
+
     @Test func monthsCannotMoveOutsideTheSupportedYears() throws {
         let earliest = TrainingMonth(containing: try TrainingDay("0001-01-01"))
         let latest = TrainingMonth(containing: try TrainingDay("9999-12-31"))
@@ -27,5 +44,14 @@ struct TrainingMonthTests {
         #expect(earliest.adding(months: .max) == nil)
         #expect(latest.adding(months: .min) == nil)
         #expect(latest.days.last?.rawValue == "9999-12-31")
+        for month in [earliest, latest] {
+            let slots = month.calendarSlots
+            #expect(slots.count == 42)
+            let dates = slots.compactMap { $0 }
+            #expect(dates == dates.sorted())
+            #expect(Set(dates).count == dates.count)
+            #expect(month.days.allSatisfy(dates.contains))
+        }
+        #expect(latest.calendarSlots.last == .some(nil))
     }
 }

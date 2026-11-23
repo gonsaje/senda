@@ -20,7 +20,7 @@ struct TrainingDock: View {
         .padding(.vertical, 2)
         .frame(maxWidth: 380)
         .background {
-            outline.fill(NotebookStyle.ivory)
+            outline.fill(NotebookStyle.inputSurface)
                 .shadow(color: NotebookStyle.dockShadow, radius: 10, x: 0, y: 4)
         }
         .overlay {
@@ -46,11 +46,9 @@ struct TrainingDock: View {
                         title
                     } else {
                         VStack(spacing: 3) {
-                            Image(systemName: section.symbol)
-                                .symbolVariant(selected ? .fill : .none)
-                                .font(.system(size: 19, weight: .medium))
-                                .frame(width: 54, height: 28)
-                                .accessibilityHidden(true)
+                            TrainingDockIcon(section: section, selected: selected)
+                                .frame(width: 27, height: 27)
+                                .frame(height: 28)
                             title
                         }
                     }
@@ -61,12 +59,17 @@ struct TrainingDock: View {
                 .contentShape(Rectangle())
             }
             .accessibilityLabel(section.title)
+            .accessibilityHint(section == .log ? "Returns to today in your preferred calendar view" : "")
             .accessibilityAddTraits(selected ? .isSelected : [])
-            .accessibilityIdentifier("dock-\(section.title.lowercased())")
+            .accessibilityIdentifier(section == .learn ? "dock-library" : "dock-\(section.rawValue.lowercased())")
             #if os(iOS)
             .accessibilityShowsLargeContentViewer {
-                Label(section.title, systemImage: section.symbol)
-                    .symbolVariant(selected ? .fill : .none)
+                Label {
+                    Text(section.title)
+                } icon: {
+                    TrainingDockIcon(section: section, selected: selected)
+                        .frame(width: 54, height: 54)
+                }
             }
             #endif
         }

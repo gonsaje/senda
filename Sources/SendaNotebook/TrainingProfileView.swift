@@ -3,13 +3,19 @@ import SendaDomain
 import SendaLogger
 
 private enum ProfileSheet: Identifiable {
-    case settings
+    case settings, details, workouts, programs, trainer
+    case schedule(ProgramEnrollment)
     case goal(StrengthGoal?)
     case weeklyTarget(WeeklyMuscleTarget?)
 
     var id: String {
         switch self {
         case .settings: "settings"
+        case .details: "details"
+        case .workouts: "workouts"
+        case .programs: "programs"
+        case .trainer: "trainer"
+        case .schedule(let enrollment): "schedule-" + enrollment.programID + enrollment.start.rawValue
         case .goal(let goal): goal?.id.uuidString ?? "new-goal"
         case .weeklyTarget(let target): target.map { "weekly-target-\($0.muscle.rawValue)" } ?? "new-weekly-target"
         }
@@ -31,6 +37,7 @@ struct TrainingProfileView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
                 identity
+                myTraining
                 VStack(alignment: .leading, spacing: 0) {
                     goalHeading
                     profileRule
@@ -58,6 +65,9 @@ struct TrainingProfileView: View {
                     }
                 }
                 weeklySetTargets
+                Button { sheet = .trainer } label: {
+                    TrainerNavigationRow(title: "Apply as a trainer")
+                }.accessibilityIdentifier("trainer-application")
                 if let error = model.profile.openingError {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(error).font(.callout).foregroundStyle(NotebookStyle.clay)
@@ -80,6 +90,16 @@ struct TrainingProfileView: View {
         .accessibilityIdentifier("profile-scroll")
         .sheet(item: $sheet) { destination in
             switch destination {
+            case .details:
+                ProfileDetailsView(profile: model.profile, close: { sheet = nil })
+            case .workouts:
+                TrainingWorkoutLibrary(model: model, initialTab: .personal, close: { sheet = nil })
+            case .programs:
+                TrainingProgramLibrary(model: model, savedOnly: true)
+            case .trainer:
+                TrainerPublishing(model: model)
+            case .schedule(let enrollment):
+                ProgramScheduleManager(model: model, enrollment: enrollment) { sheet = nil }
             case .settings:
                 TrainingProfileSettingsIndex(model: model, close: { sheet = nil })
             case .goal(let goal):
@@ -109,13 +129,70 @@ struct TrainingProfileView: View {
                 .accessibilityLabel("Settings")
                 .accessibilityIdentifier("profile-settings")
             }
-            if !model.profile.details.name.isEmpty {
-                Text(model.profile.details.name)
-                    .font(.title3.weight(.medium))
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityIdentifier("profile-display-name")
+            let name = model.profile.details.name
+            HStack(spacing: 14) {
+                ZStack {
+                    Circle().fill(NotebookStyle.ink)
+                    if name.isEmpty { Image(systemName: "person").foregroundStyle(NotebookStyle.ivory) }
+                    else {
+                        Text(name.split(separator: " ").prefix(2).compactMap(\.first).map(String.init).joined().uppercased())
+                            .font(.headline).foregroundStyle(NotebookStyle.ivory)
+                    }
+                }.frame(width: 54, height: 54).accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(name.isEmpty ? "Your notebook" : name)
+                        .font(.title3.weight(.semibold)).accessibilityIdentifier("profile-display-name")
+                    Label("Private profile", systemImage: "lock").font(.subheadline).foregroundStyle(NotebookStyle.quiet)
+                }
+                Spacer(minLength: 0)
             }
+            Button(name.isEmpty ? "Add your name" : "Edit profile") { sheet = .details }
+                .foregroundStyle(NotebookStyle.clay).frame(minHeight: 44)
         }
+    }
+
+    private var myTraining: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("My training").font(NotebookTypography.heading(24, relativeTo: .title2))
+                .accessibilityAddTraits(.isHeader).padding(.bottom, 8)
+            profileRule
+            if let next = model.nextScheduledSession {
+                Button {
+                    if model.openDay(next.day) { model.selectSection(.log) }
+                } label: {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Next workout").font(.caption.weight(.semibold)).foregroundStyle(NotebookStyle.quiet)
+                        TrainerNavigationRow(title: next.session.sessionTitle, detail:
+                            (next.day == model.today ? "Today" : TrainingText.date(next.day, format: "EEE, MMM d")) + " · " + next.session.programTitle)
+                    }.padding(.top, 10)
+                }.accessibilityIdentifier("profile-next-workout")
+                profileRule
+            }
+            ForEach(Array(currentEnrollments.enumerated()), id: \.offset) { _, enrollment in
+                Button { sheet = .schedule(enrollment) } label: {
+                    let elapsed = (try? enrollment.start.days(until: model.today)) ?? 0
+                    let status = elapsed < 0 ? "Starts " + TrainingText.date(enrollment.start, format: "MMM d") :
+                        "Week \(min(elapsed / 7 + 1, enrollment.program.weeks)) of \(enrollment.program.weeks)"
+                    TrainerNavigationRow(title: enrollment.program.title,
+                        detail: [enrollment.program.author.map { "By " + $0 }, status].compactMap { $0 }.joined(separator: " · "))
+                }
+                profileRule
+            }
+            Button { sheet = .workouts } label: {
+                TrainerNavigationRow(title: "Saved workouts", value: String(model.savedWorkouts.count))
+            }
+            profileRule
+            Button { sheet = .programs } label: {
+                TrainerNavigationRow(title: "Saved programs", value: String(model.customPrograms.count))
+            }
+            profileRule
+        }
+    }
+
+    private var currentEnrollments: [ProgramEnrollment] {
+        model.workspace.activeProgramEnrollments.filter { enrollment in
+            enrollment.endedOn == nil && model.scheduledWorkoutDates(enrollment).last.map { $0 >= model.today } == true
+        }.sorted { $0.start < $1.start }
     }
 
     private var goalHeading: some View {
@@ -375,8 +452,8 @@ private struct TrainingProfileSettingsIndex: View {
                     }
                     .accessibilityIdentifier("profile-privacy-policy")
                     profileRule
-                    Link(destination: URL(string: "mailto:hello@dontsweat.tech")!) {
-                        destinationRow(title: "Contact support", detail: "hello@dontsweat.tech")
+                    Link(destination: SendaContact.mailURL) {
+                        destinationRow(title: "Contact support", detail: SendaContact.email)
                     }
                     .accessibilityIdentifier("profile-contact-support")
                     profileRule

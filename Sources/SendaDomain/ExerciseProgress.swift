@@ -1,26 +1,29 @@
 import Foundation
 
 public enum ExerciseProgressRange: String, CaseIterable, Codable, Sendable {
+    case oneDay = "1d"
+    case oneWeek = "1w"
     case oneMonth = "1m"
     case threeMonths = "3m"
     case sixMonths = "6m"
     case oneYear = "1y"
+    case yearToDate = "ytd"
 
     /// Both endpoints are included. All charts use the same Gregorian civil days.
     public func days(through today: TrainingDay) -> ClosedRange<TrainingDay> {
         let calendar = TrainingDay.utc
         let earliest = TrainingDay(rawValue: "0001-01-01")!.date(in: calendar)
-        let start = calendar.date(byAdding: .month, value: -monthCount, to: today.date(in: calendar)) ?? earliest
-        return TrainingDay(max(start, earliest), calendar: calendar)...today
-    }
-
-    private var monthCount: Int {
-        switch self {
-        case .oneMonth: 1
-        case .threeMonths: 3
-        case .sixMonths: 6
-        case .oneYear: 12
+        let end = today.date(in: calendar)
+        let start: Date? = switch self {
+        case .oneDay: end
+        case .oneWeek: calendar.date(byAdding: .day, value: -6, to: end)
+        case .oneMonth: calendar.date(byAdding: .month, value: -1, to: end)
+        case .threeMonths: calendar.date(byAdding: .month, value: -3, to: end)
+        case .sixMonths: calendar.date(byAdding: .month, value: -6, to: end)
+        case .oneYear: calendar.date(byAdding: .year, value: -1, to: end)
+        case .yearToDate: calendar.dateInterval(of: .year, for: end)?.start
         }
+        return TrainingDay(max(start ?? earliest, earliest), calendar: calendar)...today
     }
 }
 

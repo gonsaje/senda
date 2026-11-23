@@ -100,7 +100,10 @@ public enum NotebookRestoreError: LocalizedError {
         // Publish the marker only after every rollback file has been staged.
         try writer(try JSONEncoder().encode(RestoreCheckpoint(present: present)), pendingURL)
         do {
-            try FileProfileRepository(url: profileURL, writer: writer).save(archive.profile)
+            let repository = FileProfileRepository(url: profileURL, writer: writer)
+            var profile = archive.profile
+            profile.trainerApplication = (try? repository.load())?.trainerApplication
+            try repository.save(profile)
             try FileJournalRepository(url: journalURL, writer: writer).saveSnapshot(archive.snapshot)
             if let readings = archive.manualMeasurements {
                 try FileBodyMeasurementsRepository(url: measurementsURL).save(readings, writer: writer)
@@ -217,8 +220,7 @@ public enum NotebookRestoreError: LocalizedError {
 
     public func previousBackupData() throws -> Data? {
         guard let data = try readIfPresent(backupURL) else { return nil }
-        _ = try NotebookBackupCodec.decode(data)
-        return data
+        return try NotebookBackupCodec.encode(NotebookBackupCodec.decode(data))
     }
     public func previousBackupArchive() async throws -> NotebookArchive? {
         try await Task.detached(priority: .userInitiated) { [backupURL] in
@@ -228,8 +230,12 @@ public enum NotebookRestoreError: LocalizedError {
     }
     public func previousOriginalFilesData() throws -> Data? {
         guard let data = try readIfPresent(originalsURL) else { return nil }
-        _ = try JSONDecoder().decode(OriginalFiles.self, from: data).validated()
-        return data
+        var export = try JSONDecoder().decode(OriginalFiles.self, from: data).validated()
+        // The private rollback file stays intact, including an unreadable device profile.
+        // Only recognized notebook profile fields may leave the device.
+        let portable = export.profile.contents.flatMap(FileProfileRepository.portableRecoveryData)
+        export.profile = OriginalFile(existed: portable != nil, contents: portable)
+        return try JSONEncoder().encode(export)
     }
     public func originalJournalData() throws -> Data? { try readIfPresent(journalURL) }
 
@@ -282,7 +288,7 @@ private struct OriginalFiles: Codable {
     let format: String
     let version: Int
     let journal: OriginalFile
-    let profile: OriginalFile
+    var profile: OriginalFile
     let measurements: OriginalFile?
     init(journal: OriginalFile, profile: OriginalFile, measurements: OriginalFile) {
         format = "senda-restore-recovery"; version = 2
@@ -319,7 +325,9 @@ private struct OriginalFiles: Codable {
         let original = try (repository.loadSnapshot(), profileRepository.load(), measurements)
         pending = original
         do {
-            try profileRepository.save(archive.profile)
+            var profile = archive.profile
+            profile.trainerApplication = original.1.trainerApplication
+            try profileRepository.save(profile)
             try repository.saveSnapshot(archive.snapshot)
             if let readings = archive.manualMeasurements { try measurementsRepository.save(readings) }
             previous = previousData

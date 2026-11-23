@@ -22,7 +22,7 @@ struct TrainingLibraryHeader: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Library")
+            Text(TrainingSection.learn.title)
                 .font(NotebookTypography.heading(31))
                 .accessibilityAddTraits(.isHeader)
             ViewThatFits(in: .horizontal) {

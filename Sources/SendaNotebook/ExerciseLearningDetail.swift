@@ -96,7 +96,7 @@ struct ExerciseMuscleTagsView: View {
     }
 }
 
-private struct ExerciseFormVisualView: View {
+struct ExerciseFormVisualView: View {
     let visual: ExerciseFormVisual
     @Environment(\.dynamicTypeSize) private var textSize
     @State private var enlargedFrame: ExerciseFormVisual.Frame?
@@ -184,7 +184,7 @@ public struct ExerciseFormPositionView: View {
     }
 }
 
-private struct ExerciseIllustrationCredits: View {
+struct ExerciseIllustrationCredits: View {
     let visual: ExerciseFormVisual
     var body: some View {
         DisclosureGroup {

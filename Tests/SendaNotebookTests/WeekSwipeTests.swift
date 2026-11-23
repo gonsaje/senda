@@ -3,52 +3,52 @@ import Testing
 @testable import SendaNotebook
 
 struct WeekSwipeTests {
-    @Test func horizontalSwipesMoveOneWeekAndOnlyOnceOnRelease() {
+    @Test func verticalSwipesMoveOneWeekAndOnlyOnceOnRelease() {
         var swipe = WeekSwipeState()
-        swipe.move(CGSize(width: -30, height: 2))
-        #expect(swipe.isHorizontal)
-        #expect(swipe.finish(CGSize(width: -160, height: 4)) == 1)
-        #expect(swipe.finish(CGSize(width: -160, height: 4)) == nil)
-        swipe.move(CGSize(width: 30, height: 2))
-        #expect(swipe.finish(CGSize(width: 160, height: 4)) == -1)
+        swipe.move(CGSize(width: 2, height: -30))
+        #expect(swipe.isVertical)
+        #expect(swipe.finish(CGSize(width: 4, height: -160)) == 1)
+        #expect(swipe.finish(CGSize(width: 4, height: -160)) == nil)
+        swipe.move(CGSize(width: 2, height: 30))
+        #expect(swipe.finish(CGSize(width: 4, height: 160)) == -1)
     }
 
-    @Test func verticalStartCannotBecomeWeekNavigation() {
+    @Test func horizontalStartCannotBecomeWeekNavigation() {
         var swipe = WeekSwipeState()
-        swipe.move(CGSize(width: 2, height: -25))
-        swipe.move(CGSize(width: -180, height: -60))
-        #expect(!swipe.isHorizontal)
-        #expect(swipe.finish(CGSize(width: -180, height: -60)) == nil)
+        swipe.move(CGSize(width: -25, height: 2))
+        swipe.move(CGSize(width: -60, height: -180))
+        #expect(!swipe.isVertical)
+        #expect(swipe.finish(CGSize(width: -60, height: -180)) == nil)
     }
 
     @Test func shortDragsAndDiagonalGesturesKeepCurrentWeek() {
         var swipe = WeekSwipeState()
-        swipe.move(CGSize(width: -20, height: 1))
-        #expect(swipe.finish(CGSize(width: -24, height: 2)) == nil)
+        swipe.move(CGSize(width: 1, height: -20))
+        #expect(swipe.finish(CGSize(width: 2, height: -24)) == nil)
         swipe.move(CGSize(width: -20, height: -20))
         #expect(swipe.finish(CGSize(width: -100, height: -100)) == nil)
-        swipe.move(CGSize(width: 30, height: 1))
-        #expect(swipe.finish(CGSize(width: 40, height: 180)) == nil)
+        swipe.move(CGSize(width: 1, height: 30))
+        #expect(swipe.finish(CGSize(width: 180, height: 40)) == nil)
     }
 
     @Test func cancelledSwipeDoesNotNavigateAndNextGestureStillWorks() {
         var swipe = WeekSwipeState()
-        swipe.move(CGSize(width: -160, height: 0))
+        swipe.move(CGSize(width: 0, height: -160))
         swipe.cancel()
-        #expect(!swipe.isHorizontal)
-        #expect(swipe.finish(CGSize(width: -160, height: 0)) == nil)
-        swipe.move(CGSize(width: 30, height: 1))
-        #expect(swipe.finish(CGSize(width: 120, height: 1)) == -1)
+        #expect(!swipe.isVertical)
+        #expect(swipe.finish(CGSize(width: 0, height: -160)) == nil)
+        swipe.move(CGSize(width: 1, height: 30))
+        #expect(swipe.finish(CGSize(width: 1, height: 120)) == -1)
     }
 
     @Test func invalidTranslationCannotNavigateOrLeaveControlsDisabled() {
         var swipe = WeekSwipeState()
-        swipe.move(CGSize(width: -120, height: 0))
-        swipe.move(CGSize(width: CGFloat.nan, height: 0))
-        #expect(!swipe.isHorizontal)
-        #expect(swipe.finish(CGSize(width: -120, height: 0)) == nil)
-        swipe.move(CGSize(width: -30, height: 0))
-        #expect(swipe.finish(CGSize(width: -160, height: CGFloat.infinity)) == nil)
-        #expect(!swipe.isHorizontal)
+        swipe.move(CGSize(width: 0, height: -120))
+        swipe.move(CGSize(width: 0, height: CGFloat.nan))
+        #expect(!swipe.isVertical)
+        #expect(swipe.finish(CGSize(width: 0, height: -120)) == nil)
+        swipe.move(CGSize(width: 0, height: -30))
+        #expect(swipe.finish(CGSize(width: CGFloat.infinity, height: -160)) == nil)
+        #expect(!swipe.isVertical)
     }
 }

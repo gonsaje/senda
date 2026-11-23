@@ -12,7 +12,11 @@ public struct NotebookArchive: Codable, Equatable, Sendable {
     public let createdAt: Date
     public init(snapshot: JournalSnapshot, profile: ProfileDetails, manualMeasurements: [BodyMeasurement]? = nil, createdAt: Date = Date()) {
         self.manualMeasurements = manualMeasurements
-        self.snapshot = snapshot; self.profile = profile; self.createdAt = createdAt
+        var portableProfile = profile
+        portableProfile.trainerApplication = nil
+        self.snapshot = snapshot
+        self.profile = portableProfile
+        self.createdAt = createdAt
     }
 
     public func validated() throws -> NotebookArchive {
@@ -122,7 +126,7 @@ public struct NotebookArchive: Codable, Equatable, Sendable {
                 measurements = nil
             }
             self = try NotebookArchive(snapshot: snapshot,
-                profile: box.decode(ProfileDetails.self, forKey: .profile), manualMeasurements: measurements,
+                profile: ProfileDetails(from: box.superDecoder(forKey: .profile), includesTrainerApplication: false), manualMeasurements: measurements,
                 createdAt: box.decode(Date.self, forKey: .createdAt)).validated()
         } catch let error as NotebookBackupError {
             throw error

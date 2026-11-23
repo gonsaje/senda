@@ -137,7 +137,7 @@ public extension JournalSnapshot {
         let weeks = progressWeeks(starts: window.starts, through: today, setCountsByDay: setCountsByDay)
         let thisWeek = weeks.last!
         var lastWeekComparable: ExerciseProgressWeek?
-        if let start = try? thisWeek.startDay.adding(days: -7), start < thisWeek.startDay,
+        if let start = try? thisWeek.startDay.adding(days: -7), window.startDay <= start, start < thisWeek.startDay,
            let end = try? today.adding(days: -7), end < today, start <= end {
             let days = setCountsByDay.filter { start <= $0.key && $0.key <= end }
             lastWeekComparable = ExerciseProgressWeek(startDay: start, endDay: end,

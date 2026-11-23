@@ -75,7 +75,7 @@ struct BodyMeasurementsTests {
         let endOfDay = try BodyMeasurement(metric: .weight, value: 73, date: late, source: .appleHealth("Health"))
         let nextDay = try BodyMeasurement(metric: .weight, value: 75, date: tomorrow, source: .appleHealth("Health"))
         let repository = InMemoryBodyRepository(), health = FixtureHealth()
-        repository.readings = [manual]
+        repository.state.readings = [manual]
         health.readings = [previousInLA, nextDay, endOfDay]
         let model = BodyMeasurementsModel(repository: repository, health: health)
         await model.refreshHealth()
@@ -99,7 +99,7 @@ struct BodyMeasurementsTests {
         let excluded = try [start.adding(days: -1), end.adding(days: 1)].map { day in
             try BodyMeasurement(metric: .waist, value: 90, date: day.date(in: calendar), calendar: calendar)
         }
-        repository.readings = excluded + [last] + observations.reversed()
+        repository.state.readings = excluded + [last] + observations.reversed()
         let model = BodyMeasurementsModel(repository: repository)
 
         #expect(interval == start...end)
@@ -200,16 +200,70 @@ struct BodyMeasurementsTests {
         await refresh.value
         #expect(model.readings(for: .waist).isEmpty)
     }
+
+    @Test func activityIsReadOnlyUntilTheUserAddsAnAmount() async throws {
+        let health = FixtureHealth()
+        let model = BodyMeasurementsModel(repository: InMemoryBodyRepository(), health: health)
+        health.totals = DailyHealthActivity(steps: 3200)
+        await model.refreshActivity(on: today)
+        #expect(model.activity.steps == 3200 && model.activity.activeCalories == nil)
+        #expect(health.activityWrites.isEmpty)
+        let entry = DailyHealthActivity(activeCalories: 40)
+        try await model.addActivity(entry, date: today, id: UUID())
+        #expect(health.activityWrites == [entry])
+        await #expect(throws: BodyMeasurementError.self) {
+            try await model.addActivity(DailyHealthActivity(steps: 1.5), date: today, id: UUID())
+        }
+        model.disconnectHealth()
+        #expect(model.activity == DailyHealthActivity())
+    }
+
+    @Test func sharingRetriesEditsAndDeletesAfterRelaunchAndHonorsMetricPermission() async throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let repo = FileBodyMeasurementsRepository(url: url.appendingPathComponent("body.json"))
+        let health = FixtureHealth()
+        let model = BodyMeasurementsModel(repository: repo, health: health)
+        try model.add([.weight: 70, .waist: 84], on: today)
+        #expect(health.writes.isEmpty)
+        await model.enableMeasurementSharing()
+        let first = try #require(health.writes.first)
+        #expect(health.writes.count == 1 && first.metric == .weight)
+        let reading = try #require(model.readings(for: .weight).first)
+        health.readings = [try BodyMeasurement(id: reading.id, metric: .weight, value: 70, date: today, source: .appleHealth("Senda"))]
+        await model.refreshHealth()
+        #expect(model.readings(for: .weight).count == 1)
+        health.failWrite = true
+        try model.update(reading, value: 71, on: today)
+        await model.syncPendingMeasurements()
+        #expect(model.sharingError != nil)
+        let restored = BodyMeasurementsModel(repository: repo, health: health)
+        health.failWrite = false
+        await restored.syncPendingMeasurements()
+        #expect(health.writes.last?.id == first.id)
+        #expect(health.writes.last!.version > first.version)
+        try restored.remove(reading)
+        await restored.syncPendingMeasurements()
+        #expect(health.writes.count == 3 && health.writes.last?.id == first.id)
+        #expect(health.sentValues == [70, 71, nil])
+        #expect(try repo.loadStore().sharing?.pending.isEmpty == true)
+        #expect(restored.stopMeasurementSharing())
+        try restored.add([.weight: 72], on: today)
+        await restored.syncPendingMeasurements()
+        #expect(health.writes.count == 3)
+    }
+
 }
 
 @MainActor
 private final class InMemoryBodyRepository: BodyMeasurementsRepository {
-    var readings: [BodyMeasurement] = []
+    var state = BodyMeasurementStore()
+    var readings: [BodyMeasurement] { state.readings }
     var fail = false
-    func load() throws -> [BodyMeasurement] { readings }
-    func save(_ readings: [BodyMeasurement]) throws {
+    func loadStore() throws -> BodyMeasurementStore { state }
+    func saveStore(_ state: BodyMeasurementStore) throws {
         if fail { throw CocoaError(.fileWriteOutOfSpace) }
-        self.readings = readings
+        self.state = state
     }
 }
 
@@ -217,6 +271,23 @@ private final class InMemoryBodyRepository: BodyMeasurementsRepository {
 private final class FixtureHealth: BodyMeasurementsHealthSource {
     var readings: [BodyMeasurement] = []
     var pause = false
+    var totals = DailyHealthActivity()
+    var activityWrites: [DailyHealthActivity] = []
+    var writes: [MeasurementSharing.Change] = []
+    var sentValues: [Double?] = []
+    var failWrite = false
+
+    func activity(on day: Date) async throws -> DailyHealthActivity { totals }
+    func addActivity(_ activity: DailyHealthActivity, date: Date, id: UUID) async throws {
+        activityWrites.append(activity)
+    }
+    func requestMeasurementSharing() async throws -> Set<BodyMetric> { [.weight] }
+    func write(_ change: MeasurementSharing.Change, reading: BodyMeasurement?) async throws {
+        if failWrite { throw CocoaError(.fileWriteUnknown) }
+        writes.append(change)
+        sentValues.append(reading?.value)
+    }
+
     var pausedRead: CheckedContinuation<Void, Never>?
     func requestAccess() async throws {}
     func read() async throws -> [BodyMeasurement] {

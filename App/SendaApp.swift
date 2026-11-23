@@ -45,7 +45,10 @@ private struct JournalRootView: View {
                 .accessibilityHidden(showsLaunchIntro)
                 .allowsHitTesting(!showsLaunchIntro)
             if showsLaunchIntro {
-                SendaLaunchIntro { showsLaunchIntro = false }
+                SendaLaunchIntro(profileName: session?.notebook?.profile.details.name,
+                                 isReady: session != nil || openingError != nil) {
+                    showsLaunchIntro = false
+                }
                     .allowsHitTesting(false)
                     .transition(.opacity)
                     .zIndex(1)

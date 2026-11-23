@@ -19,6 +19,7 @@ public struct ProgramSession: Codable, Equatable, Sendable {
     public var title: String
     /// Relative to the program's start, repeated in every week of this block.
     public var dayOffset: Int
+    public var trainerDetails: TrainerWorkoutDetails?
     public var exercises: [ProgramExercise]
     public var supersets: [SupersetPlan]
 
@@ -56,6 +57,8 @@ public struct TrainingProgram: Codable, Equatable, Identifiable, Sendable {
     public var id: String
     public var title: String
     public var summary: String
+    public var trainerPageID: UUID?
+    public var trainerVersion: Int?
     public var author: String?
     public var credential: String?
     public var sourceURL: String?
@@ -81,6 +84,8 @@ public struct TrainingProgram: Codable, Equatable, Identifiable, Sendable {
         var copy = self
         copy.id = UUID().uuidString.lowercased()
         copy.title = String(title.prefix(72)) + " (copy)"
+        copy.trainerPageID = nil
+        copy.trainerVersion = nil
         copy.author = nil
         copy.credential = nil
         return copy
@@ -145,6 +150,7 @@ public struct TrainingProgram: Codable, Equatable, Identifiable, Sendable {
                 else { throw ProgramError.sessionDays }
             for session in block.sessions {
                 guard Self.validTitle(session.title), (0...6).contains(session.dayOffset) else { throw ProgramError.invalidSession }
+                try session.trainerDetails?.validate()
                 let ids = session.exercises.map(\.exerciseID)
                 guard (1...30).contains(ids.count), Set(ids).count == ids.count else { throw ProgramError.exerciseList }
                 guard Set(ids).isSubset(of: availableExercises) else { throw ProgramError.unavailableExercise }
@@ -246,7 +252,8 @@ public struct ScheduledProgramSession: Equatable, Sendable {
         blockTitle = block.title
         sessionTitle = session.title
         progression = block.progression
-        coachingNotes = program.coachingNotes
+        let notes = [program.coachingNotes, session.trainerDetails?.notes].compactMap { $0 }.filter { !$0.isEmpty }
+        coachingNotes = notes.isEmpty ? nil : notes.joined(separator: "\n")
         author = program.author
         credential = program.credential
         sourceURL = program.sourceURL

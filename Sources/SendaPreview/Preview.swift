@@ -24,16 +24,21 @@ struct SendaPreview {
         let dayHeaderOnly = CommandLine.arguments.count == 3 && CommandLine.arguments[1] == "--day-header-only"
         let weekOnly = CommandLine.arguments.count == 3 && CommandLine.arguments[1] == "--week-only"
         let dockOnly = CommandLine.arguments.count == 3 && CommandLine.arguments[1] == "--dock-only"
+        let monthOnly = CommandLine.arguments.count == 3 && CommandLine.arguments[1] == "--month-only"
         let profileOnly = CommandLine.arguments.count == 3 && CommandLine.arguments[1] == "--profile-only"
         let trendsOnly = CommandLine.arguments.count == 3 && CommandLine.arguments[1] == "--trends-only"
-        guard CommandLine.arguments.count == 2 || learnOnly || autosaveOnly || setTypesOnly || uxOnly || navigationOnly || firstPassOnly || weekOnly || dayHeaderOnly || trendsOnly || profileOnly || dockOnly else {
-            print("Usage: swift run senda-preview [--learn-only | --autosave-only | --set-types-only | --ux-review-only | --navigation-only | --first-pass-only | --week-only | --day-header-only | --trends-only | --profile-only | --dock-only] /absolute/output/directory")
+        guard CommandLine.arguments.count == 2 || learnOnly || autosaveOnly || setTypesOnly || uxOnly || navigationOnly || firstPassOnly || weekOnly || dayHeaderOnly || trendsOnly || profileOnly || dockOnly || monthOnly else {
+            print("Usage: swift run senda-preview [--learn-only | --autosave-only | --set-types-only | --ux-review-only | --navigation-only | --first-pass-only | --week-only | --day-header-only | --trends-only | --profile-only | --dock-only | --month-only] /absolute/output/directory")
             return
         }
-        let directory = URL(fileURLWithPath: CommandLine.arguments[learnOnly || autosaveOnly || setTypesOnly || uxOnly || navigationOnly || firstPassOnly || weekOnly || dayHeaderOnly || trendsOnly || profileOnly || dockOnly ? 2 : 1], isDirectory: true)
+        let directory = URL(fileURLWithPath: CommandLine.arguments[learnOnly || autosaveOnly || setTypesOnly || uxOnly || navigationOnly || firstPassOnly || weekOnly || dayHeaderOnly || trendsOnly || profileOnly || dockOnly || monthOnly ? 2 : 1], isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         _ = NSApplication.shared
         NSApp.setActivationPolicy(.prohibited)
+        if monthOnly {
+            try renderMonthStates(to: directory)
+            return
+        }
         if dockOnly {
             let model = try TrainingNotebookModel(repository: MemoryJournalRepository(journal: SampleJournal.makeWeek(relativeTo: Date())), isSample: true)
             for section in TrainingSection.allCases {
@@ -43,7 +48,7 @@ struct SendaPreview {
                 try render(TrainingNotebookView(model: model), to: directory.appendingPathComponent("senda-dock-\(name)-compact.png"), width: 320, height: 568)
                 try render(TrainingNotebookView(model: model), to: directory.appendingPathComponent("senda-dock-\(name)-accessibility.png"), width: 320, height: 568, textSize: .accessibility5)
             }
-            print("Rendered all four bottom-bar selections at regular, compact and Largest Text sizes to \(directory.path).")
+            print("Rendered all bottom-bar selections at regular, compact and Largest Text sizes to \(directory.path).")
             return
         }
         if profileOnly {
@@ -405,6 +410,22 @@ struct SendaPreview {
             try render(TrainingNotebookView(model: model), to: directory.appendingPathComponent("senda-day-header-\(name)-compact.png"), width: 320, height: 568)
             try render(TrainingNotebookView(model: model), to: directory.appendingPathComponent("senda-day-header-\(name)-accessibility.png"), width: 320, height: 900, textSize: .accessibility3)
         }
+    }
+
+    private static func renderMonthStates(to directory: URL) throws {
+        let today = try TrainingDay("2026-11-21")
+        let date = today.date()
+        let model = try TrainingNotebookModel(
+            repository: MemoryJournalRepository(journal: SampleJournal.makeTwelveWeeks(relativeTo: date)),
+            isSample: true, now: { date })
+        guard model.openDay(try today.adding(days: 2)), model.addExercise("squat"), model.showCurrentWeek(),
+              let defaults = UserDefaults(suiteName: "SendaPreview.Month") else { throw CocoaError(.coderInvalidValue) }
+        defaults.setVolatileDomain(["senda.train.layout": "month"], forName: UserDefaults.argumentDomain)
+        let view = TrainingNotebookView(model: model).defaultAppStorage(defaults)
+        try render(view, to: directory.appendingPathComponent("senda-month.png"))
+        try render(view, to: directory.appendingPathComponent("senda-month-compact.png"), width: 320, height: 568)
+        try render(view, to: directory.appendingPathComponent("senda-month-accessibility.png"),
+                   width: 320, height: 880, textSize: .accessibility3)
     }
 
     private static func renderWeekBoundaryStates(to directory: URL) throws {

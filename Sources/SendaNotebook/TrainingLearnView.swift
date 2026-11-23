@@ -32,10 +32,7 @@ struct TrainingExerciseLibrary: View {
         _presentedGuideID = State(initialValue: model.learningExerciseID)
     }
 
-    private var motion: TrainingPageMotion { TrainingPageMotion(reduceMotion: reduceMotion) }
-    private var guideOffset: CGFloat {
-        layoutDirection == .rightToLeft ? -TrainingPageMotion.detailOffset : TrainingPageMotion.detailOffset
-    }
+    private var guideOffset: CGFloat { layoutDirection == .rightToLeft ? -32 : 32 }
 
     var body: some View {
         let showingGuide = presentedGuideID != nil
@@ -44,10 +41,6 @@ struct TrainingExerciseLibrary: View {
             // Keep the list mounted so returning keeps its exact scroll offset.
             exerciseList
                 .id(model.landingResetID)
-                .animation(motion.opacityAnimation(appearing: !showingGuide)) { view in
-                    view.opacity(showingGuide ? 0 : 1)
-                }
-                .offset(x: showingGuide && !reduceMotion ? -guideOffset : 0)
                 .allowsHitTesting(listIsActive)
                 .accessibilityHidden(!listIsActive)
             if let id = presentedGuideID {
@@ -55,13 +48,13 @@ struct TrainingExerciseLibrary: View {
                     .allowsHitTesting(model.learningExerciseID == id)
                     .accessibilityHidden(model.learningExerciseID != id)
                     .id(id)
-                    .transition(motion.transition(entryOffset: guideOffset))
+                    .transition(reduceMotion ? .identity : .offset(x: guideOffset))
                     .zIndex(1)
             }
         }
         .clipped()
         .onChange(of: model.learningExerciseID) { _, next in
-            withAnimation(motion.animation) { presentedGuideID = next }
+            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.24)) { presentedGuideID = next }
         }
         .onChange(of: model.landingResetID) { _, _ in searchFocused = false }
         .sheet(item: $editor) { request in

@@ -202,25 +202,31 @@ struct TrainingTrendsTests {
 
     @Test func calendarRangesIncludeExactBoundsAndMatchPerExerciseProgress() throws {
         var journal = Journal()
-        for date in ["2025-11-08", "2025-11-09", "2026-05-08", "2026-05-09", "2026-08-08",
-                     "2026-08-09", "2026-10-08", "2026-10-09", "2026-11-09", "2026-11-10"] {
+        for date in ["2025-11-08", "2025-11-09", "2025-12-31", "2026-01-01", "2026-05-08", "2026-05-09",
+                     "2026-08-08", "2026-08-09", "2026-10-08", "2026-10-09", "2026-11-02", "2026-11-03",
+                     "2026-11-08", "2026-11-09", "2026-11-10"] {
             _ = try record(&journal, on: date, [SetValues(weight: 10_000, reps: 5)])
         }
         let snapshot = JournalSnapshot(journal: journal)
         let today = day("2026-11-09")
         let bench = try #require(Exercise.catalog.first { $0.id == "bench" })
         let cases: [(ExerciseProgressRange, String, Int)] = [
-            (.oneMonth, "2026-10-09", 2),
-            (.threeMonths, "2026-08-09", 4),
-            (.sixMonths, "2026-05-09", 6),
-            (.oneYear, "2025-11-09", 8)
+            (.oneDay, "2026-11-09", 1),
+            (.oneWeek, "2026-11-03", 3),
+            (.oneMonth, "2026-10-09", 5),
+            (.threeMonths, "2026-08-09", 7),
+            (.sixMonths, "2026-05-09", 9),
+            (.oneYear, "2025-11-09", 13),
+            (.yearToDate, "2026-01-01", 11)
         ]
+        #expect(cases.map(\.0) == ExerciseProgressRange.allCases)
         for (range, start, count) in cases {
             let trends = snapshot.trends(range: range, through: today, calendar: utc)
             let summary = try #require(trends.exerciseSummaries.first)
             #expect(trends.startDay == day(start))
             #expect(trends.endDay == today)
             #expect(trends.setCount == count)
+            if range == .oneDay || range == .oneWeek { #expect(trends.lastWeekComparable == nil) }
             #expect(summary.progress.sessions.first?.day == day(start))
             #expect(summary.latestSession.day == today)
             #expect(summary.progress == snapshot.progress(for: bench, range: range, through: today, calendar: utc))

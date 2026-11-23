@@ -8,6 +8,9 @@ struct TrainingWorkoutTemplateEditor: View {
     @Bindable var model: TrainingNotebookModel
     let close: () -> Void
     let saved: (WorkoutTemplate) -> Void
+    private let trainerDetails: TrainerWorkoutDetails?
+    private let trainerOriginID: String?
+    private let trainerCredit: String?
     private let original: Draft
     private let isEditing: Bool
     @State private var templateID: String
@@ -37,6 +40,9 @@ struct TrainingWorkoutTemplateEditor: View {
     init(model: TrainingNotebookModel, template: WorkoutTemplate?, isEditing: Bool, copiesCurrentDay: Bool,
          close: @escaping () -> Void, saved: @escaping (WorkoutTemplate) -> Void) {
         self.model = model
+        trainerDetails = template?.trainerDetails
+        trainerOriginID = template?.trainerOriginID
+        trainerCredit = template?.trainerCredit
         self.close = close
         self.saved = saved
         self.isEditing = isEditing
@@ -331,7 +337,8 @@ struct TrainingWorkoutTemplateEditor: View {
     private func save() {
         guard pending == nil else { return }
         let workout = WorkoutTemplate(id: templateID, name: draft.name, exerciseIDs: draft.exerciseIDs, exercisePlans: draft.plans,
-                                      supersets: draft.supersets.isEmpty ? nil : draft.supersets)
+                                      supersets: draft.supersets.isEmpty ? nil : draft.supersets, trainerCredit: trainerCredit,
+                                      trainerDetails: trainerDetails, trainerOriginID: trainerOriginID)
         pending = workout
         if model.saveWorkout(workout) {
             completePendingSave()
@@ -359,7 +366,7 @@ struct TrainingWorkoutTemplateEditor: View {
     }
 }
 
-private struct WorkoutTemplatePlanEditor: View {
+struct WorkoutTemplatePlanEditor: View {
     let exercise: Exercise
     let hasPlan: Bool
     let close: () -> Void

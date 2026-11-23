@@ -45,12 +45,13 @@ import SendaPersistence
         #expect(model.workspace.days[selected.rawValue] == nil)
     }
 
-    @Test func logReselectionKeepsTheBrowsedWeekAndPersistsAnUnfinishedSet() throws {
+    @Test func trainReselectionReturnsToTodayAndPersistsAnUnfinishedSet() throws {
         let store = MemoryJournalRepository()
         let model = try TrainingNotebookModel(repository: store)
         let day = try model.today.adding(days: -10)
         try enter(model, weight: "31.", reps: "8", on: day)
-        let week = model.workspace.visibleWeek
+        let week = try #require(model.today.week().first)
+        #expect(model.workspace.visibleWeek != week)
         let reset = model.landingResetID
 
         #expect(model.selectDockSection(.log))
@@ -65,7 +66,7 @@ import SendaPersistence
         #expect(reopened.journal.batches.isEmpty)
     }
 
-    @Test func logReselectionWaitsForThePendingWriteBeforeReturningToWeek() throws {
+    @Test func trainReselectionWaitsForThePendingWriteBeforeReturningToToday() throws {
         let store = DockFailureStore()
         let model = try TrainingNotebookModel(repository: store)
         try enter(model, weight: "135", reps: "10")
@@ -85,7 +86,23 @@ import SendaPersistence
         #expect(model.journal.batches.first?.values == [SetValues(weight: 13_500, reps: 10)])
     }
 
-    @Test func logReselectionLeavesAHistoryEditForItsWeek() throws {
+    @Test func trainFromAnotherTabUsesTheSameDestinationAsToday() throws {
+        let model = try TrainingNotebookModel(repository: MemoryJournalRepository())
+        let oldDay = try model.today.adding(days: -10)
+        #expect(model.openDay(oldDay))
+        #expect(model.selectDockSection(.profile))
+        #expect(model.selectedDay == oldDay)
+
+        #expect(model.selectDockSection(.log))
+        #expect(model.section == .log && model.selectedDay == nil && model.weekDays.contains(model.today))
+        let destination = model.snapshot
+
+        #expect(model.openDay(oldDay))
+        #expect(model.showCurrentWeek())
+        #expect(model.snapshot == destination)
+    }
+
+    @Test func trainReselectionLeavesHistoryEditingForToday() throws {
         let model = try TrainingNotebookModel(repository: MemoryJournalRepository())
         let day = try model.today.adding(days: -10)
         try enter(model, weight: "135", reps: "10", on: day)
@@ -93,10 +110,11 @@ import SendaPersistence
         #expect(model.showCurrentWeek())
         #expect(model.editRecordedSession(for: "bench", on: day, setID: setID))
         #expect(model.hasHistoryReturnContext && model.revealRowID != nil)
-        let browsedWeek = model.workspace.visibleWeek
+        let currentWeek = try #require(model.today.week().first)
+        #expect(model.workspace.visibleWeek != currentWeek)
 
         #expect(model.selectDockSection(.log))
-        #expect(model.selectedDay == nil && model.workspace.visibleWeek == browsedWeek)
+        #expect(model.selectedDay == nil && model.workspace.visibleWeek == currentWeek)
         #expect(!model.hasHistoryReturnContext && model.revealRowID == nil)
     }
 
@@ -127,7 +145,7 @@ import SendaPersistence
 
     @Test func libraryReselectionReturnsToWorkoutsAndClearsExerciseNavigation() throws {
         let model = try TrainingNotebookModel(repository: MemoryJournalRepository())
-        #expect(TrainingSection.allCases.map(\.title) == ["Log", "Trends", "Library", "Profile"])
+        #expect(TrainingSection.allCases.map(\.title) == ["Train", "Trends", "Workouts", "Profile"])
         #expect(TrainingLibraryArea.allCases == [.workouts, .exercises, .learn])
         #expect(model.libraryArea == .workouts)
         model.guideTopic = .muscles

@@ -58,7 +58,7 @@ struct ProgramScheduleManager: View {
                 Button {
                     let day = dates.first { $0 >= model.today } ?? dates.last ?? enrollment.start
                     if model.showWeek(containing: day), model.selectSection(.log) { openWeek() } else { showError() }
-                } label: { Label("View on Week", systemImage: "calendar") }
+                } label: { Label("View in Train", systemImage: "calendar") }
                 .accessibilityIdentifier("managed-view-week")
                 Button {
                     guard let first = remaining?.first?.day else { return }

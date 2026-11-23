@@ -56,5 +56,15 @@ import SendaPersistence
 @MainActor private final class DemoHealthProbe: BodyMeasurementsHealthSource {
     var calls = 0
     func requestAccess() async throws { calls += 1 }
+    func activity(on day: Date) async throws -> DailyHealthActivity {
+        calls += 1
+        return DailyHealthActivity()
+    }
+    func addActivity(_ activity: DailyHealthActivity, date: Date, id: UUID) async throws { calls += 1 }
+    func requestMeasurementSharing() async throws -> Set<BodyMetric> {
+        calls += 1
+        return []
+    }
+    func write(_ change: MeasurementSharing.Change, reading: BodyMeasurement?) async throws { calls += 1 }
     func read() async throws -> [BodyMeasurement] { calls += 1; return [] }
 }

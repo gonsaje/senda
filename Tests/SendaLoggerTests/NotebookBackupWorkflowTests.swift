@@ -176,7 +176,7 @@ import SendaPersistence
         #expect(target.addExercise("legacy-lift"))
         #expect(target.rows.first?.performedSetID == journal.batches.first?.sets.first?.id)
     }
-    @Test func openingErrorRestoreKeepsOriginalFilesExportable() throws {
+    @Test func openingErrorRestoreExportsOriginalJournalWithoutUnreadableProfile() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -194,7 +194,8 @@ import SendaPersistence
         let pair = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
         let journal = try #require(pair["journal"] as? [String: Any]), profile = try #require(pair["profile"] as? [String: Any])
         #expect(Data(base64Encoded: try #require(journal["contents"] as? String)) == originalJournal)
-        #expect(Data(base64Encoded: try #require(profile["contents"] as? String)) == originalProfile)
+        #expect(profile["existed"] as? Bool == false)
+        #expect(profile["contents"] == nil)
         #expect(try session.previousBackupData() == nil)
     }
     @Test func sessionRecoversBeforeOpeningAndExposesOriginalFile() throws {

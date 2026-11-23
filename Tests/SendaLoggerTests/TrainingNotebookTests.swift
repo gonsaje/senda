@@ -234,6 +234,18 @@ import SendaPersistence
         #expect(m.loggedSetCount(for: "unknown", on: day) == 0)
     }
 
+    @Test func plannedCalendarFocusUsesTheWeekMusclesBeforeLogging() throws {
+        let m = try model()
+        #expect(m.openDay(day))
+        #expect(m.summary(for: day).weekFocus == nil)
+        for id in ["bench", "row", "overhead-press"] { #expect(m.addExercise(id)) }
+        let summary = m.summary(for: day)
+        let expected = TrainingDaySummary(performed: m.indexedExercises(on: day), setCount: 3)
+        #expect(summary.weekFocus == expected.weekFocus)
+        #expect(summary.weekFocus?.contains("Upper Body") == true)
+        #expect(summary.setCount == 0 && summary.muscleGroups.isEmpty)
+    }
+
     @Test func weekCategoriesAreUniqueStableAndOnlyIncludePerformedExercises() throws {
         let m = try model()
         #expect(m.openDay(day))

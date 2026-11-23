@@ -2,90 +2,139 @@ import SwiftUI
 import SendaNotebook
 
 struct SendaLaunchIntro: View {
+    let profileName: String?
+    let isReady: Bool
     let finish: () -> Void
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var startedAt: Date?
 
-    private static let words = ["trace", "your", "path", "to", "greatness"]
+    @AppStorage("senda.nextLaunchTagline") private var nextTagline = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var activeTagline: Int?
+    @State private var hasShownTagline = false
+    @State private var trailProgress: CGFloat = 0
+    @State private var showsTagline = false
+    @State private var showsWordmark = false
+
+    private static let brandTaglines: [LocalizedStringKey] = [
+        "Trace your own path.",
+        "Every rep, a step.",
+        "Your path. Your pace."
+    ]
     private static let taglineFont = NotebookTypography.heading(18, relativeTo: .headline)
-    private let trailSize = CGSize(width: 92, height: 80)
+
+    private var taglines: [LocalizedStringKey] {
+        guard let firstName else { return Self.brandTaglines }
+        return Self.brandTaglines + ["Welcome back, \(firstName)"]
+    }
+
+    private var taglineIndex: Int {
+        let index = activeTagline ?? nextTagline
+        return taglines.indices.contains(index) ? index : 0
+    }
+
+    private var canRevealWordmark: Bool { isReady && (reduceMotion || hasShownTagline) }
+    private var isShowingWordmark: Bool { reduceMotion || showsWordmark }
+    private var isShowingTagline: Bool { !reduceMotion && showsTagline }
+
+    private var firstName: String? {
+        guard let name = profileName, let firstWord = name.split(whereSeparator: \.isWhitespace).first else {
+            return nil
+        }
+        return PersonNameComponentsFormatter().personNameComponents(from: name)?.givenName ?? String(firstWord)
+    }
 
     var body: some View {
-        GeometryReader { bounds in
-            TimelineView(.animation(paused: reduceMotion)) { frame in
-                let elapsed = startedAt.map { frame.date.timeIntervalSince($0) } ?? 0
-                let trail = reduceMotion ? 1 : fraction(at: elapsed, from: 0.06, duration: 0.85)
-                let wordmark = reduceMotion ? 1 : fraction(at: elapsed, from: 1.65, duration: 0.32)
+        let availableTaglines = taglines
+        VStack(spacing: 12) {
+            Image("LaunchTrail")
+                .resizable()
+                .scaledToFit()
+                .mask(LaunchTrailReveal(progress: reduceMotion ? 1 : trailProgress))
+                .frame(width: 92, height: 80)
+                .accessibilityHidden(true)
 
-                VStack(spacing: 18) {
-                    Image("LaunchTrail")
-                        .resizable()
-                        .scaledToFit()
-                        .mask(LaunchTrailReveal(progress: trail))
-                        .frame(width: trailSize.width, height: trailSize.height)
-                        .accessibilityHidden(true)
-
-                    ZStack {
-                        tagline(at: elapsed)
-                            .font(Self.taglineFont)
-                            .multilineTextAlignment(.center)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .opacity(reduceMotion ? 0 : 1 - fraction(at: elapsed, from: 1.56, duration: 0.26))
-                            .accessibilityLabel(Self.words.joined(separator: " "))
-                            .accessibilityHidden(reduceMotion || elapsed < 0.45 || wordmark > 0.5)
-                            .accessibilityIdentifier("senda-launch-tagline")
-
-                        Image("LaunchWordmark")
-                            .renderingMode(.template)
-                            .resizable()
-                            .scaledToFit()
-                            .frame(width: 116, height: 40)
-                            .opacity(wordmark)
-                            .accessibilityLabel("Senda")
-                            .accessibilityHidden(wordmark <= 0.5)
-                            .accessibilityIdentifier("senda-launch-wordmark")
-                    }
+            ZStack {
+                ForEach(availableTaglines.indices, id: \.self) { index in
+                    let isVisible = isShowingTagline && index == taglineIndex
+                    Text(availableTaglines[index])
+                        .font(Self.taglineFont)
+                        .lineLimit(2, reservesSpace: true)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .opacity(isVisible ? 1 : 0)
+                        .accessibilityHidden(!isVisible)
+                        .accessibilityIdentifier("senda-launch-tagline")
                 }
-                .foregroundStyle(NotebookStyle.ink)
-                .padding(.horizontal, 24)
-                .frame(maxWidth: .infinity)
-                .padding(.top, max(0, (bounds.size.height - trailSize.height) / 2))
+
+                Image("LaunchWordmark")
+                    .renderingMode(.template)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 116, height: 40)
+                    .opacity(isShowingWordmark ? 1 : 0)
+                    .accessibilityHidden(!isShowingWordmark)
+                    .accessibilityLabel("Senda")
+                    .accessibilityIdentifier("senda-launch-wordmark")
             }
         }
-        .background(Color("LaunchPaper"))
-        .ignoresSafeArea()
+        .multilineTextAlignment(.center)
+        .foregroundStyle(NotebookStyle.ink)
+        .padding(.horizontal, 24)
+        .frame(maxWidth: 420)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color("LaunchPaper").ignoresSafeArea())
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("senda-launch-intro")
+        .onChange(of: isReady, initial: true) { _, ready in
+            // The persisted index may point to the greeting, so wait for the profile.
+            guard ready else { return }
+            let index = taglineIndex
+            activeTagline = index
+            nextTagline = (index + 1) % taglines.count
+        }
         .task(id: reduceMotion) {
-            startedAt = .now
+            guard !reduceMotion, !hasShownTagline else { return }
+            withAnimation(.easeInOut(duration: 0.85)) { trailProgress = 1 }
             do {
-                try await Task.sleep(for: .milliseconds(reduceMotion ? 500 : 2420))
+                try await Task.sleep(for: .milliseconds(450))
+                withAnimation(.easeInOut(duration: 0.30)) { showsTagline = true }
+                try await Task.sleep(for: .milliseconds(950))
+                hasShownTagline = true
+            } catch { return }
+        }
+        .task(id: isShowingTagline) {
+            guard isShowingTagline else { return }
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .seconds(4)) }
+                catch { return }
+                withAnimation(.easeInOut(duration: 0.3)) {
+                    activeTagline = (taglineIndex + 1) % taglines.count
+                }
+            }
+        }
+        .task(id: canRevealWordmark) {
+            guard canRevealWordmark else { return }
+            do {
+                if reduceMotion {
+                    try await Task.sleep(for: .milliseconds(500))
+                } else {
+                    withAnimation(.easeOut(duration: 0.20)) { showsTagline = false }
+                    try await Task.sleep(for: .milliseconds(200))
+                    withAnimation(.easeInOut(duration: 0.32)) { showsWordmark = true }
+                    try await Task.sleep(for: .milliseconds(820))
+                }
             } catch { return }
             withAnimation(reduceMotion ? nil : .easeOut(duration: 0.29)) { finish() }
         }
-    }
-
-    private func tagline(at elapsed: TimeInterval) -> Text {
-        var text = AttributedString()
-        for (index, word) in Self.words.enumerated() {
-            let opacity = fraction(at: elapsed, from: 0.45 + Double(index) * 0.072, duration: 0.32)
-            var run = AttributedString(index == 0 ? word : " " + word)
-            run.foregroundColor = NotebookStyle.ink.opacity(opacity)
-            text.append(run)
-        }
-        return Text(text)
-    }
-
-    private func fraction(at time: TimeInterval, from start: TimeInterval, duration: TimeInterval) -> Double {
-        let t = min(1, max(0, (time - start) / duration))
-        return t * t * (3 - 2 * t)
     }
 }
 
 // A mask for the LaunchTrail image. Coordinates follow the asset's 92 × 79.0251
 // point bounds, from the fine tip at the top toward the wide lower-left end.
 private struct LaunchTrailReveal: Shape {
-    let progress: CGFloat
+    var progress: CGFloat
+    var animatableData: CGFloat {
+        get { progress }
+        set { progress = newValue }
+    }
 
     func path(in rect: CGRect) -> Path {
         guard progress > 0 else { return Path() }

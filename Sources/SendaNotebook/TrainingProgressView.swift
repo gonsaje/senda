@@ -547,6 +547,7 @@ private struct ProgressSummary: View {
 
 enum ProgressFormatting {
     static func dateRange(from startDay: TrainingDay, through endDay: TrainingDay, calendar: Calendar) -> String {
+        if startDay == endDay { return date(endDay, format: "MMM d, yyyy", calendar: calendar) }
         let startYear = calendar.component(.year, from: startDay.date(in: calendar))
         let endYear = calendar.component(.year, from: endDay.date(in: calendar))
         let startFormat = startYear == endYear ? "MMM d" : "MMM d, yyyy"
