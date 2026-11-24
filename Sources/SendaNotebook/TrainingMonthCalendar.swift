@@ -8,43 +8,18 @@ import UIKit
 struct TrainingMonthCalendar: View {
     let model: TrainingNotebookModel
     let today: TrainingDay
+    let pages: MonthCalendarPages
     @Binding var selectedDay: TrainingDay
     let showWeek: () -> Void
     let openWorkout: () -> Void
     @Environment(\.dynamicTypeSize) private var textSize
     @AccessibilityFocusState private var workoutActionFocused: Bool
     @State private var showsMuscles = false
+    @Environment(\.locale) private var locale
+    @State private var pageMotion = CalendarPageMotion()
 
     @ScaledMetric(relativeTo: .body) private var minimumRowHeight: CGFloat = 44
     private static let weeks = 6
-    private static let dateStyle = Date.FormatStyle(locale: .autoupdatingCurrent, calendar: TrainingText.utc,
-                                                    timeZone: TrainingText.utc.timeZone)
-
-    private enum Activity {
-        case empty, planned, inProgress, logged
-
-        init(_ workout: DayWorkout?) {
-            guard let workout else { self = .empty; return }
-            if workout.rows.values.contains(where: { $0.contains { $0.performedSetID != nil } }) {
-                self = .logged
-            } else if workout.rows.values.contains(where: { $0.contains { !$0.weight.isEmpty || !$0.reps.isEmpty } }) {
-                self = .inProgress
-            } else if workout.programSession != nil || !workout.exerciseIDs.isEmpty || !workout.hiddenSupersets.isEmpty {
-                self = .planned
-            } else {
-                self = .empty
-            }
-        }
-
-        var description: String {
-            switch self {
-            case .empty: "No workout logged"
-            case .planned: "Workout planned"
-            case .inProgress: "Workout in progress"
-            case .logged: "Workout logged"
-            }
-        }
-    }
 
     private var month: TrainingMonth { TrainingMonth(containing: selectedDay) }
     private var weeklyMuscles: WeeklyMuscleTraining {
@@ -54,14 +29,12 @@ struct TrainingMonthCalendar: View {
 
     var body: some View {
         let month = self.month
-        let days = month.days
-        let dates = month.calendarSlots
-        let activity = monthActivity(for: dates)
-        let trained = days.filter { activity[$0] == .logged }.count
-
         GeometryReader { viewport in
             let minimumGridWidth: CGFloat = 7 * 44
             let useList = textSize >= .xxxLarge || viewport.size.width < minimumGridWidth
+            let page = pages.page(for: month, locale: locale, includesNeighbors: !useList)
+            let activity = monthActivity(for: page.window)
+            let trained = page.monthDays.filter { activity[$0] == .logged }.count
             let gutter = min(20, max(0, (viewport.size.width - minimumGridWidth) / 2))
             let viewportHeight = viewport.size.height
             let compact = !useList && viewportHeight < 660
@@ -76,7 +49,7 @@ struct TrainingMonthCalendar: View {
                     layout {
                         TrainingCalendarMasthead(showsMonth: true, toggle: showWeek)
                             .trainingCalendarColumn().id("month-start")
-                        monthHeader
+                        monthHeader(month)
                             .trainingCalendarColumn()
                         if let message = model.errorMessage {
                             TrainingSaveError(model: model, message: message).trainingCalendarColumn()
@@ -86,18 +59,21 @@ struct TrainingMonthCalendar: View {
                             selectedWorkout(activity: activity[selectedDay] ?? .empty)
                                 .trainingCalendarColumn().id("month-workout")
                             VStack(spacing: 0) {
-                                ForEach(days, id: \.self) { day in
-                                    dateButton(day, in: month, activity: activity[day] ?? .empty, asRow: true) {
-                                        selectedDay = day
-                                        proxy.scrollTo("month-workout", anchor: .top)
-                                        workoutActionFocused = true
+                                ForEach(page.monthDays, id: \.self) { day in
+                                    if let text = page.text[day] {
+                                        listDateButton(day, text: text, page: page, activity: activity[day] ?? .empty) {
+                                            selectedDay = day
+                                            proxy.scrollTo("month-workout", anchor: .top)
+                                            workoutActionFocused = true
+                                        }
                                     }
                                     Divider()
                                 }
                             }
                             .trainingCalendarColumn()
                         } else {
-                            calendarGrid(month: month, dates: dates, activity: activity) { day in
+                            calendarGrid(page: page, activity: activity) { day in
+                                pageMotion.reset()
                                 selectedDay = day
                                 proxy.scrollTo("month-workout")
                             }
@@ -105,7 +81,7 @@ struct TrainingMonthCalendar: View {
                             .frame(maxWidth: 560)
                             .frame(maxWidth: .infinity)
                             .layoutValue(key: MonthGridItem.self, value: true)
-                            calendarKey(trained: trained, hasDraft: activity.values.contains(.inProgress))
+                            calendarKey(trained: trained, hasDraft: page.visibleDays.contains { activity[$0] == .inProgress })
                                 .trainingCalendarColumn()
                             selectedWorkout(activity: activity[selectedDay] ?? .empty, previewLines: compact ? 1 : 2)
                                 .trainingCalendarColumn().id("month-workout")
@@ -117,6 +93,7 @@ struct TrainingMonthCalendar: View {
                 .scrollBounceBehavior(.basedOnSize, axes: .vertical)
                 .accessibilityIdentifier("month-calendar")
                 .onChange(of: model.landingResetID) { _, _ in
+                    pageMotion.reset()
                     proxy.scrollTo("month-start", anchor: .top)
                 }
             }
@@ -130,7 +107,7 @@ struct TrainingMonthCalendar: View {
         }
     }
 
-    private var monthHeader: some View {
+    private func monthHeader(_ month: TrainingMonth) -> some View {
         let name = TrainingText.date(month.firstDay, format: "LLLL")
         let year = TrainingText.date(month.firstDay, format: "yyyy")
         let title = VStack(alignment: .leading, spacing: 0) {
@@ -152,13 +129,14 @@ struct TrainingMonthCalendar: View {
             title.frame(maxWidth: .infinity, alignment: .leading)
             HStack(alignment: .trainingTodayIconCenter, spacing: 2) {
                 TrainingTodayButton(day: today, isVisible: selectedDay != today) {
+                    pageMotion.reset()
                     selectedDay = model.today
                 }
                 .foregroundStyle(NotebookStyle.clay)
                 .accessibilityIdentifier("today-month")
                 VStack(spacing: 0) {
-                    monthArrow(-1, symbol: "chevron.up", label: "Previous month", identifier: "calendar-previous-month")
-                    monthArrow(1, symbol: "chevron.down", label: "Next month", identifier: "calendar-next-month")
+                    monthArrow(in: month, offset: -1, symbol: "chevron.up", label: "Previous month", identifier: "calendar-previous-month")
+                    monthArrow(in: month, offset: 1, symbol: "chevron.down", label: "Next month", identifier: "calendar-next-month")
                 }
                 .accessibilityElement(children: .contain)
             }
@@ -186,10 +164,11 @@ struct TrainingMonthCalendar: View {
         }
     }
 
-    private func monthArrow(_ offset: Int, symbol: String, label: String, identifier: String) -> some View {
+    private func monthArrow(in month: TrainingMonth, offset: Int, symbol: String, label: String, identifier: String) -> some View {
         let destination = month.adding(months: offset)
         return Button {
             if let destination {
+                pageMotion.reset()
                 selectMonth(destination.firstDay)
             }
         } label: {
@@ -206,29 +185,39 @@ struct TrainingMonthCalendar: View {
         selectedDay = firstDay == TrainingMonth(containing: today).firstDay ? today : firstDay
     }
 
-    private func calendarGrid(month: TrainingMonth, dates: [TrainingDay?], activity: [TrainingDay: Activity],
+    private func calendarGrid(page: MonthCalendarPages.Page, activity: [TrainingDay: MonthDayActivity],
                               select: @escaping (TrainingDay) -> Void) -> some View {
-        VStack(spacing: 0) {
+        let month = page.month
+        let window = page.window
+        let selected = selectedDay
+        return VStack(spacing: 0) {
             weekdayLabels
                 .fixedSize(horizontal: false, vertical: true)
             GeometryReader { geometry in
                 let height = geometry.size.height
-                MonthGridPager(month: month, height: height, onPage: { selectMonth($0.firstDay) }) { pages, dragOffset in
+                let rowHeight = height / CGFloat(Self.weeks)
+                MonthGridPager(month: month, motion: pageMotion,
+                    previousTravel: CGFloat(window.previousWeekCount) * rowHeight,
+                    nextTravel: CGFloat(window.nextWeekOffset) * rowHeight,
+                    onPage: { destination in
+                        guard self.month == month else { return false }
+                        selectMonth(destination.firstDay)
+                        return self.month == destination
+                    }) {
                     ZStack(alignment: .top) {
-                        ForEach(pages, id: \.month.firstDay) { page in
-                            let isCurrent = page.offset == 0
-                            let pageDates = isCurrent ? dates : page.month.calendarSlots
-                            monthGrid(month: page.month, dates: pageDates,
-                                activity: isCurrent ? activity : monthActivity(for: pageDates),
-                                rowHeight: height / CGFloat(Self.weeks), select: select)
-                                .offset(y: CGFloat(page.offset) * height + dragOffset)
-                                .allowsHitTesting(isCurrent)
-                                .accessibilityHidden(!isCurrent)
-                                .transition(.identity)
+                        ForEach(window.weeks) { week in
+                            let isVisible = (0..<Self.weeks).contains(week.offset)
+                            MonthGridWeek(week: week, page: page, activity: activity, today: today,
+                                          selected: week.dates.contains(selected) ? selected : nil,
+                                          isVisible: isVisible, motion: pageMotion, select: select)
+                            .frame(height: rowHeight)
+                            .allowsHitTesting(isVisible)
+                            .accessibilityHidden(!isVisible)
+                            .offset(y: CGFloat(week.offset) * rowHeight)
+                            .transition(.identity)
                         }
                     }
-                    .frame(height: height, alignment: .top)
-                    .clipped()
+                    .frame(width: geometry.size.width, height: height, alignment: .top)
                 }
             }
             .frame(minHeight: CGFloat(Self.weeks) * max(44, minimumRowHeight),
@@ -236,10 +225,15 @@ struct TrainingMonthCalendar: View {
         }
     }
 
-    private func monthActivity(for dates: [TrainingDay?]) -> [TrainingDay: Activity] {
-        Dictionary(uniqueKeysWithValues: dates.compactMap { $0 }.map {
-            ($0, Activity(model.workspace.days[$0.rawValue]))
-        })
+    private func monthActivity(for window: MonthWeekWindow) -> [TrainingDay: MonthDayActivity] {
+        let workouts = model.workspace.days
+        var activity: [TrainingDay: MonthDayActivity] = [:]
+        for week in window.weeks {
+            for case let day? in week.dates {
+                if let workout = workouts[day.rawValue] { activity[day] = MonthDayActivity(workout) }
+            }
+        }
+        return activity
     }
 
     private var columns: [GridItem] {
@@ -264,34 +258,8 @@ struct TrainingMonthCalendar: View {
         }
     }
 
-    private func monthGrid(month: TrainingMonth, dates: [TrainingDay?], activity: [TrainingDay: Activity],
-                           rowHeight: CGFloat, select: @escaping (TrainingDay) -> Void) -> some View {
-        LazyVGrid(columns: columns, spacing: 0) {
-            ForEach(dates.indices, id: \.self) { index in
-                Group {
-                    if let day = dates[index] {
-                        dateButton(day, in: month, activity: activity[day] ?? .empty, asRow: false) { select(day) }
-                    } else {
-                        Color.clear.accessibilityHidden(true)
-                    }
-                }
-                .frame(height: rowHeight)
-            }
-        }
-    }
-
-    private func marker(_ activity: Activity, onSelection: Bool = false) -> some View {
-        let color = onSelection ? NotebookStyle.onPrimary : NotebookStyle.clay
-        return Capsule()
-            .fill(activity == .logged ? color : .clear)
-            .overlay(alignment: .leading) {
-                if activity == .inProgress { Rectangle().fill(color).frame(width: 4) }
-            }
-            .clipShape(Capsule())
-            .overlay { Capsule().strokeBorder(color, lineWidth: 1) }
-            .frame(width: activity == .logged ? 12 : 9, height: 4)
-            .opacity(activity == .empty ? 0 : 1)
-            .accessibilityHidden(true)
+    private func marker(_ activity: MonthDayActivity, color: Color = NotebookStyle.clay) -> some View {
+        MonthActivityMark(activity: activity, color: color)
     }
 
     private func legend(hasDraft: Bool) -> some View {
@@ -304,50 +272,29 @@ struct TrainingMonthCalendar: View {
         .frame(maxWidth: .infinity, alignment: .trailing).accessibilityHidden(true)
     }
 
-    private func dateButton(_ day: TrainingDay, in page: TrainingMonth, activity: Activity, asRow: Bool,
-                            select: @escaping () -> Void) -> some View {
+    private func listDateButton(_ day: TrainingDay, text: MonthCalendarPages.DayText, page: MonthCalendarPages.Page,
+                                activity: MonthDayActivity, select: @escaping () -> Void) -> some View {
+        let selected = day == selectedDay
         let isToday = day == today
-        let outsideMonth = day.rawValue.prefix(7) != page.firstDay.rawValue.prefix(7)
-        let isSelected = day == selectedDay && !outsideMonth
-        let ink = outsideMonth ? NotebookStyle.quiet : (isToday || isSelected ? NotebookStyle.clay : NotebookStyle.ink)
-        let date = day.date(in: Self.dateStyle.calendar)
-        let label = date.formatted(Self.dateStyle.weekday(.wide).month(.wide).day().year())
         return Button(action: select) {
-            if asRow {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(date.formatted(Self.dateStyle.weekday(.abbreviated).month(.abbreviated).day()))
-                        .font(.body.weight(isSelected || isToday ? .semibold : .regular))
-                    Text((isToday ? "Today · " : "") + activity.description)
-                        .font(.caption).foregroundStyle(NotebookStyle.quiet)
-                }
-                .padding(8).frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                .background(isSelected ? NotebookStyle.dockSelectionFill : .clear, in: RoundedRectangle(cornerRadius: 8))
-                .contentShape(Rectangle())
-            } else {
-                VStack(spacing: 2) {
-                    Text(date.formatted(Self.dateStyle.day()))
-                        .font(.body.weight(isSelected || isToday ? .bold : .regular).monospacedDigit())
-                        .underline(isToday && !isSelected)
-                        .foregroundStyle(isSelected ? NotebookStyle.onPrimary : ink)
-                    marker(activity, onSelection: isSelected)
-                }
-                .frame(minWidth: 37, minHeight: 37)
-                .background {
-                    if isSelected {
-                        Circle().fill(NotebookStyle.primaryFill)
-                    }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity).contentShape(Rectangle())
+            VStack(alignment: .leading, spacing: 3) {
+                Text(text.date, format: page.listDateStyle)
+                    .font(.body.weight(selected || isToday ? .semibold : .regular))
+                Text((isToday ? "Today · " : "") + activity.description)
+                    .font(.caption).foregroundStyle(NotebookStyle.quiet)
             }
+            .padding(8).frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            .background(selected ? NotebookStyle.dockSelectionFill : .clear, in: NotebookStyle.squircle(8))
+            .contentShape(Rectangle())
         }
-        .accessibilityLabel(isToday ? "Today, \(label)" : label)
+        .accessibilityLabel((isToday ? "Today, " : "") + (page.spokenDates[day] ?? day.rawValue))
         .accessibilityValue(activity.description)
-        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .accessibilityAddTraits(selected ? .isSelected : [])
         .accessibilityHint("Shows this date’s workout details")
         .accessibilityIdentifier("calendar-day-\(day.rawValue)")
     }
 
-    private func selectedWorkout(activity: Activity, previewLines: Int = 2) -> some View {
+    private func selectedWorkout(activity: MonthDayActivity, previewLines: Int = 2) -> some View {
         let day = selectedDay
         let summary = model.summary(for: day)
         let exercises = model.indexedExercises(on: day).map(\.displayName)
@@ -434,7 +381,7 @@ struct TrainingMonthCalendar: View {
         .foregroundStyle(NotebookStyle.onCover)
         .padding(.horizontal, 15)
         .padding(.bottom, 2)
-        .background(NotebookStyle.cover, in: RoundedRectangle(cornerRadius: 15))
+        .background(NotebookStyle.cover, in: NotebookStyle.squircle(15))
     }
 }
 
@@ -480,26 +427,26 @@ private struct MonthPageLayout: Layout {
 
 private struct MonthGridPager<Content: View>: View {
     let month: TrainingMonth
-    let height: CGFloat
-    let onPage: (TrainingMonth) -> Void
-    @ViewBuilder let content: ([(month: TrainingMonth, offset: Int)], CGFloat) -> Content
+    let motion: CalendarPageMotion
+    let previousTravel: CGFloat
+    let nextTravel: CGFloat
+    let onPage: (TrainingMonth) -> Bool
+    @ViewBuilder let content: Content
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var dragOffset: CGFloat = 0
     @GestureState private var dragging = false
     private static var axisRatio: CGFloat { 1.3 }
 
     var body: some View {
-        let offsets = reduceMotion ? 0...0 : -1...1
-        let pages = offsets.compactMap { offset in
-            month.adding(months: offset).map { (month: $0, offset: offset) }
-        }
-        let grid = content(pages, dragOffset)
+        let grid = content
+            .modifier(CalendarStripOffset(motion: motion))
+            .clipped()
             .contentShape(Rectangle())
-            .onChange(of: reduceMotion) { _, _ in dragOffset = 0 }
+            .onChange(of: reduceMotion) { _, _ in motion.reset() }
+            .onDisappear { motion.reset() }
         #if os(iOS)
         if #available(iOS 18.0, *) {
             grid.gesture(CalendarPan(axis: .vertical, axisRatio: Self.axisRatio,
-                onChange: move, onEnd: finish, onCancel: { settle() }))
+                onChange: move, onEnd: finish, onCancel: motion.cancelDrag))
         } else {
             legacy(grid)
         }
@@ -512,39 +459,36 @@ private struct MonthGridPager<Content: View>: View {
         grid.highPriorityGesture(DragGesture(minimumDistance: 18, coordinateSpace: .global)
             .updating($dragging) { _, active, _ in active = true }
             .onChanged { move($0.translation) }
-            .onEnded { finish($0.translation) })
+            .onEnded { finish($0.translation, velocity: $0.velocity.height) })
             .onChange(of: dragging) { _, active in
                 if !active {
                     Task { @MainActor in
                         // Let the release handler run before resetting a cancelled drag.
                         await Task.yield()
-                        if !dragging { settle() }
+                        if !dragging { motion.cancelDrag() }
                     }
                 }
             }
     }
 
     private func move(_ translation: CGSize) {
-        guard !reduceMotion, destination(for: translation) != nil else {
-            dragOffset = 0
+        guard !reduceMotion, abs(translation.height) > abs(translation.width) * Self.axisRatio else { return }
+        motion.drag(translation.height, within: -nextTravel...previousTravel)
+    }
+
+    private func finish(_ translation: CGSize, velocity: CGFloat) {
+        let forward = translation.height < 0
+        guard abs(translation.height) >= 48, abs(translation.height) > abs(translation.width) * Self.axisRatio,
+              let destination = month.adding(months: forward ? 1 : -1) else {
+            motion.cancelDrag()
             return
         }
-        dragOffset = min(max(translation.height, -height), height)
-    }
-
-    private func finish(_ translation: CGSize) {
-        settle(abs(translation.height) >= 48 ? destination(for: translation) : nil)
-    }
-
-    private func destination(for translation: CGSize) -> TrainingMonth? {
-        guard abs(translation.height) > abs(translation.width) * Self.axisRatio else { return nil }
-        return month.adding(months: translation.height < 0 ? 1 : -1)
-    }
-
-    private func settle(_ destination: TrainingMonth? = nil) {
-        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.34)) {
-            dragOffset = 0
-            if let destination { onPage(destination) }
+        guard !reduceMotion else {
+            _ = onPage(destination)
+            return
+        }
+        motion.release(to: forward ? -nextTravel : previousTravel, velocity: velocity) {
+            onPage(destination)
         }
     }
 }
@@ -555,7 +499,7 @@ struct CalendarPan: UIGestureRecognizerRepresentable {
     let axis: Axis?
     let axisRatio: CGFloat
     var onChange: ((CGSize) -> Void)? = nil
-    var onEnd: ((CGSize) -> Void)? = nil
+    var onEnd: ((CGSize, CGFloat) -> Void)? = nil
     var onCancel: (() -> Void)? = nil
 
     func makeCoordinator(converter: CoordinateSpaceConverter) -> Coordinator {
@@ -574,7 +518,7 @@ struct CalendarPan: UIGestureRecognizerRepresentable {
         let translation = CGSize(width: point.x, height: point.y)
         switch recognizer.state {
         case .began, .changed: onChange?(translation)
-        case .ended: onEnd?(translation)
+        case .ended: onEnd?(translation, recognizer.velocity(in: nil).y)
         case .cancelled, .failed: onCancel?()
         default: break
         }

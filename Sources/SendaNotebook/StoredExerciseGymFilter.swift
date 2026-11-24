@@ -65,7 +65,7 @@ struct GymSetupSwitcher: View {
                 .frame(minWidth: 44, minHeight: 44)
                 .background {
                     if selected {
-                        RoundedRectangle(cornerRadius: 8).fill(NotebookStyle.clay.opacity(0.1))
+                        NotebookStyle.squircle(8).fill(NotebookStyle.clay.opacity(0.1))
                     }
                 }
                 .contentShape(Rectangle())

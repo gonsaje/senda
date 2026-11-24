@@ -155,7 +155,7 @@ struct BigThreeBreakdown: View {
                             ForEach(progress.records) { record in
                                 color(record.exerciseID).frame(width: geometry.size.width * CGFloat(record.reference.values.weight) / CGFloat(total))
                             }
-                        }.clipShape(Capsule())
+                        }.clipShape(NotebookStyle.squircle(3))
                     }
                     .frame(height: 10)
                     .accessibilityHidden(true)

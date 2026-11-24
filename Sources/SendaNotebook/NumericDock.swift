@@ -71,7 +71,7 @@ struct NumericDock: View {
         Button { if model.stepNumber(increasing: increasing) { typing = false } } label: {
             Image(systemName: increasing ? "plus" : "minus").font(.system(size: 22, weight: .light))
                 .frame(width: 55, height: 48)
-                .background(NotebookStyle.ink.opacity(0.035), in: RoundedRectangle(cornerRadius: 6))
+                .background(NotebookStyle.ink.opacity(0.035), in: NotebookStyle.squircle(6))
         }.accessibilityLabel("\(increasing ? "Increase" : "Decrease") \(field.title)")
             .accessibilityIdentifier(increasing ? "dock-increase" : "dock-decrease")
     }

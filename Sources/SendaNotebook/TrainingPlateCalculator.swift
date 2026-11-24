@@ -113,7 +113,7 @@ struct TrainingPlateCalculator: View {
             }
             .padding(.horizontal, 12)
             .frame(minHeight: 52)
-            .background(NotebookStyle.inputSurface, in: RoundedRectangle(cornerRadius: 10))
+            .background(NotebookStyle.inputSurface, in: NotebookStyle.squircle(10))
         }
     }
 
@@ -167,7 +167,7 @@ struct TrainingPlateCalculator: View {
         } label: {
             Text(weightText(weight))
                 .padding(.horizontal, 12).frame(minWidth: 44, minHeight: 44)
-                .background(NotebookStyle.inputSurface, in: RoundedRectangle(cornerRadius: 8))
+                .background(NotebookStyle.inputSurface, in: NotebookStyle.squircle(8))
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain).foregroundStyle(NotebookStyle.clay)

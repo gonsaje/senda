@@ -78,8 +78,8 @@ struct TrainingDayView: View {
             .foregroundStyle(NotebookStyle.olive)
             .fixedSize(horizontal: false, vertical: true)
             .padding(.horizontal, 12).padding(.vertical, 4)
-            .background(NotebookStyle.ivory, in: Capsule())
-            .overlay { Capsule().strokeBorder(NotebookStyle.rule, lineWidth: 1) }
+            .background(NotebookStyle.ivory, in: NotebookStyle.squircle(8))
+            .overlay { NotebookStyle.squircle(8).strokeBorder(NotebookStyle.rule, lineWidth: 1) }
             .padding(.horizontal, 24)
             .allowsHitTesting(false)
             .accessibilityElement(children: .ignore)
@@ -198,7 +198,7 @@ struct TrainingDayView: View {
                         .accessibilityValue(label)
                         .accessibilityIdentifier("undo-set-change")
                         .padding(.horizontal, 18).padding(.vertical, 5)
-                        .background(NotebookStyle.olive.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+                        .background(NotebookStyle.olive.opacity(0.06), in: NotebookStyle.squircle(8))
                         .padding(.horizontal, 24).padding(.bottom, 12)
                     }
                 }
@@ -1115,7 +1115,7 @@ struct TrainingSetRows: View {
                 .accessibilityHidden(true)
         }
         .padding(.horizontal, 8).padding(.vertical, 6)
-        .background(NotebookStyle.typeFill, in: RoundedRectangle(cornerRadius: 8))
+        .background(NotebookStyle.typeFill, in: NotebookStyle.squircle(8))
         .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
         .contentShape(Rectangle())
     }
@@ -1275,7 +1275,7 @@ private struct WorkoutPrimaryActionLabel: View {
             .padding(.horizontal, 14).padding(.vertical, 6)
             .frame(minHeight: 44)
             .foregroundStyle(NotebookStyle.onPrimary)
-            .background(NotebookStyle.primaryFill, in: RoundedRectangle(cornerRadius: 7))
+            .background(NotebookStyle.primaryFill, in: NotebookStyle.squircle(7))
             .contentShape(Rectangle())
     }
 }

@@ -319,7 +319,7 @@ struct TrainingExerciseLibrary: View {
             }
         }
         .padding(.leading, 12).padding(.trailing, 4).frame(minHeight: 48)
-        .overlay(RoundedRectangle(cornerRadius: 7).stroke(NotebookStyle.rule, lineWidth: 1))
+        .overlay(NotebookStyle.squircle(7).stroke(NotebookStyle.rule, lineWidth: 1))
     }
 
     private func emptyState(explained: Bool) -> some View {
@@ -630,7 +630,7 @@ struct TrainingGuideLibrary: View {
                     }
                 }
                 .padding(.horizontal, 10)
-                .overlay { RoundedRectangle(cornerRadius: 7).strokeBorder(NotebookStyle.rule) }
+                .overlay { NotebookStyle.squircle(7).strokeBorder(NotebookStyle.rule) }
                 if results.isEmpty {
                     Text("No matching guides").font(.callout).foregroundStyle(NotebookStyle.quiet)
                 }

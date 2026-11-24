@@ -23,7 +23,7 @@ struct TrainingWeekNavigation: View {
         .padding(.horizontal, 16)
         .padding(.top, 13).padding(.bottom, 5)
         .foregroundStyle(NotebookStyle.onCover)
-        .background(NotebookStyle.cover, in: RoundedRectangle(cornerRadius: 17))
+        .background(NotebookStyle.cover, in: NotebookStyle.squircle(17))
     }
 
     private var last: TrainingDay { week.last ?? first }
@@ -125,7 +125,7 @@ struct TrainingTodayButton: View {
     let day: TrainingDay
     let isVisible: Bool
     let action: () -> Void
-    @ScaledMetric(relativeTo: .caption) private var tileSize: CGFloat = 19
+    @ScaledMetric(relativeTo: .footnote) private var tileSize: CGFloat = 22
 
     var body: some View {
         Button(action: action) {
@@ -134,15 +134,15 @@ struct TrainingTodayButton: View {
                     .font(.system(size: tileSize * 0.48, weight: .semibold).monospacedDigit())
                     .frame(width: tileSize, height: tileSize)
                     .overlay {
-                        RoundedRectangle(cornerRadius: tileSize * 0.23).strokeBorder(lineWidth: 1.25)
+                        NotebookStyle.squircle(tileSize * 0.23).strokeBorder(lineWidth: 1.25)
                     }
                     .alignmentGuide(.trainingTodayIconCenter) { $0[VerticalAlignment.center] }
                     .accessibilityHidden(true)
                 Text("Today")
-                    .font(.caption.weight(.semibold))
+                    .font(.footnote.weight(.semibold))
             }
             .fixedSize()
-            .frame(minWidth: 44, minHeight: 44)
+            .frame(minWidth: 48, minHeight: 48)
             .contentShape(Rectangle())
         }
         .accessibilityLabel("Go to today")
@@ -152,13 +152,7 @@ struct TrainingTodayButton: View {
     }
 }
 
-public extension EnvironmentValues {
-    @Entry var trainingLaunchMark: AnyView?
-}
-
 struct TrainingCalendarMasthead: View {
-    @Environment(\.trainingLaunchMark) private var launchMark
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let showsMonth: Bool
     let toggle: () -> Void
 
@@ -171,9 +165,6 @@ struct TrainingCalendarMasthead: View {
 
     private var brand: some View {
         TrainingWordmark(width: 110)
-            .opacity(launchMark == nil ? 1 : 0)
-            .overlay(alignment: .leading) { if let launchMark { launchMark.transition(.opacity) } }
-            .animation(reduceMotion ? nil : .easeInOut(duration: 0.24), value: launchMark == nil)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Senda")
     }
@@ -184,7 +175,7 @@ struct TrainingCalendarMasthead: View {
             option(.month, selected: showsMonth)
         }
         .padding(3)
-        .background(NotebookStyle.todayFill, in: RoundedRectangle(cornerRadius: 12))
+        .background(NotebookStyle.todayFill, in: NotebookStyle.squircle(12))
         .accessibilityElement(children: .contain)
     }
 
@@ -196,7 +187,7 @@ struct TrainingCalendarMasthead: View {
                 .padding(.horizontal, 9)
                 .frame(minWidth: 44, minHeight: 44)
                 .background {
-                    if selected { RoundedRectangle(cornerRadius: 9).fill(NotebookStyle.ivory) }
+                    if selected { NotebookStyle.squircle(9).fill(NotebookStyle.ivory) }
                 }
                 .contentShape(Rectangle())
         }

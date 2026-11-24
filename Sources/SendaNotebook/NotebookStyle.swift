@@ -18,6 +18,10 @@ public enum NotebookAppearance: String, CaseIterable {
 }
 
 public enum NotebookStyle {
+    static func squircle(_ radius: CGFloat) -> RoundedRectangle {
+        RoundedRectangle(cornerRadius: radius, style: .continuous)
+    }
+
     private struct AdaptiveColor: ShapeStyle, Hashable {
         let light: Color
         let dark: Color
@@ -57,6 +61,10 @@ public enum NotebookStyle {
     public static let primaryFill = pair(terracotta, rgb(0x89442D))
     public static let onPrimary = pair(paper, rgb(0xFFF8EE))
     static let inputSurface = pair(rgb(0xEDE6DA), rgb(0x392F28))
+    static let accountField = pair(rgb(0xFFFDFA), rgb(0x352D27))
+    static let accountFieldEdge = pair(rgb(0x998B7A), rgb(0x918172))
+    static let accountFieldFocused = pair(rgb(0xFFF7EE), rgb(0x423128))
+    static let accountError = pair(rgb(0x943D32), rgb(0xFFAD9E))
     static let typeFill = pair(terracotta.opacity(0.06), rgb(0x3A3029))
 
     static let tabEdgeShadow = pair(charcoal.opacity(0.32), .black.opacity(0.80))
@@ -103,7 +111,7 @@ struct RecordButton: View {
             Text(title).font(.system(.headline, design: .default))
                 .frame(maxWidth: .infinity).frame(minHeight: 54)
                 .foregroundStyle(NotebookStyle.onPrimary)
-                .background(NotebookStyle.primaryFill, in: RoundedRectangle(cornerRadius: 7))
+                .background(NotebookStyle.primaryFill, in: NotebookStyle.squircle(7))
         }
         .buttonStyle(.plain)
         .opacity(1)

@@ -6,6 +6,9 @@ struct TrainingNotebookPages: View {
     let model: TrainingNotebookModel
     @Binding var layout: TrainingCalendarLayout
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.locale) private var locale
+    @Environment(\.dynamicTypeSize) private var textSize
+    @State private var monthPages = MonthCalendarPages()
     @State private var today: TrainingDay
 
     init(model: TrainingNotebookModel, layout: Binding<TrainingCalendarLayout>) {
@@ -21,7 +24,7 @@ struct TrainingNotebookPages: View {
                 if let day = model.selectedDay {
                     TrainingDayView(model: model, day: day, layout: layout)
                 } else if layout == .month {
-                    TrainingMonthCalendar(model: model, today: today, selectedDay: calendarDay, showWeek: {
+                    TrainingMonthCalendar(model: model, today: today, pages: monthPages, selectedDay: calendarDay, showWeek: {
                         model.showWeek(containing: model.calendarDay) { layout = .week }
                     }, openWorkout: { model.openDay(model.calendarDay) })
                 } else {
@@ -30,6 +33,10 @@ struct TrainingNotebookPages: View {
                             model.selectCalendarDay(model.weekDays.contains(model.today) ? model.today : model.workspace.visibleWeek)
                         }
                         layout = .month
+                    }
+                    .task {
+                        await monthPages.prepareIfNeeded(for: model.calendarDay, locale: locale,
+                                                         includesNeighbors: textSize < .xxxLarge)
                     }
                 }
             case .trends: TrainingTrendsView(model: model).id(model.landingResetID)

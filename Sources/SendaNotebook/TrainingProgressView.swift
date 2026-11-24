@@ -270,7 +270,7 @@ public struct TrainingProgressView: View {
                 }
                 .padding(.leading, 14).padding(.trailing, query.isEmpty ? 14 : 2)
                 .frame(minHeight: 50)
-                .overlay(RoundedRectangle(cornerRadius: 9).stroke(NotebookStyle.rule, lineWidth: 1))
+                .overlay(NotebookStyle.squircle(9).stroke(NotebookStyle.rule, lineWidth: 1))
                 if results.isEmpty {
                     VStack(alignment: .leading, spacing: 12) {
                         Text("No matching exercise").font(NotebookTypography.heading(22, relativeTo: .title2)).accessibilityAddTraits(.isHeader)

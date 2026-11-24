@@ -60,8 +60,8 @@ struct TrainingPlateControls: View {
                     .padding(.vertical, 5)
                     .frame(minWidth: 44, maxWidth: .infinity)
                     .background {
-                        if selected { RoundedRectangle(cornerRadius: 7).fill(NotebookStyle.ink) }
-                        else { RoundedRectangle(cornerRadius: 7).strokeBorder(NotebookStyle.quiet.opacity(0.4)) }
+                        if selected { NotebookStyle.squircle(7).fill(NotebookStyle.ink) }
+                        else { NotebookStyle.squircle(7).strokeBorder(NotebookStyle.quiet.opacity(0.4)) }
                     }
                     .frame(minHeight: 44)
                     .contentShape(Rectangle())

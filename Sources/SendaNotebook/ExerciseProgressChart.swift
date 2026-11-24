@@ -265,7 +265,7 @@ struct ExerciseProgressFrequencyChart: View {
                 // Proportional bar width needs category bands; a continuous index has no scale step.
                 BarMark(x: .value("Week", week.id), y: .value("Training days", week.trainingDayCount), width: .ratio(0.62))
                     .foregroundStyle(NotebookStyle.olive)
-                    .cornerRadius(2)
+                    .cornerRadius(2, style: .continuous)
                     .accessibilityLabel(weekLabel(week))
                     .accessibilityValue("\(week.trainingDayCount) training days, \(week.setCount) recorded sets")
             }

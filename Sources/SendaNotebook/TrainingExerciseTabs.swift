@@ -68,7 +68,7 @@ struct TrainingWorkoutExerciseList<Add: View>: View {
     private func overflowLip(at edge: HorizontalEdge) -> some View {
         let leading = edge == .leading
         let fromLeft = leading == (layoutDirection == .leftToRight)
-        let surface = RoundedRectangle(cornerRadius: 6, style: .continuous)
+        let surface = NotebookStyle.squircle(6)
         return LinearGradient(colors: [NotebookStyle.ivory, NotebookStyle.ivory.opacity(0)],
                               startPoint: fromLeft ? .leading : .trailing, endPoint: fromLeft ? .trailing : .leading)
             .frame(width: 16)
@@ -111,7 +111,7 @@ struct TrainingWorkoutExerciseList<Add: View>: View {
             .contentShape(Rectangle())
             .overlay(alignment: .bottom) {
                 if selected {
-                    Capsule().fill(NotebookStyle.clay).frame(height: 3)
+                    NotebookStyle.squircle(1).fill(NotebookStyle.clay).frame(height: 3)
                         .matchedGeometryEffect(id: "selection", in: underline)
                         .transition(.identity)
                         .allowsHitTesting(false).accessibilityHidden(true)

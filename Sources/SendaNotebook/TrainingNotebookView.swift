@@ -1,4 +1,5 @@
 import SwiftUI
+import os
 import SendaDomain
 import SendaLogger
 #if canImport(UIKit)
@@ -12,6 +13,36 @@ public struct TrainingNotebookView: View {
     @State private var isSoftwareKeyboardVisible = false
     public init(model: TrainingNotebookModel) { self.model = model }
     public var body: some View {
+        VStack(spacing: 0) {
+            page
+            let workoutInputIsVisible = model.section == .log && model.selectedDay != nil
+                && (model.focus != nil || isSoftwareKeyboardVisible)
+            if !model.backupRecoveryRequired && !workoutInputIsVisible {
+                TrainingDock(model: model)
+            }
+        }
+        #if canImport(UIKit)
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { notification in
+            guard let screen = notification.object as? UIScreen,
+                  let frame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
+            isSoftwareKeyboardVisible = !screen.coordinateSpace.bounds.intersection(frame).isEmpty
+        }
+        #endif
+        .background(NotebookStyle.ivory).foregroundStyle(NotebookStyle.ink)
+        .scrollIndicators(.never)
+        .tint(NotebookStyle.clay).buttonStyle(.plain)
+        .sheet(isPresented: $model.isProgressPresented, onDismiss: { model.progressSheetDidDismiss() }) {
+            TrainingProgressView(model: model, close: { model.dismissProgress() })
+        }
+        .task(id: scenePhase) {
+            if scenePhase == .active { await model.bodyMeasurements.syncPendingMeasurements() }
+        }
+        .onChange(of: model.errorMessage) { _, message in
+            if let message { TrainingAccessibility.announce("Could not save. \(message)") }
+        }
+    }
+
+    private var page: some View {
         Group {
             if model.backupRecoveryRequired {
                 ScrollView {
@@ -47,40 +78,28 @@ public struct TrainingNotebookView: View {
                 .accessibilityIdentifier("history-return-workout")
             }
         }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            let workoutInputIsVisible = model.section == .log && model.selectedDay != nil
-                && (model.focus != nil || isSoftwareKeyboardVisible)
-            if !model.backupRecoveryRequired && !workoutInputIsVisible {
-                TrainingDock(model: model)
-            }
-        }
-        #if canImport(UIKit)
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { notification in
-            guard let screen = notification.object as? UIScreen,
-                  let frame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
-            isSoftwareKeyboardVisible = !screen.coordinateSpace.bounds.intersection(frame).isEmpty
-        }
-        #endif
-        .background(NotebookStyle.ivory).foregroundStyle(NotebookStyle.ink)
-        .scrollIndicators(.never)
-        .tint(NotebookStyle.clay).buttonStyle(.plain)
-        .sheet(isPresented: $model.isProgressPresented, onDismiss: { model.progressSheetDidDismiss() }) {
-            TrainingProgressView(model: model, close: { model.dismissProgress() })
-        }
-        .task(id: scenePhase) {
-            if scenePhase == .active { await model.bodyMeasurements.syncPendingMeasurements() }
-        }
-        .onChange(of: model.errorMessage) { _, message in
-            if let message { TrainingAccessibility.announce("Could not save. \(message)") }
-        }
     }
 }
 
 enum TrainingText {
-    static var utc: Calendar { var c = Calendar(identifier: .gregorian); c.timeZone = TimeZone(secondsFromGMT: 0)!; return c }
+    static let utc: Calendar = {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        return calendar
+    }()
+    private static let formatters = OSAllocatedUnfairLock(initialState: [Locale: [String: DateFormatter]]())
+
     static func date(_ day: TrainingDay, format: String, locale: Locale = .current) -> String {
-        let formatter = DateFormatter(); formatter.locale = locale; formatter.calendar = utc; formatter.timeZone = utc.timeZone
-        formatter.dateFormat = format
+        let formatter = formatters.withLock { cache in
+            if let existing = cache[locale]?[format] { return existing }
+            let formatter = DateFormatter()
+            formatter.locale = locale
+            formatter.calendar = utc
+            formatter.timeZone = utc.timeZone
+            formatter.dateFormat = format
+            cache[locale, default: [:]][format] = formatter
+            return formatter
+        }
         return formatter.string(from: day.date(in: utc))
     }
     static func weekMonths(first: TrainingDay, last: TrainingDay, abbreviated: Bool, locale: Locale = .current) -> String {
@@ -137,7 +156,7 @@ struct TrainingWeekView: View {
     let today: TrainingDay
     let showMonth: () -> Void
     @State private var swipe = WeekSwipeState()
-    @State private var dragOffset: CGFloat = 0
+    @State private var motion = CalendarPageMotion()
     @State private var cardHeight: CGFloat = 0
     @State private var rowsOverflow = false
     @State private var showsMuscles = false
@@ -177,13 +196,15 @@ struct TrainingWeekView: View {
                         Task { @MainActor in
                             // Give a completed drag its release handler before settling a cancellation.
                             await Task.yield()
-                            if !dragging { settleWeek(animates: slides) }
+                            if !dragging { cancelWeekDrag() }
                         }
                     }
                 }
             }
         }
-        .onDisappear { settleWeek(animates: false) }
+        .onDisappear { swipe.cancel(); motion.reset() }
+        .onChange(of: model.landingResetID) { _, _ in swipe.cancel(); motion.reset() }
+        .onChange(of: reduceMotion) { _, _ in swipe.cancel(); motion.reset() }
         .sheet(isPresented: $showsMuscles) {
             let training = model.snapshot.weeklyMuscleTraining(days: model.weekDays, through: today, calendar: model.calendar)
             TrainingWeekMusclesView(training: training, profile: model.profile,
@@ -195,7 +216,12 @@ struct TrainingWeekView: View {
     @ViewBuilder
     private func weekCard(current: TrainingDay, travel: CGFloat?, allowsPaging: Bool) -> some View {
         let card = TrainingWeekNavigation(model: model, today: today, first: current, week: model.weekDays,
-            changeWeek: { settleWeek($0, animates: travel != nil) }, showMuscles: { showsMuscles = true })
+            changeWeek: { direction in
+                motion.reset()
+                withAnimation(travel == nil ? nil : .smooth(duration: 0.28)) {
+                    _ = model.changeWeek(direction)
+                }
+            }, showMuscles: { showsMuscles = true })
             .trainingCalendarColumn()
             .fixedSize(horizontal: false, vertical: true)
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { cardHeight = $0 }
@@ -241,12 +267,13 @@ struct TrainingWeekView: View {
                 }
                 .frame(height: travel, alignment: .top)
                 .clipped()
-                .offset(y: travel.map { CGFloat(page.offset) * $0 + dragOffset } ?? 0)
+                .offset(y: travel.map { CGFloat(page.offset) * $0 } ?? 0)
                 .allowsHitTesting(isCurrent)
                 .accessibilityHidden(!isCurrent)
                 .transition(.identity)
             }
         }
+        .modifier(CalendarStripOffset(motion: motion))
         .clipped()
         .contentShape(Rectangle())
         #if os(iOS)
@@ -270,8 +297,8 @@ struct TrainingWeekView: View {
     private func weekPan(travel: CGFloat?, axis: Axis?) -> CalendarPan {
         CalendarPan(axis: axis, axisRatio: 1.2,
             onChange: { moveWeek($0, travel: travel) },
-            onEnd: { finishWeek($0, animates: travel != nil) },
-            onCancel: { settleWeek(animates: travel != nil) })
+            onEnd: { finishWeek($0, velocity: $1, travel: travel) },
+            onCancel: cancelWeekDrag)
     }
     #endif
 
@@ -279,29 +306,37 @@ struct TrainingWeekView: View {
         DragGesture(minimumDistance: 16, coordinateSpace: .global)
             .updating($dragging) { _, active, _ in active = true }
             .onChanged { moveWeek($0.translation, travel: travel) }
-            .onEnded { finishWeek($0.translation, animates: travel != nil) }
+            .onEnded { finishWeek($0.translation, velocity: $0.velocity.height, travel: travel) }
     }
 
     private func moveWeek(_ translation: CGSize, travel: CGFloat?) {
         guard translation != .zero else { return }
         swipe.move(translation)
         if let travel, swipe.isVertical {
-            dragOffset = min(max(translation.height, -travel), travel)
+            motion.drag(translation.height, within: -travel...travel)
         }
     }
 
-    private func finishWeek(_ translation: CGSize, animates: Bool) {
+    private func finishWeek(_ translation: CGSize, velocity: CGFloat, travel: CGFloat?) {
         swipe.move(translation)
-        let direction = swipe.finish(translation)
-        settleWeek(direction, animates: animates)
+        guard let direction = swipe.finish(translation) else {
+            motion.cancelDrag()
+            return
+        }
+        guard let travel else {
+            model.changeWeek(direction)
+            return
+        }
+        let origin = model.workspace.visibleWeek
+        motion.release(to: -CGFloat(direction) * travel, velocity: velocity) {
+            guard model.selectedDay == nil, model.workspace.visibleWeek == origin else { return false }
+            return model.changeWeek(direction)
+        }
     }
 
-    private func settleWeek(_ direction: Int? = nil, animates: Bool) {
-        withAnimation(animates ? .easeOut(duration: 0.36) : nil) {
-            swipe.cancel()
-            dragOffset = 0
-            if let direction { model.changeWeek(direction) }
-        }
+    private func cancelWeekDrag() {
+        swipe.cancel()
+        motion.cancelDrag()
     }
 
     private func dayRow(_ day: TrainingDay, weekdayLabels: [String]) -> some View {

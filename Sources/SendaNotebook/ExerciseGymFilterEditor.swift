@@ -323,7 +323,7 @@ struct GymEquipmentChecklist: View {
             }
         }
         .padding(.leading, 12).padding(.trailing, query.isEmpty ? 12 : 0).frame(minHeight: 48)
-        .overlay { RoundedRectangle(cornerRadius: 7).stroke(NotebookStyle.rule) }
+        .overlay { NotebookStyle.squircle(7).stroke(NotebookStyle.rule) }
     }
 }
 

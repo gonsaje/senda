@@ -355,8 +355,8 @@ public struct TrainingExercisePicker: View {
                 Text(title).font(.subheadline.weight(.medium)).fixedSize(horizontal: false, vertical: true)
                 Image(systemName: "xmark").font(.caption)
             }.padding(.horizontal, 12).frame(minHeight: 44)
-                .background(NotebookStyle.clay.opacity(0.07), in: Capsule())
-                .contentShape(Capsule())
+                .background(NotebookStyle.clay.opacity(0.07), in: NotebookStyle.squircle(11))
+                .contentShape(NotebookStyle.squircle(11))
         }.foregroundStyle(NotebookStyle.clay).accessibilityLabel(label).accessibilityIdentifier(identifier)
     }
 
@@ -520,8 +520,12 @@ public struct TrainingExercisePicker: View {
                     if let position {
                         Text("\(position + 1)").font(.subheadline.monospacedDigit().weight(.semibold))
                             .frame(width: selectionBadgeSize, height: selectionBadgeSize).foregroundStyle(NotebookStyle.onPrimary)
-                            .background(NotebookStyle.primaryFill, in: Circle())
-                    } else { Image(systemName: "circle").foregroundStyle(NotebookStyle.quiet) }
+                            .background(NotebookStyle.primaryFill, in: NotebookStyle.squircle(selectionBadgeSize * 0.26))
+                    } else {
+                        NotebookStyle.squircle(selectionBadgeSize * 0.26)
+                            .strokeBorder(NotebookStyle.quiet, lineWidth: 1)
+                            .frame(width: selectionBadgeSize, height: selectionBadgeSize)
+                    }
                 } else { Image(systemName: pending ? "clock" : "plus").foregroundStyle(NotebookStyle.clay) }
             }.padding(.vertical, 10).frame(minHeight: 56).contentShape(Rectangle())
         }
@@ -564,8 +568,8 @@ public struct TrainingExercisePicker: View {
                 Text(name).font(.subheadline.weight(selected ? .semibold : .regular)).fixedSize(horizontal: false, vertical: true)
             }.padding(.horizontal, 12).padding(.vertical, 4).frame(minWidth: 44, minHeight: 44)
                 .foregroundStyle(selected ? NotebookStyle.ivory : NotebookStyle.ink)
-                .background(selected ? NotebookStyle.clay : .clear, in: RoundedRectangle(cornerRadius: 7))
-                .overlay { RoundedRectangle(cornerRadius: 7).stroke(selected ? .clear : NotebookStyle.rule, lineWidth: 0.7) }
+                .background(selected ? NotebookStyle.clay : .clear, in: NotebookStyle.squircle(7))
+                .overlay { NotebookStyle.squircle(7).stroke(selected ? .clear : NotebookStyle.rule, lineWidth: 0.7) }
         }.accessibilityAddTraits(selected ? .isSelected : [])
     }
 }

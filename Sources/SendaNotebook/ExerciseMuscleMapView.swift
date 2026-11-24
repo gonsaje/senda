@@ -47,10 +47,10 @@ public struct ExerciseMuscleMapView: View {
 
     private func legend(_ title: String, muscles: [MuscleRegion], filled: Bool) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 9) {
-            RoundedRectangle(cornerRadius: 3)
+            NotebookStyle.squircle(3)
                 .fill(filled ? NotebookStyle.clay : NotebookStyle.ivory)
                 .overlay {
-                    RoundedRectangle(cornerRadius: 3)
+                    NotebookStyle.squircle(3)
                         .strokeBorder(filled ? NotebookStyle.clay : NotebookStyle.olive, lineWidth: filled ? 1 : 1.8)
                 }
                 .frame(width: 12, height: 12)

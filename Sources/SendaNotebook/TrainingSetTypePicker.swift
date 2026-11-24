@@ -100,7 +100,7 @@ public struct TrainingSetTypePicker: View {
                 Image(systemName: "xmark")
                     .font(.system(size: 13, weight: .semibold))
                     .frame(width: 30, height: 30)
-                    .background(NotebookStyle.typeFill, in: Circle())
+                    .background(NotebookStyle.typeFill, in: NotebookStyle.squircle(8))
                     .frame(minWidth: 44, minHeight: 44)
                     .contentShape(Rectangle())
             }
@@ -143,7 +143,7 @@ public struct TrainingSetTypePicker: View {
             .padding(.vertical, 9)
             .frame(maxWidth: .infinity, minHeight: 58, alignment: .leading)
             .background(isSelected ? NotebookStyle.dockSelectionFill : .clear,
-                        in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        in: NotebookStyle.squircle(12))
             .contentShape(Rectangle())
         }
         .accessibilityLabel(TrainingSetTypeText.title(kind))

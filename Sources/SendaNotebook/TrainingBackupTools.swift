@@ -82,14 +82,14 @@ struct NotebookBackupTools: View {
                         Text("Restore this backup").fontWeight(.semibold)
                             .frame(maxWidth: .infinity, minHeight: 48)
                             .foregroundStyle(NotebookStyle.ivory)
-                            .background(NotebookStyle.clay, in: RoundedRectangle(cornerRadius: 7))
+                            .background(NotebookStyle.clay, in: NotebookStyle.squircle(7))
                     }
                     .disabled(isReading).accessibilityIdentifier("restore-preview-confirm")
                     Button { self.preview = nil; errorMessage = nil } label: {
                         Text("Cancel restore").frame(minWidth: 44, minHeight: 44)
                     }.accessibilityIdentifier("restore-preview-cancel")
                 }
-                .padding(16).background(NotebookStyle.ink.opacity(0.035), in: RoundedRectangle(cornerRadius: 8))
+                .padding(16).background(NotebookStyle.ink.opacity(0.035), in: NotebookStyle.squircle(8))
             }
             if feedbackSection == .restore { feedback }
             Rectangle().fill(NotebookStyle.rule).frame(height: 0.5).accessibilityHidden(true)

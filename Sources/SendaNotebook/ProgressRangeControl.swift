@@ -19,7 +19,7 @@ struct ProgressRangeControl: View {
             }
         }
         .padding(2)
-        .background(NotebookStyle.inputSurface, in: RoundedRectangle(cornerRadius: 10))
+        .background(NotebookStyle.inputSurface, in: NotebookStyle.squircle(10))
     }
 
     private var rangeRow: some View {
@@ -34,7 +34,7 @@ struct ProgressRangeControl: View {
                         .padding(.horizontal, 4)
                         .frame(minWidth: 44, maxWidth: .infinity, minHeight: 44)
                         .foregroundStyle(selected ? NotebookStyle.ivory : NotebookStyle.ink)
-                        .background(selected ? NotebookStyle.ink : .clear, in: RoundedRectangle(cornerRadius: 8))
+                        .background(selected ? NotebookStyle.ink : .clear, in: NotebookStyle.squircle(8))
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)

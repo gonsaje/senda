@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key><string>com.senda.journal.auth</string>
+            <key>CFBundleURLSchemes</key><array><string>com.senda.journal.auth</string></array>
+        </dict>
+    </array>
+    <key>SendaOAuthProviders</key>
+    <string>$(SENDA_OAUTH_PROVIDERS)</string>
+    <key>SendaAuthURL</key>
+    <string>$(NEON_AUTH_BASE_URL)</string>
+    <key>SendaAPIURL</key>
+    <string>$(SENDA_API_URL)</string>
+</dict>
+</plist>

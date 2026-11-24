@@ -146,8 +146,8 @@ public struct TrainingDayExerciseList: View {
                         Text("\(position)").font(.subheadline.weight(.semibold).monospacedDigit())
                             .padding(4).frame(minWidth: 28, minHeight: 28)
                             .foregroundStyle(selected ? NotebookStyle.onPrimary : NotebookStyle.ink)
-                            .background(selected ? NotebookStyle.primaryFill : .clear, in: Capsule())
-                            .overlay { Capsule().strokeBorder(selected ? .clear : NotebookStyle.quiet, lineWidth: 1) }
+                            .background(selected ? NotebookStyle.primaryFill : .clear, in: NotebookStyle.squircle(8))
+                            .overlay { NotebookStyle.squircle(8).strokeBorder(selected ? .clear : NotebookStyle.quiet, lineWidth: 1) }
                     } else {
                         Image(systemName: "eye.slash").foregroundStyle(NotebookStyle.quiet).frame(minWidth: 28)
                     }
@@ -261,8 +261,8 @@ public struct TrainingDayExerciseList: View {
                                 Text(index.map { "\(nextGroupLetter)\($0 + 1)" } ?? "")
                                     .font(.caption.weight(.bold)).foregroundStyle(NotebookStyle.clay)
                                     .frame(minWidth: 30, minHeight: 30)
-                                    .background(index != nil ? NotebookStyle.todayFill : .clear, in: Capsule())
-                                    .overlay { Capsule().strokeBorder(index == nil ? NotebookStyle.quiet : .clear, lineWidth: 0.8) }
+                                    .background(index != nil ? NotebookStyle.todayFill : .clear, in: NotebookStyle.squircle(8))
+                                    .overlay { NotebookStyle.squircle(8).strokeBorder(index == nil ? NotebookStyle.quiet : .clear, lineWidth: 0.8) }
                                 Text(exercise.displayName).font(.body.weight(.medium))
                                 Spacer()
                             }.frame(minHeight: 58).contentShape(Rectangle())

@@ -48,7 +48,10 @@ struct HealthActivityEditor: View {
                 #if os(iOS)
                 .keyboardType(whole ? .numberPad : .decimalPad)
                 #endif
-                .textFieldStyle(.roundedBorder).frame(minHeight: 44)
+                .textFieldStyle(.plain)
+                .padding(.horizontal, 10).frame(minHeight: 44)
+                .background(NotebookStyle.inputSurface, in: NotebookStyle.squircle(8))
+                .overlay { NotebookStyle.squircle(8).strokeBorder(NotebookStyle.rule) }
         }
     }
 

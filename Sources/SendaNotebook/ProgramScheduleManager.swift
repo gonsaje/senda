@@ -137,7 +137,7 @@ struct ProgramScheduleManager: View {
                     Text(review == .end ? "End program" : "Move \(change.changes.count) \(change.changes.count == 1 ? "workout" : "workouts")")
                         .font(.headline).frame(maxWidth: .infinity, minHeight: 44)
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.borderedProminent).buttonBorderShape(.roundedRectangle(radius: 10))
                 .tint(review == .end ? .red : NotebookStyle.primaryFill)
                 .disabled(!change.canApply)
                 .accessibilityIdentifier("managed-apply")

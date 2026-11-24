@@ -120,7 +120,7 @@ struct TrainingProgramLibrary: View {
                     ForEach(program.blocks.indices, id: \.self) { index in
                         HStack(spacing: 1) {
                             ForEach(0..<program.blocks[index].weeks, id: \.self) { _ in
-                                Capsule().fill(NotebookStyle.clay.opacity(index.isMultiple(of: 2) ? 0.75 : 0.35))
+                                NotebookStyle.squircle(1).fill(NotebookStyle.clay.opacity(index.isMultiple(of: 2) ? 0.75 : 0.35))
                                     .frame(maxWidth: 8, minHeight: 3, maxHeight: 3)
                             }
                         }
@@ -233,7 +233,7 @@ private struct ProgramDetail: View {
                                 } label: {
                                     Text(displayed.blocks[i].title).font(.subheadline.weight(i == blockIndex ? .bold : .regular))
                                         .padding(.horizontal, 12).frame(minHeight: 44)
-                                        .background(i == blockIndex ? NotebookStyle.todayFill : .clear, in: Capsule())
+                                        .background(i == blockIndex ? NotebookStyle.todayFill : .clear, in: NotebookStyle.squircle(11))
                                 }
                                 .buttonStyle(.plain)
                                 .accessibilityAddTraits(i == blockIndex ? .isSelected : [])
@@ -285,7 +285,7 @@ private struct ProgramDetail: View {
                     Text(enrollment != nil ? "Manage schedule" : scheduled ? "View in Train" : "Schedule \(free) \(free == 1 ? "workout" : "workouts")")
                         .font(.headline).frame(maxWidth: .infinity, minHeight: 44)
                 }
-                .buttonStyle(.borderedProminent).tint(NotebookStyle.primaryFill).foregroundStyle(NotebookStyle.onPrimary)
+                .buttonStyle(.borderedProminent).buttonBorderShape(.roundedRectangle(radius: 10)).tint(NotebookStyle.primaryFill).foregroundStyle(NotebookStyle.onPrimary)
                 .disabled(!scheduled && (free == 0 || !unavailable.isEmpty))
                 .accessibilityIdentifier("schedule-program")
             }

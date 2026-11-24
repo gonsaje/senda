@@ -23,7 +23,7 @@ struct ProgramWeekPicker: View {
         }
         .buttonStyle(.plain)
         .foregroundStyle(NotebookStyle.ink)
-        .background(NotebookStyle.inputSurface, in: RoundedRectangle(cornerRadius: 12))
+        .background(NotebookStyle.inputSurface, in: NotebookStyle.squircle(12))
         .sheet(isPresented: $picking) {
             VStack(spacing: 0) {
                 HStack(alignment: .top, spacing: 8) {
@@ -59,7 +59,7 @@ struct ProgramWeekPicker: View {
                                                     .frame(maxWidth: .infinity, minHeight: 44)
                                                     .foregroundStyle(number == week ? NotebookStyle.onPrimary : NotebookStyle.ink)
                                                     .background(number == week ? NotebookStyle.primaryFill : NotebookStyle.inputSurface,
-                                                                in: RoundedRectangle(cornerRadius: 10))
+                                                                in: NotebookStyle.squircle(10))
                                             }.buttonStyle(.plain)
                                                 .accessibilityLabel("Week \(number)")
                                                 .accessibilityAddTraits(number == week ? .isSelected : [])

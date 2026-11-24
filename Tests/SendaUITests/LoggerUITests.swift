@@ -3,6 +3,86 @@ import XCTest
 
 final class LoggerUITests: XCTestCase {
     @MainActor
+    func testTrainerApplicationPromptsForAnAccountBeforeShowingAnyFields() {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchEnvironment["SENDA_UI_TEST_JOURNAL_ID"] = UUID().uuidString
+        app.launchEnvironment["NEON_AUTH_BASE_URL"] = ""
+        app.launch()
+        let profile = app.buttons["dock-profile"]
+        XCTAssertTrue(profile.waitForExistence(timeout: 5))
+        profile.tap()
+        let apply = app.buttons["trainer-application"]
+        for _ in 0..<4 where !apply.isHittable { app.swipeUp() }
+        apply.tap()
+
+        let signIn = app.buttons["trainer-sign-in"]
+        XCTAssertTrue(signIn.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["trainer-create-account"].isHittable)
+        XCTAssertGreaterThanOrEqual(signIn.frame.height, 44 - 0.01)
+        for provider in ["apple", "google"] {
+            XCTAssertTrue(app.buttons["trainer-continue-" + provider].exists)
+        }
+        XCTAssertFalse(app.buttons["trainer-continue-microsoft"].exists)
+        app.buttons["trainer-continue-apple"].tap()
+        XCTAssertTrue(app.staticTexts["Account access is temporarily unavailable."].waitForExistence(timeout: 3))
+        XCTAssertFalse(app.textFields["trainer-name"].exists)
+        XCTAssertFalse(app.buttons["trainer-submit"].exists)
+        signIn.tap()
+        XCTAssertTrue(app.secureTextFields["Password"].exists)
+        app.buttons["Back to account options"].tap()
+        let emailSignup = app.buttons["trainer-create-account"]
+        XCTAssertTrue(emailSignup.waitForExistence(timeout: 5))
+        emailSignup.tap()
+        let first = app.textFields["First name"]
+        let last = app.textFields["Last name"]
+        let email = app.textFields["Email address"]
+        XCTAssertTrue(app.secureTextFields["Confirm password"].exists)
+        attach("Senda email sign-up", app)
+        first.tap()
+        first.typeText("Test\n")
+        app.typeText("Trainer\n")
+        XCTAssertEqual(last.value as? String, "Trainer")
+        app.typeText("trainer\n")
+        XCTAssertTrue(app.staticTexts["Enter an email like name@example.com."].exists)
+        email.tap()
+        email.typeText("@example.com\n")
+        XCTAssertEqual(email.value as? String, "trainer@example.com")
+        XCTAssertFalse(app.staticTexts["Enter an email like name@example.com."].exists)
+        let password = app.secureTextFields["Password"]
+        let passphrase = "violet kettle amber meadow"
+        password.tap()
+        password.typeText("v")
+        let suggestion = app.buttons["Fill Strong Password"]
+        if suggestion.waitForExistence(timeout: 2) {
+            let dismissSuggestion = app.buttons.matching(NSPredicate(
+                format: "label == %@ AND identifier != %@", "Close", "senda-account-close")).firstMatch
+            XCTAssertTrue(dismissSuggestion.waitForExistence(timeout: 3), app.debugDescription)
+            dismissSuggestion.tap()
+            XCTAssertTrue(suggestion.waitForNonExistence(timeout: 3), app.debugDescription)
+        }
+        // iOS may discard the initiating keystroke when the Passwords prompt closes.
+        let retainedFirstCharacter = (password.value as? String)?.count == 1
+        password.typeText(retainedFirstCharacter ? String(passphrase.dropFirst()) : passphrase)
+        XCTAssertEqual((password.value as? String)?.count, passphrase.count, app.debugDescription)
+        let strength = element("account-password-strength", in: app)
+        XCTAssertEqual(strength.value as? String, "Strong")
+        password.typeText("\n")
+        let confirmation = app.secureTextFields["Confirm password"]
+        let mismatch = "different confirmation value"
+        confirmation.typeText(mismatch)
+        XCTAssertTrue(app.staticTexts["Passwords don’t match."].exists)
+        confirmation.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: mismatch.count) + passphrase)
+        XCTAssertFalse(app.staticTexts["Passwords don’t match."].exists)
+        XCTAssertEqual(confirmation.value as? String, password.value as? String)
+        XCTAssertTrue(app.keyboards.firstMatch.exists)
+        app.buttons["Back to account options"].tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 3))
+        XCTAssertTrue(signIn.isHittable)
+        XCTAssertFalse(app.buttons["trainer-submit"].exists)
+    }
+
+    @MainActor
     func testBodyMeasurementsCanBeLoggedAndFoundInTrendsAfterRelaunch() {
         let app = launch()
         tap("dock-trends", in: app)
@@ -1490,6 +1570,7 @@ final class LoggerUITests: XCTestCase {
         options.iterationCount = 3
         measure(metrics: [XCTApplicationLaunchMetric(waitUntilResponsive: true)], options: options) {
             app.launch()
+            XCTAssertTrue(app.buttons["week-calendar"].waitForExistence(timeout: 5))
             XCTAssertTrue(app.buttons["week-calendar"].isHittable)
             XCTAssertTrue(app.buttons[todayRowID()].exists)
         }
@@ -1968,6 +2049,7 @@ final class LoggerUITests: XCTestCase {
             let changed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == %@", expected), object: title)
             XCTAssertEqual(XCTWaiter.wait(for: [changed], timeout: 3), .completed, file: file, line: line)
             XCTAssertEqual(cells.count, 42, file: file, line: line)
+            XCTAssertEqual(cells.matching(NSPredicate(format: "isSelected == true")).count, 1, file: file, line: line)
             XCTAssertEqual(cells.element(boundBy: 0).frame.minY, firstTop, accuracy: 1, file: file, line: line)
             XCTAssertEqual(cells.element(boundBy: 41).frame.minY, lastTop, accuracy: 1, file: file, line: line)
             XCTAssertEqual(title.frame.minY, titleTop, accuracy: 1, file: file, line: line)

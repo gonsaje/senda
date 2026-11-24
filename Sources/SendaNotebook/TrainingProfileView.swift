@@ -2,8 +2,13 @@ import SwiftUI
 import SendaDomain
 import SendaLogger
 
+private enum SendaContact {
+    static let email = "hello@dontsweat.tech"
+    static let mailURL = URL(string: "mailto:" + email)!
+}
+
 private enum ProfileSheet: Identifiable {
-    case settings, details, workouts, programs, trainer
+    case settings, details, workouts, programs, account, trainer
     case schedule(ProgramEnrollment)
     case goal(StrengthGoal?)
     case weeklyTarget(WeeklyMuscleTarget?)
@@ -14,6 +19,7 @@ private enum ProfileSheet: Identifiable {
         case .details: "details"
         case .workouts: "workouts"
         case .programs: "programs"
+        case .account: "account"
         case .trainer: "trainer"
         case .schedule(let enrollment): "schedule-" + enrollment.programID + enrollment.start.rawValue
         case .goal(let goal): goal?.id.uuidString ?? "new-goal"
@@ -25,6 +31,8 @@ private enum ProfileSheet: Identifiable {
 struct TrainingProfileView: View {
     @Bindable var model: TrainingNotebookModel
     @State private var sheet: ProfileSheet?
+    @State private var accountSession = SendaAccountSession()
+    @Environment(\.scenePhase) private var phase
     @Environment(\.dynamicTypeSize) private var textSize
 
     private var unit: WeightUnit { model.workspace.preferredUnit }
@@ -88,6 +96,9 @@ struct TrainingProfileView: View {
         }
         .clipped()
         .accessibilityIdentifier("profile-scroll")
+        .task(id: phase) {
+            if phase == .active, sheet == nil { await accountSession.refresh() }
+        }
         .sheet(item: $sheet) { destination in
             switch destination {
             case .details:
@@ -96,8 +107,10 @@ struct TrainingProfileView: View {
                 TrainingWorkoutLibrary(model: model, initialTab: .personal, close: { sheet = nil })
             case .programs:
                 TrainingProgramLibrary(model: model, savedOnly: true)
+            case .account:
+                SendaAccountSheet(session: accountSession, purpose: .profile)
             case .trainer:
-                TrainerPublishing(model: model)
+                SendaAccountSheet(session: accountSession, purpose: .trainer(model))
             case .schedule(let enrollment):
                 ProgramScheduleManager(model: model, enrollment: enrollment) { sheet = nil }
             case .settings:
@@ -132,7 +145,7 @@ struct TrainingProfileView: View {
             let name = model.profile.details.name
             HStack(spacing: 14) {
                 ZStack {
-                    Circle().fill(NotebookStyle.ink)
+                    NotebookStyle.squircle(14).fill(NotebookStyle.ink)
                     if name.isEmpty { Image(systemName: "person").foregroundStyle(NotebookStyle.ivory) }
                     else {
                         Text(name.split(separator: " ").prefix(2).compactMap(\.first).map(String.init).joined().uppercased())
@@ -148,6 +161,11 @@ struct TrainingProfileView: View {
             }
             Button(name.isEmpty ? "Add your name" : "Edit profile") { sheet = .details }
                 .foregroundStyle(NotebookStyle.clay).frame(minHeight: 44)
+            profileRule
+            Button { sheet = .account } label: {
+                TrainerNavigationRow(title: "Senda account", detail: accountSession.profileDetail)
+            }
+            .accessibilityIdentifier("profile-account")
         }
     }
 

@@ -68,7 +68,7 @@ struct LibrarySegments<Content: View>: View {
                              : AnyLayout(HStackLayout(spacing: 0))
         layout { content }
             .padding(3)
-            .background(NotebookStyle.ink.opacity(0.07), in: RoundedRectangle(cornerRadius: 8))
+            .background(NotebookStyle.ink.opacity(0.07), in: NotebookStyle.squircle(8))
             .accessibilityElement(children: .contain)
     }
 }
@@ -86,7 +86,7 @@ struct LibrarySegmentLabel: View {
             .padding(.horizontal, 8)
             .frame(minWidth: 44, maxWidth: expands ? .infinity : nil, minHeight: 44)
             .background {
-                if selected { RoundedRectangle(cornerRadius: 6).fill(NotebookStyle.ivory) }
+                if selected { NotebookStyle.squircle(6).fill(NotebookStyle.ivory) }
             }
             .contentShape(Rectangle())
     }

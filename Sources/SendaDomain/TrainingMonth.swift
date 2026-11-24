@@ -29,12 +29,16 @@ public struct TrainingMonth: Equatable, Sendable {
 
     /// Six Monday-first weeks, including adjacent dates wherever the calendar permits them.
     public var calendarSlots: [TrainingDay?] {
-        let leading = leadingEmptyDays
+        let calendar = TrainingDay.utc
+        let start = firstDay.date(in: calendar)
+        let leading = (calendar.component(.weekday, from: start) + 5) % 7
         return (0..<42).map { index in
             let offset = index - leading
-            guard let date = try? firstDay.adding(days: offset),
-                  offset >= 0 || date < firstDay else { return nil }
-            return date
+            guard let date = calendar.date(byAdding: .day, value: offset, to: start) else { return nil }
+            let day = TrainingDay(date, calendar: calendar)
+            // Gregorian dates before year 1 wrap into the preceding era.
+            guard day.rawValue.utf8.count == 10, offset >= 0 || day < firstDay else { return nil }
+            return day
         }
     }
 

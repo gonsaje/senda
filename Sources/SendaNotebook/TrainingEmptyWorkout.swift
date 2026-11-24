@@ -12,7 +12,7 @@ struct TrainingEmptyWorkout: View {
                     Button(action: addExercise) {
                         actionLabel("Add exercise", symbol: "plus")
                             .foregroundStyle(NotebookStyle.onPrimary)
-                            .background(NotebookStyle.primaryFill, in: RoundedRectangle(cornerRadius: 9))
+                            .background(NotebookStyle.primaryFill, in: NotebookStyle.squircle(9))
                     }
                     .accessibilityIdentifier("add-exercise")
                 }

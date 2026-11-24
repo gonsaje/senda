@@ -202,7 +202,7 @@ struct TrainingSupersetControls: View {
         }
         .padding(.horizontal, 14).padding(.vertical, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(NotebookStyle.clay.opacity(0.09), in: RoundedRectangle(cornerRadius: 12))
+        .background(NotebookStyle.clay.opacity(0.09), in: NotebookStyle.squircle(12))
     }
 
     private func timerTitle(_ seconds: Int) -> some View {
@@ -246,7 +246,7 @@ struct SupersetPrimaryStyle: ButtonStyle {
             .padding(.horizontal, 12).padding(.vertical, 2)
             .foregroundStyle(isEnabled ? NotebookStyle.onPrimary : NotebookStyle.quiet)
             .background(isEnabled ? NotebookStyle.primaryFill : NotebookStyle.clay.opacity(0.08),
-                        in: RoundedRectangle(cornerRadius: 10))
+                        in: NotebookStyle.squircle(10))
             .opacity(configuration.isPressed ? 0.75 : 1)
     }
 }

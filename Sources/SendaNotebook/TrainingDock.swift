@@ -4,9 +4,11 @@ import SendaLogger
 struct TrainingDock: View {
     @Bindable var model: TrainingNotebookModel
     @Environment(\.dynamicTypeSize) private var textSize
+    private let cornerRadius: CGFloat = 24
+    private let selectionInset: CGFloat = 4
 
     var body: some View {
-        let outline = RoundedRectangle(cornerRadius: 24)
+        let outline = NotebookStyle.squircle(cornerRadius)
         Group {
             if textSize.isAccessibilitySize {
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 0) {
@@ -16,8 +18,7 @@ struct TrainingDock: View {
                 HStack(spacing: 0) { tabs }
             }
         }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 2)
+        .padding(selectionInset)
         .frame(maxWidth: 380)
         .background {
             outline.fill(NotebookStyle.inputSurface)
@@ -53,9 +54,10 @@ struct TrainingDock: View {
                         }
                     }
                 }
-                .frame(maxWidth: .infinity, minHeight: textSize.isAccessibilitySize ? 44 : 54)
+                .frame(maxWidth: .infinity, minHeight: textSize.isAccessibilitySize ? 44 : 50)
                 .foregroundStyle(selected ? NotebookStyle.clay : NotebookStyle.quiet)
-                .background(selected ? NotebookStyle.dockSelectionFill : .clear, in: RoundedRectangle(cornerRadius: 17))
+                .background(selected ? NotebookStyle.dockSelectionFill : .clear,
+                            in: NotebookStyle.squircle(cornerRadius - selectionInset))
                 .contentShape(Rectangle())
             }
             .accessibilityLabel(section.title)

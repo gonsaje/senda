@@ -111,6 +111,6 @@ struct ExerciseSearchField: View {
                 }.accessibilityLabel("Clear search").accessibilityIdentifier(clearIdentifier)
             }
         }.padding(.leading, 12).padding(.trailing, search.isEmpty ? 12 : 0).frame(minHeight: 48)
-            .overlay { RoundedRectangle(cornerRadius: 7).stroke(NotebookStyle.rule, lineWidth: 1) }
+            .overlay { NotebookStyle.squircle(7).stroke(NotebookStyle.rule, lineWidth: 1) }
     }
 }

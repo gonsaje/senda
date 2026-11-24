@@ -57,7 +57,7 @@ struct TrainingExerciseMarkerRail: View {
                 let continues = (index == indices.first && index > 0)
                     || (index == indices.last && index + 1 < exercises.count)
                 let width: CGFloat = active ? (isExpanded ? 7 : 4) : (continues ? 3 : (isExpanded ? 5 : 4))
-                Capsule()
+                NotebookStyle.squircle(width * 0.28)
                     .fill(active ? NotebookStyle.clay : NotebookStyle.quiet.opacity(isExpanded ? 0.85 : 0.65))
                     .frame(width: width, height: active ? (isExpanded ? 14 : 8) : width)
                     .frame(height: dotPitch)
@@ -65,8 +65,8 @@ struct TrainingExerciseMarkerRail: View {
         }
         .padding(.vertical, isExpanded ? 5 : 3)
         .frame(width: isExpanded ? 19 : 12)
-        .background(NotebookStyle.ivory, in: Capsule())
-        .overlay { Capsule().strokeBorder(NotebookStyle.rule.opacity(isExpanded ? 1 : 0.65)) }
+        .background(NotebookStyle.ivory, in: NotebookStyle.squircle(isExpanded ? 5 : 3))
+        .overlay { NotebookStyle.squircle(isExpanded ? 5 : 3).strokeBorder(NotebookStyle.rule.opacity(isExpanded ? 1 : 0.65)) }
         .frame(width: 20)
         .padding(.trailing, 2)
         .frame(width: tapTarget, height: height, alignment: .trailing)

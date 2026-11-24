@@ -362,7 +362,7 @@ struct TrainingInputDock: View {
                     .font(.body.weight(.semibold).monospacedDigit()).foregroundStyle(NotebookStyle.clay)
                     .fixedSize(horizontal: true, vertical: true)
                     .padding(.horizontal, 8).frame(minWidth: 52, minHeight: 48)
-                    .background(NotebookStyle.ivory, in: RoundedRectangle(cornerRadius: 8))
+                    .background(NotebookStyle.ivory, in: NotebookStyle.squircle(8))
                     .contentShape(Rectangle())
             } else {
                 Image(systemName: increasing ? "plus" : "minus").font(.system(size: 22, weight: .light))
