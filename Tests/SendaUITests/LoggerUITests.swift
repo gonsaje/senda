@@ -632,6 +632,14 @@ final class LoggerUITests: XCTestCase {
         XCTAssertTrue(reps.waitForNonExistence(timeout: 3))
         XCTAssertFalse(app.buttons["input-done"].exists)
         XCTAssertTrue(element("row-1-weight", in: app).label.contains("135 lb"))
+        tap("row-1-weight", in: app)
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 3))
+        tap("input-use-dial", in: app)
+        tap("input-done", in: app)
+        tap("row-1-weight", in: app)
+        XCTAssertTrue(element("weight-dial", in: app).isHittable)
+        XCTAssertFalse(app.keyboards.firstMatch.exists)
+        tap("input-done", in: app)
 
         let addExercise = element("add-exercise", in: app)
         XCTAssertTrue(addExercise.isHittable)
@@ -1472,6 +1480,19 @@ final class LoggerUITests: XCTestCase {
         XCTAssertFalse(app.descendants(matching: .any)["trends-strength-chart"].exists)
         XCTAssertFalse(app.buttons["trends-strength-picker"].exists)
         attach("Populated Trends before choosing exercises", app)
+    }
+
+    @MainActor
+    func testBlankJournalLaunchIsResponsive() {
+        let app = XCUIApplication()
+        app.launchEnvironment["SENDA_UI_TEST_JOURNAL_ID"] = UUID().uuidString
+        let options = XCTMeasureOptions()
+        options.iterationCount = 3
+        measure(metrics: [XCTApplicationLaunchMetric(waitUntilResponsive: true)], options: options) {
+            app.launch()
+            XCTAssertTrue(app.buttons["week-calendar"].isHittable)
+            XCTAssertTrue(app.buttons[todayRowID()].exists)
+        }
     }
 
     @MainActor

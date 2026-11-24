@@ -7,6 +7,7 @@ struct TrainingInputDock: View {
     let focus: TrainingFocus
     let last: TrainingPerformanceReference?
     @Binding var weightEntry: TrainingWeightEntrySettings
+    @Binding var prefersWeightKeyboard: Bool
     var beginInteraction: () -> Void = {}
     var advanceSuperset: (UUID) -> Void
     @State private var showsPlateCalculator = false
@@ -183,12 +184,16 @@ struct TrainingInputDock: View {
         }
         .onChange(of: typing) { _, isTyping in
             // Losing system focus while backgrounding should preserve the user's editor.
-            if isTyping { model.setInputKeyboard(true, focus: focus) }
+            if isTyping {
+                if focus.field == .weight && !focus.keyboard { prefersWeightKeyboard = true }
+                model.setInputKeyboard(true, focus: focus)
+            }
         }
     }
 
     private func closeKeyboard() {
         typing = false
+        prefersWeightKeyboard = false
         model.setInputKeyboard(false, focus: focus)
     }
 

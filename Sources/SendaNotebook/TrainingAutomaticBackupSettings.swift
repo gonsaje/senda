@@ -14,7 +14,6 @@ struct TrainingAutomaticBackupSettings: View {
                 .font(NotebookTypography.heading(22, relativeTo: .title2))
                 .accessibilityAddTraits(.isHeader)
                 .fixedSize(horizontal: false, vertical: true)
-            detail("iCloud copies include workouts and profile details. To include manual body measurements, choose Save full backup.")
             if let folder = backup.folderName {
                 Text(folder).font(.body.weight(.medium))
                     .fixedSize(horizontal: false, vertical: true)
@@ -33,9 +32,10 @@ struct TrainingAutomaticBackupSettings: View {
                     backup.turnOff()
                 }
             } else {
-                detail("Choose a private folder in iCloud Drive. Senda checks for changes while you use the app and saves up to one copy a day.")
+                detail("Choose a private iCloud Drive folder. Senda backs up changed workouts and profile details up to once a day while the app is open.")
                 action("Choose backup folder", id: "choose-backup-folder", perform: chooseFolder)
             }
+            detail("To include manual body measurements, choose Save full backup.")
             if let error = selectionError ?? backup.errorMessage {
                 Text(error).font(.callout).foregroundStyle(NotebookStyle.clay)
                     .fixedSize(horizontal: false, vertical: true)

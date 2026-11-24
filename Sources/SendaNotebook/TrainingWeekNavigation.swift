@@ -158,6 +158,7 @@ public extension EnvironmentValues {
 
 struct TrainingCalendarMasthead: View {
     @Environment(\.trainingLaunchMark) private var launchMark
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let showsMonth: Bool
     let toggle: () -> Void
 
@@ -171,7 +172,8 @@ struct TrainingCalendarMasthead: View {
     private var brand: some View {
         TrainingWordmark(width: 110)
             .opacity(launchMark == nil ? 1 : 0)
-            .overlay(alignment: .leading) { launchMark }
+            .overlay(alignment: .leading) { if let launchMark { launchMark.transition(.opacity) } }
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.24), value: launchMark == nil)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Senda")
     }

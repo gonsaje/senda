@@ -39,6 +39,7 @@ private struct JournalRootView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dynamicTypeSize) private var textSize
     @State private var launchTagline: LocalizedStringKey = "Trace your own path."
+    @State private var introStart = ContinuousClock.now
     @State private var session: TrainingSession?
     @State private var automaticBackup: NotebookAutomaticBackup?
     @State private var openingError: String?
@@ -54,8 +55,8 @@ private struct JournalRootView: View {
             .task(id: session != nil) {
                 guard session != nil, showsLaunchIntro else { return }
                 // Only the calendar wordmark animates once the notebook has opened.
-                do { try await Task.sleep(for: .milliseconds(1400)) } catch { return }
-                withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) { showsLaunchIntro = false }
+                do { try await Task.sleep(for: .milliseconds(1800)) } catch { return }
+                showsLaunchIntro = false
             }
             .onChange(of: scenePhase) { _, phase in
                 if phase == .background { showsLaunchIntro = false }
@@ -67,7 +68,7 @@ private struct JournalRootView: View {
         if let session {
             TrainingSessionView(session: session, automaticBackup: automaticBackup)
                 .environment(\.trainingLaunchMark, showsLaunchIntro && !reduceMotion && !textSize.isAccessibilitySize
-                    ? AnyView(SendaLaunchIntro(tagline: launchTagline, compact: true)) : nil)
+                    ? AnyView(SendaLaunchIntro(tagline: launchTagline, startedAt: introStart, compact: true)) : nil)
         } else if let openingError {
             VStack(alignment: .leading, spacing: 20) {
                 Text("Your journal couldn’t be opened.")
@@ -83,7 +84,7 @@ private struct JournalRootView: View {
         } else {
             ZStack {
                 Color("LaunchPaper").ignoresSafeArea()
-                SendaLaunchIntro(tagline: launchTagline)
+                SendaLaunchIntro(tagline: launchTagline, startedAt: introStart)
             }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Opening journal")

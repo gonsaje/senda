@@ -3,6 +3,7 @@ import SendaNotebook
 
 struct SendaLaunchIntro: View {
     let tagline: LocalizedStringKey
+    let startedAt: ContinuousClock.Instant
     var compact = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var trailProgress: CGFloat = 0
@@ -33,7 +34,15 @@ struct SendaLaunchIntro: View {
         .allowsHitTesting(false)
         .accessibilityHidden(true)
         .onAppear {
-            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.65)) { trailProgress = 1 }
+            // Continue the same stroke when the opening screen gives way to the Train header.
+            let elapsed = startedAt.duration(to: .now) / .seconds(1)
+            let duration = 0.65
+            trailProgress = min(1, max(0, elapsed / duration))
+            if trailProgress < 1 {
+                withAnimation(reduceMotion ? nil : .linear(duration: duration * (1 - trailProgress))) {
+                    trailProgress = 1
+                }
+            }
         }
     }
 }

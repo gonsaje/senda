@@ -55,20 +55,21 @@ struct NotebookBackupTools: View {
             if showsHeading {
                 Text("Workout recovery").font(NotebookTypography.heading(22)).accessibilityAddTraits(.isHeader)
             }
-            VStack(alignment: .leading, spacing: 8) {
-                sectionHeading("Restore a backup")
-                action("Choose backup file", icon: "square.and.arrow.down", identifier: "restore-import") {
-                    feedbackSection = .restore
-                    errorMessage = nil
-                    statusMessage = nil
-                    preview = nil
-                    showsImporter = true
+            sectionHeading("Restore a backup")
+            if preview == nil {
+                VStack(alignment: .leading, spacing: 8) {
+                    action("Choose backup file", icon: "square.and.arrow.down", identifier: "restore-import") {
+                        feedbackSection = .restore
+                        errorMessage = nil
+                        statusMessage = nil
+                        showsImporter = true
+                    }
+                    detail("Open a Senda .json backup (up to 50 MB) from Files or iCloud Drive.")
+                    action("Review pre-restore copy", icon: "clock.arrow.circlepath", identifier: "restore-pre-restore-backup") {
+                        reviewPreviousBackup()
+                    }
+                    detail("Senda keeps a copy on this device before replacing the notebook.")
                 }
-                detail("Choose a Senda backup (.json, up to 50 MB) from iCloud Drive or another location in Files.")
-                action("Review pre-restore copy", icon: "clock.arrow.circlepath", identifier: "restore-pre-restore-backup") {
-                    reviewPreviousBackup()
-                }
-                detail("Senda keeps a copy on this device before replacing the notebook.")
             }
             if isReading {
                 ProgressView("Checking backup…").font(.subheadline).accessibilityIdentifier("restore-checking")
@@ -394,7 +395,7 @@ private enum NotebookExportKind {
     case backup, csv, previous, original, originalRecovery
     var contentType: UTType { self == .csv ? .commaSeparatedText : .json }
     var filename: String {
-        let date = Date.now.formatted(.iso8601.year().month().day().dateSeparator(.dash))
+        let date = TrainingDay(.now).rawValue
         switch self {
         case .backup: return "senda-backup-\(date).json"
         case .csv: return "senda-recorded-sets-\(date).csv"

@@ -42,14 +42,15 @@ struct TrainingExerciseMarkerRail: View {
             .accessibilityLabel("Add exercise")
             .accessibilityIdentifier("add-exercise")
         }
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: isExpanded)
+        .animation(reduceMotion ? nil : .easeInOut(duration: isExpanded ? 0.15 : 0.26), value: isExpanded)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("workout-exercises")
     }
 
     private var pages: some View {
         let indices = visibleIndices
-        let height = max(tapTarget, CGFloat(indices.count) * dotPitch)
+        // Keep the touch area and add button anchored as the visible dots settle.
+        let height = max(tapTarget, CGFloat(indices.count) * 17 + 10)
         return VStack(spacing: 0) {
             ForEach(indices, id: \.self) { index in
                 let active = index == selectedIndex

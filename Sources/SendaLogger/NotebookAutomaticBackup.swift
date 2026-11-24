@@ -1,6 +1,7 @@
 import CryptoKit
 import Foundation
 import Observation
+import SendaDomain
 import SendaPersistence
 
 @Observable @MainActor
@@ -125,7 +126,7 @@ public final class NotebookAutomaticBackup {
             guard let prepared else { return false }
             try Task.checkCancellation()
             let date = now()
-            let day = date.formatted(.iso8601.year().month().day().dateSeparator(.dash))
+            let day = TrainingDay(date).rawValue
             let filename = "Senda-\(day)-\(UUID().uuidString.prefix(8)).json"
             settings.destination = try await settings.destination.write(prepared.data, filename: filename, validate: validateFolder)
             settings.lastSavedAt = date

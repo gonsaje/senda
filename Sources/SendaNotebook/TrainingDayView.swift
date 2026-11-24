@@ -45,6 +45,7 @@ struct TrainingDayView: View {
     let layout: TrainingCalendarLayout
     @State private var presentedSheet: TrainingDaySheet?
     @State private var weightEntry = TrainingWeightEntrySettings()
+    @AppStorage("senda.weightEntry.prefersKeyboard") private var prefersWeightKeyboard = false
     @State private var showingSearch = false
     @State private var searchAfterDismissal: TrainingDay?
     @State private var pendingNavigation: TrainingPendingNavigation?
@@ -146,7 +147,7 @@ struct TrainingDayView: View {
             }
             .task(id: markerActivity) {
                 guard markersRecentlyActive else { return }
-                do { try await Task.sleep(for: .milliseconds(550)) }
+                do { try await Task.sleep(for: .milliseconds(900)) }
                 catch { return }
                 markersRecentlyActive = false
             }
@@ -181,6 +182,7 @@ struct TrainingDayView: View {
                     }
                     if let focus = model.focus {
                         TrainingInputDock(model: model, focus: focus, last: last, weightEntry: $weightEntry,
+                                          prefersWeightKeyboard: $prefersWeightKeyboard,
                                           beginInteraction: { pendingNavigation = nil }, advanceSuperset: advanceSuperset).id(focus.id)
                     }
                     else if model.errorMessage == nil, let label = model.undoLabel {
@@ -486,7 +488,7 @@ struct TrainingDayView: View {
             }
             VStack(alignment: .leading, spacing: 8) {
                 supersetStatus
-                TrainingSetRows(model: model, records: model.workoutPersonalRecords,
+                TrainingSetRows(model: model, records: model.workoutPersonalRecords, prefersWeightKeyboard: prefersWeightKeyboard,
                     beginInteraction: { pendingNavigation = nil }, advanceSuperset: advanceSuperset,
                     showExercises: { open(.sheet(.exercises)) })
                 if let best = model.personalBest {
@@ -537,7 +539,7 @@ struct TrainingDayView: View {
         let ids = model.tabs.map(\.id)
         guard let from = ids.firstIndex(of: current), let to = ids.firstIndex(of: id) else { return }
         pagingForward = to > from
-        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) {
+        withAnimation(reduceMotion ? nil : .smooth(duration: 0.25)) {
             if model.selectExercise(id) { showingSearch = false }
         }
     }
@@ -569,7 +571,9 @@ struct TrainingDayView: View {
                       !model.canRetrySave, model.errorMessage == nil,
                       !origin.inMarkers else { return }
                 let dy = drag.translation.height
-                guard abs(dy) >= 54, abs(dy) > abs(drag.translation.width) * 1.35 else { return }
+                let projected = drag.predictedEndTranslation.height
+                let isFlick = abs(dy) >= 28 && dy.sign == projected.sign && abs(projected) >= 110
+                guard abs(dy) >= 54 || isFlick, abs(dy) > abs(drag.translation.width) * 1.35 else { return }
                 // In a long ledger a drag scrolls the sets first. The exercise heading always pages.
                 guard fromCue || origin.inHeader || origin.edges.contains(dy < 0 ? .bottom : .top) else { return }
                 turnPage(forward: dy < 0)
@@ -777,6 +781,7 @@ struct TrainingSetRows: View {
 
     @Bindable var model: TrainingNotebookModel
     let records: [UUID: TrainingWorkoutRecord]
+    let prefersWeightKeyboard: Bool
     var beginInteraction: () -> Void = {}
     var advanceSuperset: (UUID) -> Void
     var showExercises: () -> Void
@@ -1042,7 +1047,10 @@ struct TrainingSetRows: View {
     }
 
     private var newSetButton: some View {
-        Button { beginInteraction(); model.newSet() } label: { WorkoutPrimaryActionLabel(title: "Add set") }
+        Button {
+            beginInteraction()
+            model.newSet(keyboard: prefersWeightKeyboard ? true : nil)
+        } label: { WorkoutPrimaryActionLabel(title: "Add set") }
         .accessibilityIdentifier("new-set")
     }
     private var repeatButton: some View {
@@ -1237,7 +1245,10 @@ struct TrainingSetRows: View {
     }
     private func cell(_ text: String, row: TrainingRow, field: NumericField) -> some View {
         let isFocused = model.focus?.rowID == row.id && model.focus?.field == field
-        return Button { beginInteraction(); model.selectInput(row.id, field: field) } label: {
+        return Button {
+            beginInteraction()
+            model.selectInput(row.id, field: field, keyboard: field == .reps || prefersWeightKeyboard)
+        } label: {
             Text(text).font(.system(size: numeralSize).monospacedDigit())
                 .lineLimit(1)
                 .fixedSize(horizontal: false, vertical: true)
