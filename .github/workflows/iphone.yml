@@ -2,7 +2,7 @@ name: iPhone validation
 
 on:
   push:
-    branches: [main, 'codex/**']
+    branches: [main, 'codex/**', validation/iphone]
   pull_request:
   workflow_dispatch:
 
@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: iphone-${{ github.ref }}
+  group: iphone-${{ github.ref }}-${{ github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/validation/iphone' }}
   cancel-in-progress: true
 
 jobs:
@@ -27,9 +27,9 @@ jobs:
       - run: bash scripts/test.sh
 
   iphone:
-    name: ${{ matrix.device }} interactions
+    name: ${{ matrix.device }} · ${{ (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/validation/iphone') && 'full suite' || 'workout checks' }}
     runs-on: macos-15
-    timeout-minutes: 40
+    timeout-minutes: ${{ (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/validation/iphone') && 240 || 40 }}
     strategy:
       fail-fast: false
       matrix:
@@ -44,7 +44,19 @@ jobs:
       - name: Build and run iPhone UI tests
         env:
           SENDA_TEST_RESULTS: ${{ runner.temp }}/senda-results
-        run: bash scripts/test-ios.sh
+          FULL_SUITE: ${{ github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/validation/iphone' }}
+        run: |
+          if [[ "$FULL_SUITE" == true ]]; then
+            bash scripts/test-ios.sh
+          else
+            bash scripts/test-ios.sh \
+              -only-testing:SendaUITests/LoggerUITests/testBlankJournalLaunchIsResponsive \
+              -only-testing:SendaUITests/LoggerUITests/testNextFocusesRepsWithoutAnotherTapAndDoneDismissesKeyboard \
+              -only-testing:SendaUITests/LoggerUITests/testNextSetReusesBlankRowAndLastValuesSaveImmediately \
+              -only-testing:SendaUITests/LoggerUITests/testWorkoutCarouselDotsStayVisibleWhenSelectingAndEditing \
+              -only-testing:SendaUITests/LoggerUITests/testWorkoutPagesSwipeBothWaysAndOpenPickerOnlyAfterLastExercise \
+              -only-testing:SendaUITests/LoggerUITests/testBackupSettingsExposeExportAndValidatedRestoreActions
+          fi
       - name: Preserve simulator results and screenshots
         if: always()
         uses: actions/upload-artifact@v7.0.2
