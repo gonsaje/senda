@@ -1,4 +1,4 @@
-import CoreImage
+import CoreGraphics
 import XCTest
 
 final class LoggerUITests: XCTestCase {
@@ -1517,7 +1517,7 @@ final class LoggerUITests: XCTestCase {
     }
 
     @MainActor
-    func testAppAppearanceOverridesAndReturnsToThePhoneSetting() async throws {
+    func testAppAppearanceOverridesAndReturnsToThePhoneSetting() throws {
         let device = XCUIDevice.shared
         let originalAppearance = device.appearance
         defer { device.appearance = originalAppearance }
@@ -1536,28 +1536,28 @@ final class LoggerUITests: XCTestCase {
         openSettings()
         XCTAssertEqual(element("profile-appearance", in: app).value as? String, "System")
         choose("Dark")
-        try await expectPaper(espresso, in: app, capture: "Appearance · Dark", sheet: true)
+        try expectPaper(espresso, in: app, capture: "Appearance · Dark", sheet: true)
         tap("close-profile-settings", in: app)
         tap("dock-library", in: app)
-        try await expectPaper(espresso, in: app)
+        try expectPaper(espresso, in: app)
         app.terminate()
         app.launch()
         let intro = app.descendants(matching: .any).matching(identifier: "senda-launch-intro").firstMatch
         XCTAssertTrue(intro.waitForNonExistence(timeout: 5))
-        try await expectPaper(espresso, in: app)
+        try expectPaper(espresso, in: app)
         openSettings()
         XCTAssertEqual(element("profile-appearance", in: app).value as? String, "Dark")
         device.appearance = .dark
         choose("Light")
-        try await expectPaper(ivory, in: app, sheet: true)
+        try expectPaper(ivory, in: app, sheet: true)
         choose("System")
-        try await expectPaper(espresso, in: app, sheet: true)
+        try expectPaper(espresso, in: app, sheet: true)
         device.appearance = .light
-        try await expectPaper(ivory, in: app, sheet: true)
+        try expectPaper(ivory, in: app, sheet: true)
     }
 
     @MainActor
-    func testAllSectionsAndSheetsFollowPhoneAppearance() async throws {
+    func testAllSectionsAndSheetsFollowPhoneAppearance() throws {
         let device = XCUIDevice.shared
         let originalAppearance = device.appearance
         defer { device.appearance = originalAppearance }
@@ -1566,36 +1566,36 @@ final class LoggerUITests: XCTestCase {
         let app = launch(extra: ["--sample-data"])
         let ivory = [247, 243, 235]
         let espresso = [37, 31, 26]
-        try await expectPaper(ivory, in: app, capture: "Week · Light")
+        try expectPaper(ivory, in: app, capture: "Week · Light")
         device.appearance = .dark
-        try await expectPaper(espresso, in: app, capture: "Week · Brown")
+        try expectPaper(espresso, in: app, capture: "Week · Brown")
         tap("dock-library", in: app)
         XCTAssertTrue(element("library-workouts", in: app).isHittable)
-        try await expectPaper(espresso, in: app, capture: "Library · Brown")
+        try expectPaper(espresso, in: app, capture: "Library · Brown")
         tap("dock-profile", in: app)
         XCTAssertTrue(element("profile-settings", in: app).isHittable)
-        try await expectPaper(espresso, in: app, capture: "Profile · Brown")
+        try expectPaper(espresso, in: app, capture: "Profile · Brown")
         tap("dock-trends", in: app)
         XCTAssertTrue(element("trends-strength-manage", in: app).isHittable)
-        try await expectPaper(espresso, in: app, capture: "Trends · Brown")
+        try expectPaper(espresso, in: app, capture: "Trends · Brown")
         tap("trends-strength-manage", in: app)
         XCTAssertTrue(element("trends-track-cancel", in: app).isHittable)
-        try await expectPaper(espresso, in: app, capture: "Track strength · Brown", sheet: true)
+        try expectPaper(espresso, in: app, capture: "Track strength · Brown", sheet: true)
         device.appearance = .light
-        try await expectPaper(ivory, in: app, capture: "Track strength · Light", sheet: true)
+        try expectPaper(ivory, in: app, capture: "Track strength · Light", sheet: true)
         tap("trends-track-cancel", in: app)
-        try await expectPaper(ivory, in: app)
+        try expectPaper(ivory, in: app)
         tap("dock-log", in: app)
         XCTAssertTrue(element("week-summary", in: app).exists)
         device.appearance = .dark
-        try await expectPaper(espresso, in: app)
+        try expectPaper(espresso, in: app)
 
         tap(todayRowID(), in: app)
         XCTAssertTrue(app.buttons["last-reference"].waitForExistence(timeout: 3))
         XCTAssertTrue(element("row-1-weight", in: app).exists)
-        try await expectPaper(espresso, in: app, capture: "Active workout · Brown")
+        try expectPaper(espresso, in: app, capture: "Active workout · Brown")
         device.appearance = .light
-        try await expectPaper(ivory, in: app, capture: "Active workout · Light")
+        try expectPaper(ivory, in: app, capture: "Active workout · Light")
     }
 
     @MainActor
@@ -3244,8 +3244,13 @@ final class LoggerUITests: XCTestCase {
         add("Bench", id: "bench", in: app)
         for row in 1...3 {
             tap("row-\(row)-weight", in: app)
-            XCTAssertTrue(element("weight-dial", in: app).exists)
-            XCTAssertFalse(app.keyboards.firstMatch.exists)
+            if row == 1 {
+                XCTAssertTrue(element("weight-dial", in: app).exists)
+                XCTAssertFalse(app.keyboards.firstMatch.exists)
+            } else {
+                XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 3))
+                XCTAssertFalse(app.descendants(matching: .any).matching(identifier: "weight-dial").firstMatch.exists)
+            }
             XCTAssertFalse(app.buttons["input-mode"].exists)
             for value in ["152.5", "127.25", "135", "152.5"] {
                 replace(value, in: app)
@@ -4676,21 +4681,29 @@ final class LoggerUITests: XCTestCase {
     }
 
     @MainActor private func expectPaper(_ expected: [Int], in app: XCUIApplication, capture title: String? = nil, sheet: Bool = false,
-                     file: StaticString = #filePath, line: UInt = #line) async throws {
-        let context = CIContext()
+                     file: StaticString = #filePath, line: UInt = #line) throws {
         let sRGB = try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB))
+        let context = try XCTUnwrap(CGContext(data: nil, width: 1, height: 1, bitsPerComponent: 8,
+            bytesPerRow: 4, space: sRGB, bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue))
+        let pixel = try XCTUnwrap(context.data).assumingMemoryBound(to: UInt8.self)
         let deadline = ContinuousClock.now + .seconds(5)
-        var actual = [Int]()
+        var samples = [[Int]]()
         repeat {
             let shot = app.screenshot()
-            let image = CIImage(cgImage: try XCTUnwrap(shot.image.cgImage))
-            // The sheet's paper starts inside the screen edge on some iPhones.
-            let x = sheet ? floor(image.extent.width * 0.055) : 3
-            let sample = CGRect(x: x, y: floor(image.extent.midY), width: 1, height: 1)
-            var pixel = [UInt8](repeating: 0, count: 4)
-            context.render(image, toBitmap: &pixel, rowBytes: 4, bounds: sample, format: .RGBA8, colorSpace: sRGB)
-            actual = pixel.prefix(3).map(Int.init)
-            if zip(actual, expected).allSatisfy({ abs($0.0 - $0.1) <= 2 }) {
+            let image = try XCTUnwrap(shot.image.cgImage)
+            // A highlighted day can span the entire width at a single height.
+            let x = sheet ? floor(CGFloat(image.width) * 0.055) : 3
+            let heights: [CGFloat] = sheet ? [0.48, 0.54, 0.60, 0.66, 0.72] : [0.20, 0.26, 0.32, 0.38, 0.44]
+            samples = try heights.map { fraction in
+                let rect = CGRect(x: x, y: floor(CGFloat(image.height) * fraction), width: 1, height: 1)
+                let sample = try XCTUnwrap(image.cropping(to: rect))
+                context.draw(sample, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+                return [Int(pixel[0]), Int(pixel[1]), Int(pixel[2])]
+            }
+            let matches = samples.filter { sample in
+                zip(sample, expected).allSatisfy { abs($0.0 - $0.1) <= 2 }
+            }
+            if matches.count > samples.count / 2 {
                 if let title {
                     let attachment = XCTAttachment(screenshot: shot)
                     attachment.name = title
@@ -4699,9 +4712,9 @@ final class LoggerUITests: XCTestCase {
                 }
                 return
             }
-            try await Task.sleep(for: .milliseconds(100))
+            RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.1))
         } while ContinuousClock.now < deadline
-        XCTFail("Expected page RGB \(expected), found \(actual)", file: file, line: line)
+        XCTFail("Expected page RGB \(expected) at the margin, sampled \(samples)", file: file, line: line)
     }
 
 
