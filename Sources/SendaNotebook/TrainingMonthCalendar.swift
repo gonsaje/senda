@@ -13,14 +13,10 @@ struct TrainingMonthCalendar: View {
     let openWorkout: () -> Void
     @Environment(\.dynamicTypeSize) private var textSize
     @AccessibilityFocusState private var workoutActionFocused: Bool
-    @Namespace private var monthContent
-    @State private var workoutTop: CGFloat?
-    @State private var workoutBelowViewport = false
     @State private var showsMuscles = false
 
-    private static let weekdayHeight: CGFloat = 22
-    private static let dateHeight: CGFloat = 46
-    private static let gridHeight: CGFloat = 6 * dateHeight
+    @ScaledMetric(relativeTo: .body) private var minimumRowHeight: CGFloat = 44
+    private static let weeks = 6
     private static let dateStyle = Date.FormatStyle(locale: .autoupdatingCurrent, calendar: TrainingText.utc,
                                                     timeZone: TrainingText.utc.timeZone)
 
@@ -64,20 +60,29 @@ struct TrainingMonthCalendar: View {
         let trained = days.filter { activity[$0] == .logged }.count
 
         GeometryReader { viewport in
-            let useList = textSize >= .xxxLarge || viewport.size.width < 318
+            let minimumGridWidth: CGFloat = 7 * 44
+            let useList = textSize >= .xxxLarge || viewport.size.width < minimumGridWidth
+            let gutter = min(20, max(0, (viewport.size.width - minimumGridWidth) / 2))
             let viewportHeight = viewport.size.height
-            let bottomPadding: CGFloat = 18
-            let remainingHeight = workoutTop.map { max(0, viewportHeight - $0 - bottomPadding) }
+            let compact = !useList && viewportHeight < 660
+            let topInset: CGFloat = compact ? 4 : 8
+            let bottomInset: CGFloat = compact ? 8 : 12
+            let layout = useList
+                ? AnyLayout(VStackLayout(alignment: .leading, spacing: 10))
+                : AnyLayout(MonthPageLayout(availableHeight: viewportHeight - topInset - bottomInset,
+                                            spacing: compact ? 6 : 10))
             ScrollViewReader { proxy in
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 14) {
+                    layout {
                         TrainingCalendarMasthead(showsMonth: true, toggle: showWeek)
                             .trainingCalendarColumn().id("month-start")
-                        header(trained: trained).trainingCalendarColumn()
+                        monthHeader
+                            .trainingCalendarColumn()
                         if let message = model.errorMessage {
                             TrainingSaveError(model: model, message: message).trainingCalendarColumn()
                         }
                         if useList {
+                            trainedCount(trained).trainingCalendarColumn()
                             selectedWorkout(activity: activity[selectedDay] ?? .empty)
                                 .trainingCalendarColumn().id("month-workout")
                             VStack(spacing: 0) {
@@ -94,22 +99,20 @@ struct TrainingMonthCalendar: View {
                         } else {
                             calendarGrid(month: month, dates: dates, activity: activity) { day in
                                 selectedDay = day
-                                if workoutBelowViewport { proxy.scrollTo("month-workout", anchor: .bottom) }
+                                proxy.scrollTo("month-workout")
                             }
-                            legend(hasDraft: activity.values.contains(.inProgress))
-                            selectedWorkout(activity: activity[selectedDay] ?? .empty, minHeight: remainingHeight)
+                            .padding(.horizontal, gutter)
+                            .frame(maxWidth: 560)
+                            .frame(maxWidth: .infinity)
+                            .layoutValue(key: MonthGridItem.self, value: true)
+                            calendarKey(trained: trained, hasDraft: activity.values.contains(.inProgress))
+                                .trainingCalendarColumn()
+                            selectedWorkout(activity: activity[selectedDay] ?? .empty, previewLines: compact ? 1 : 2)
                                 .trainingCalendarColumn().id("month-workout")
-                                .onGeometryChange(for: CGFloat.self) { [monthContent] geometry in
-                                    geometry.frame(in: .named(monthContent)).minY
-                                } action: { workoutTop = $0 }
-                                .onGeometryChange(for: Bool.self) { geometry in
-                                    geometry.frame(in: .scrollView(axis: .vertical)).maxY > viewportHeight + 1
-                                } action: { workoutBelowViewport = $0 }
                         }
                     }
-                    .padding(.top, 10).padding(.bottom, bottomPadding)
+                    .padding(.top, topInset).padding(.bottom, bottomInset)
                     .frame(maxWidth: .infinity)
-                    .coordinateSpace(.named(monthContent))
                 }
                 .scrollBounceBehavior(.basedOnSize, axes: .vertical)
                 .accessibilityIdentifier("month-calendar")
@@ -127,48 +130,59 @@ struct TrainingMonthCalendar: View {
         }
     }
 
-    private func header(trained: Int) -> some View {
-        let layout = textSize.isAccessibilitySize
-            ? AnyLayout(VStackLayout(alignment: .trailing, spacing: 0))
-            : AnyLayout(HStackLayout(alignment: .center, spacing: 8))
-        return VStack(alignment: .leading, spacing: 0) {
-            layout {
-                VStack(alignment: .leading, spacing: 0) {
-                    Text(TrainingText.date(month.firstDay, format: "yyyy"))
-                        .font(.subheadline.monospacedDigit()).foregroundStyle(NotebookStyle.quiet)
-                        .accessibilityHidden(true)
-                    ViewThatFits(in: .horizontal) {
-                        Text(TrainingText.date(month.firstDay, format: "LLLL")).fixedSize()
-                        Text(TrainingText.date(month.firstDay, format: "LLL")).lineLimit(1)
-                    }
-                        .font(NotebookTypography.heading(43, relativeTo: .largeTitle)).tracking(-1.8)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .accessibilityLabel(TrainingText.date(month.firstDay, format: "LLLL yyyy"))
-                        .accessibilityAddTraits(.isHeader)
-                        .accessibilityIdentifier("calendar-month-title")
-                    Text("\(trained) \(trained == 1 ? "day" : "days") trained")
-                        .font(.subheadline).foregroundStyle(NotebookStyle.quiet)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.top, 4)
-                        .accessibilityIdentifier("calendar-trained-days")
-                }
-                HStack(alignment: .trainingTodayIconCenter, spacing: 2) {
-                    TrainingTodayButton(day: today, isVisible: selectedDay != today) {
-                        selectedDay = model.today
-                    }
-                    .foregroundStyle(NotebookStyle.clay)
-                    .accessibilityIdentifier("today-month")
-                    VStack(spacing: 0) {
-                        monthArrow(-1, symbol: "chevron.up", label: "Previous month", identifier: "calendar-previous-month")
-                        monthArrow(1, symbol: "chevron.down", label: "Next month", identifier: "calendar-next-month")
-                    }
-                    .accessibilityElement(children: .contain)
-                }
-                .fixedSize()
+    private var monthHeader: some View {
+        let name = TrainingText.date(month.firstDay, format: "LLLL")
+        let year = TrainingText.date(month.firstDay, format: "yyyy")
+        let title = VStack(alignment: .leading, spacing: 0) {
+            Text(year).font(.caption.weight(.semibold).monospacedDigit())
+                .tracking(1.2).accessibilityHidden(true)
+            ViewThatFits(in: .horizontal) {
+                Text(name).fixedSize()
+                Text(TrainingText.date(month.firstDay, format: "LLL")).fixedSize(horizontal: false, vertical: true)
             }
-            .padding(.bottom, 10)
-            Rectangle().fill(NotebookStyle.rule).frame(height: 1).accessibilityHidden(true)
+            .font(NotebookTypography.heading(35, relativeTo: .largeTitle)).tracking(-1.5)
+            .accessibilityLabel(TrainingText.date(month.firstDay, format: "LLLL yyyy"))
+            .accessibilityAddTraits(.isHeader)
+            .accessibilityIdentifier("calendar-month-title")
+        }
+        let layout = textSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4))
+            : AnyLayout(HStackLayout(alignment: .center, spacing: 6))
+        return layout {
+            title.frame(maxWidth: .infinity, alignment: .leading)
+            HStack(alignment: .trainingTodayIconCenter, spacing: 2) {
+                TrainingTodayButton(day: today, isVisible: selectedDay != today) {
+                    selectedDay = model.today
+                }
+                .foregroundStyle(NotebookStyle.clay)
+                .accessibilityIdentifier("today-month")
+                VStack(spacing: 0) {
+                    monthArrow(-1, symbol: "chevron.up", label: "Previous month", identifier: "calendar-previous-month")
+                    monthArrow(1, symbol: "chevron.down", label: "Next month", identifier: "calendar-next-month")
+                }
+                .accessibilityElement(children: .contain)
+            }
+            .fixedSize()
+        }
+    }
+
+    private func trainedCount(_ trained: Int) -> some View {
+        Text("\(trained) \(trained == 1 ? "day" : "days") trained")
+            .font(.subheadline.weight(.medium))
+            .accessibilityIdentifier("calendar-trained-days")
+    }
+
+    private func calendarKey(trained: Int, hasDraft: Bool) -> some View {
+        ViewThatFits(in: .horizontal) {
+            HStack {
+                trainedCount(trained).fixedSize()
+                Spacer(minLength: 8)
+                legend(hasDraft: hasDraft).fixedSize()
+            }
+            VStack(alignment: .leading, spacing: 3) {
+                trainedCount(trained)
+                legend(hasDraft: hasDraft)
+            }
         }
     }
 
@@ -194,25 +208,31 @@ struct TrainingMonthCalendar: View {
 
     private func calendarGrid(month: TrainingMonth, dates: [TrainingDay?], activity: [TrainingDay: Activity],
                               select: @escaping (TrainingDay) -> Void) -> some View {
-        MonthGridPager(month: month, height: Self.gridHeight, onPage: { selectMonth($0.firstDay) }) { pages, dragOffset in
-            VStack(spacing: 0) {
-                weekdayLabels
-                ZStack(alignment: .top) {
-                    ForEach(pages, id: \.month.firstDay) { page in
-                        let isCurrent = page.offset == 0
-                        let pageDates = isCurrent ? dates : page.month.calendarSlots
-                        monthGrid(month: page.month, dates: pageDates,
-                            activity: isCurrent ? activity : monthActivity(for: pageDates), select: select)
-                            .frame(height: Self.gridHeight, alignment: .top)
-                            .offset(y: CGFloat(page.offset) * Self.gridHeight + dragOffset)
-                            .allowsHitTesting(isCurrent)
-                            .accessibilityHidden(!isCurrent)
-                            .transition(.identity)
+        VStack(spacing: 0) {
+            weekdayLabels
+                .fixedSize(horizontal: false, vertical: true)
+            GeometryReader { geometry in
+                let height = geometry.size.height
+                MonthGridPager(month: month, height: height, onPage: { selectMonth($0.firstDay) }) { pages, dragOffset in
+                    ZStack(alignment: .top) {
+                        ForEach(pages, id: \.month.firstDay) { page in
+                            let isCurrent = page.offset == 0
+                            let pageDates = isCurrent ? dates : page.month.calendarSlots
+                            monthGrid(month: page.month, dates: pageDates,
+                                activity: isCurrent ? activity : monthActivity(for: pageDates),
+                                rowHeight: height / CGFloat(Self.weeks), select: select)
+                                .offset(y: CGFloat(page.offset) * height + dragOffset)
+                                .allowsHitTesting(isCurrent)
+                                .accessibilityHidden(!isCurrent)
+                                .transition(.identity)
+                        }
                     }
+                    .frame(height: height, alignment: .top)
+                    .clipped()
                 }
-                .frame(height: Self.gridHeight)
-                .clipped()
             }
+            .frame(minHeight: CGFloat(Self.weeks) * max(44, minimumRowHeight),
+                   maxHeight: CGFloat(Self.weeks) * max(64, minimumRowHeight))
         }
     }
 
@@ -228,45 +248,48 @@ struct TrainingMonthCalendar: View {
 
     private var weekdayLabels: some View {
         let weekdays = model.calendar.shortStandaloneWeekdaySymbols
+        let shortWeekdays = model.calendar.veryShortStandaloneWeekdaySymbols
         return LazyVGrid(columns: columns, spacing: 0) {
             ForEach(0..<7) { index in
-                Text(weekdays[(index + 1) % 7]).textCase(.uppercase)
-                    .font(.caption2.weight(.semibold)).foregroundStyle(NotebookStyle.quiet)
-                    .frame(height: Self.weekdayHeight).accessibilityHidden(true)
+                let weekday = (index + 1) % 7
+                ViewThatFits(in: .horizontal) {
+                    Text(weekdays[weekday]).fixedSize()
+                    Text(shortWeekdays[weekday]).fixedSize()
+                }
+                .textCase(.uppercase).tracking(0.8)
+                .font(.caption2.weight(.semibold)).foregroundStyle(NotebookStyle.quiet)
+                .padding(.vertical, 5)
+                .accessibilityHidden(true)
             }
         }
-        .padding(.horizontal, 5)
-        .frame(maxWidth: 530)
-        .frame(maxWidth: .infinity)
     }
 
     private func monthGrid(month: TrainingMonth, dates: [TrainingDay?], activity: [TrainingDay: Activity],
-                           select: @escaping (TrainingDay) -> Void) -> some View {
+                           rowHeight: CGFloat, select: @escaping (TrainingDay) -> Void) -> some View {
         LazyVGrid(columns: columns, spacing: 0) {
             ForEach(dates.indices, id: \.self) { index in
-                if let day = dates[index] {
-                    dateButton(day, in: month, activity: activity[day] ?? .empty, asRow: false) { select(day) }
-                } else {
-                    Color.clear.frame(height: Self.dateHeight).accessibilityHidden(true)
+                Group {
+                    if let day = dates[index] {
+                        dateButton(day, in: month, activity: activity[day] ?? .empty, asRow: false) { select(day) }
+                    } else {
+                        Color.clear.accessibilityHidden(true)
+                    }
                 }
+                .frame(height: rowHeight)
             }
         }
-        .padding(.horizontal, 5)
-        .frame(maxWidth: 530)
-        .frame(maxWidth: .infinity)
     }
 
-    private func marker(_ activity: Activity) -> some View {
-        Circle()
-            .fill(activity == .logged ? NotebookStyle.clay : .clear)
+    private func marker(_ activity: Activity, onSelection: Bool = false) -> some View {
+        let color = onSelection ? NotebookStyle.onPrimary : NotebookStyle.clay
+        return Capsule()
+            .fill(activity == .logged ? color : .clear)
             .overlay(alignment: .leading) {
-                if activity == .inProgress {
-                    Rectangle().fill(NotebookStyle.clay).frame(width: 3.5)
-                }
+                if activity == .inProgress { Rectangle().fill(color).frame(width: 4) }
             }
-            .clipShape(Circle())
-            .overlay { Circle().strokeBorder(NotebookStyle.clay, lineWidth: 1.3) }
-            .frame(width: 7, height: 7)
+            .clipShape(Capsule())
+            .overlay { Capsule().strokeBorder(color, lineWidth: 1) }
+            .frame(width: activity == .logged ? 12 : 9, height: 4)
             .opacity(activity == .empty ? 0 : 1)
             .accessibilityHidden(true)
     }
@@ -278,8 +301,7 @@ struct TrainingMonthCalendar: View {
             if hasDraft { HStack(spacing: 4) { marker(.inProgress); Text("In progress") } }
         }
         .font(.caption).foregroundStyle(NotebookStyle.quiet)
-        .fixedSize(horizontal: true, vertical: true)
-        .frame(maxWidth: .infinity).accessibilityHidden(true)
+        .frame(maxWidth: .infinity, alignment: .trailing).accessibilityHidden(true)
     }
 
     private func dateButton(_ day: TrainingDay, in page: TrainingMonth, activity: Activity, asRow: Bool,
@@ -287,7 +309,7 @@ struct TrainingMonthCalendar: View {
         let isToday = day == today
         let outsideMonth = day.rawValue.prefix(7) != page.firstDay.rawValue.prefix(7)
         let isSelected = day == selectedDay && !outsideMonth
-        let ink = outsideMonth ? NotebookStyle.quiet : (isToday || activity == .logged ? NotebookStyle.clay : NotebookStyle.ink)
+        let ink = outsideMonth ? NotebookStyle.quiet : (isToday || isSelected ? NotebookStyle.clay : NotebookStyle.ink)
         let date = day.date(in: Self.dateStyle.calendar)
         let label = date.formatted(Self.dateStyle.weekday(.wide).month(.wide).day().year())
         return Button(action: select) {
@@ -302,16 +324,20 @@ struct TrainingMonthCalendar: View {
                 .background(isSelected ? NotebookStyle.dockSelectionFill : .clear, in: RoundedRectangle(cornerRadius: 8))
                 .contentShape(Rectangle())
             } else {
-                VStack(spacing: 1) {
+                VStack(spacing: 2) {
                     Text(date.formatted(Self.dateStyle.day()))
-                        .font(.body.weight(isSelected || isToday || activity == .logged ? .semibold : .regular).monospacedDigit())
+                        .font(.body.weight(isSelected || isToday ? .bold : .regular).monospacedDigit())
                         .underline(isToday && !isSelected)
-                        .foregroundStyle(isSelected ? NotebookStyle.ivory : ink)
-                        .padding(4).frame(minWidth: 32, minHeight: 32)
-                        .background(isSelected ? NotebookStyle.ink : .clear, in: Circle())
-                    marker(activity)
+                        .foregroundStyle(isSelected ? NotebookStyle.onPrimary : ink)
+                    marker(activity, onSelection: isSelected)
                 }
-                .frame(maxWidth: .infinity).frame(height: Self.dateHeight).contentShape(Rectangle())
+                .frame(minWidth: 37, minHeight: 37)
+                .background {
+                    if isSelected {
+                        Circle().fill(NotebookStyle.primaryFill)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity).contentShape(Rectangle())
             }
         }
         .accessibilityLabel(isToday ? "Today, \(label)" : label)
@@ -321,7 +347,7 @@ struct TrainingMonthCalendar: View {
         .accessibilityIdentifier("calendar-day-\(day.rawValue)")
     }
 
-    private func selectedWorkout(activity: Activity, minHeight: CGFloat? = nil) -> some View {
+    private func selectedWorkout(activity: Activity, previewLines: Int = 2) -> some View {
         let day = selectedDay
         let summary = model.summary(for: day)
         let exercises = model.indexedExercises(on: day).map(\.displayName)
@@ -336,52 +362,119 @@ struct TrainingMonthCalendar: View {
         else { status = "" }
         let exerciseNames = singleExercise == headline ? "" : exercises.prefix(3).joined(separator: " · ")
         let preview = exercises.count > 3 ? "\(exerciseNames) · +\(exercises.count - 3) more" : exerciseNames
-        let metadata = textSize >= .xxLarge
-            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 3))
-            : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: 6))
+        let detailLayout = textSize >= .xxLarge
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
+            : AnyLayout(HStackLayout(alignment: .center, spacing: 14))
         return VStack(spacing: 0) {
             Button(action: openWorkout) {
-                VStack(alignment: .leading, spacing: 6) {
-                    metadata {
-                        Text(dateText).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
-                        Text(status.isEmpty ? "Planned" : status).lineLimit(1)
-                            .opacity(status.isEmpty ? 0 : 1)
-                            .accessibilityHidden(status.isEmpty)
+                detailLayout {
+                    if textSize >= .xxLarge {
+                        Text(dateText).font(.subheadline)
+                    } else {
+                        VStack(spacing: 0) {
+                            Text(day == today ? "Today" : TrainingText.date(day, format: "EEE"))
+                                .textCase(.uppercase).tracking(0.8)
+                                .font(.caption2.weight(.semibold))
+                            Text(TrainingText.date(day, format: "d"))
+                                .font(NotebookTypography.heading(38, relativeTo: .title))
+                                .monospacedDigit()
+                        }
+                        .foregroundStyle(NotebookStyle.onCover.opacity(0.88))
+                        .frame(minWidth: 45)
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel(dateText)
                     }
-                    .font(.caption).foregroundStyle(NotebookStyle.onCover.opacity(0.84))
-                    HStack(spacing: 12) {
-                        Text(headline).font(NotebookTypography.heading(27, relativeTo: .title2))
-                            .lineLimit(textSize.isAccessibilitySize ? 2 : 1, reservesSpace: true)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                    HStack(alignment: .center, spacing: 8) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(headline)
+                                .font(NotebookTypography.heading(23, relativeTo: .title2))
+                                .lineLimit(textSize.isAccessibilitySize ? nil : 2)
+                            let detail = Text(preview.isEmpty ? headline : preview)
+                                .font(.footnote)
+                                .foregroundStyle(NotebookStyle.onCover.opacity(0.86))
+                            if textSize.isAccessibilitySize {
+                                if !preview.isEmpty { detail }
+                            } else {
+                                detail.lineLimit(previewLines, reservesSpace: true)
+                                    .opacity(preview.isEmpty ? 0 : 1)
+                                    .accessibilityHidden(preview.isEmpty)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                         Image(systemName: "arrow.right")
                             .font(.subheadline.weight(.semibold)).accessibilityHidden(true)
                     }
-                    // Use the same font metrics even on dates without exercises.
-                    Text(preview.isEmpty ? headline : preview).lineLimit(1)
-                        .font(.subheadline).foregroundStyle(NotebookStyle.onCover.opacity(0.90))
-                        .opacity(preview.isEmpty ? 0 : 1)
-                        .accessibilityHidden(preview.isEmpty)
                 }
-                .padding(.vertical, 12)
-                .frame(maxHeight: minHeight == nil ? nil : .infinity)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.vertical, 10)
+                .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
                 .contentShape(Rectangle())
             }
             .accessibilityFocused($workoutActionFocused)
             .accessibilityIdentifier("calendar-open-workout")
-
             Rectangle().fill(NotebookStyle.coverRule).frame(height: 0.5).accessibilityHidden(true)
-            TrainingWeekMusclesButton(training: weeklyMuscles,
-                hasTargets: !model.profile.details.weeklyMuscleTargets.isEmpty,
-                title: "Weekly muscles", action: { showsMuscles = true })
-                .accessibilityHint("Shows the week containing the selected date")
-                .accessibilityIdentifier("calendar-week-muscles")
-                .frame(maxWidth: .infinity, alignment: .trailing)
+            let footer = textSize >= .xxLarge
+                ? AnyLayout(VStackLayout(alignment: .leading, spacing: 0))
+                : AnyLayout(HStackLayout(alignment: .center, spacing: 6))
+            footer {
+                if !status.isEmpty {
+                    Text(status).font(.footnote)
+                        .foregroundStyle(NotebookStyle.onCover.opacity(0.88))
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                TrainingWeekMusclesButton(training: weeklyMuscles,
+                    hasTargets: !model.profile.details.weeklyMuscleTargets.isEmpty,
+                    title: "Weekly muscles", action: { showsMuscles = true })
+                    .accessibilityHint("Shows the week containing the selected date")
+                    .accessibilityIdentifier("calendar-week-muscles")
+            }
+            .frame(maxWidth: .infinity, alignment: textSize >= .xxLarge ? .leading : .trailing)
         }
         .foregroundStyle(NotebookStyle.onCover)
-        .padding(.horizontal, 16)
-        .padding(.bottom, 4)
-        .frame(minHeight: minHeight)
-        .background(NotebookStyle.cover, in: RoundedRectangle(cornerRadius: 16))
+        .padding(.horizontal, 15)
+        .padding(.bottom, 2)
+        .background(NotebookStyle.cover, in: RoundedRectangle(cornerRadius: 15))
+    }
+}
+
+private enum MonthGridItem: LayoutValueKey {
+    static let defaultValue = false
+}
+
+/// Only the weeks stretch. Report their minimum plus the actual text and controls to the scroll view.
+private struct MonthPageLayout: Layout {
+    let availableHeight: CGFloat
+    let spacing: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let sizes = sizes(for: proposal.width, subviews: subviews)
+        return CGSize(width: proposal.width ?? sizes.map(\.width).max() ?? 0,
+                      height: sizes.reduce(gaps(subviews)) { $0 + $1.height })
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var top = bounds.minY
+        for (subview, size) in zip(subviews, sizes(for: bounds.width, subviews: subviews)) {
+            subview.place(at: CGPoint(x: bounds.minX, y: top), anchor: .topLeading,
+                          proposal: ProposedViewSize(width: bounds.width, height: size.height))
+            top += size.height + spacing
+        }
+    }
+
+    private func sizes(for width: CGFloat?, subviews: Subviews) -> [CGSize] {
+        let natural = ProposedViewSize(width: width, height: nil)
+        var sizes = subviews.map { $0.sizeThatFits(natural) }
+        if let grid = subviews.indices.first(where: { subviews[$0][MonthGridItem.self] }) {
+            let used = sizes.reduce(gaps(subviews)) { $0 + $1.height }
+            let height = sizes[grid].height + max(0, availableHeight - used)
+            sizes[grid] = subviews[grid].sizeThatFits(ProposedViewSize(width: width, height: height))
+        }
+        return sizes
+    }
+
+    private func gaps(_ subviews: Subviews) -> CGFloat {
+        CGFloat(max(0, subviews.count - 1)) * spacing
     }
 }
 
