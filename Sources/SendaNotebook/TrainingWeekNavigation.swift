@@ -152,15 +152,28 @@ struct TrainingTodayButton: View {
     }
 }
 
+public extension EnvironmentValues {
+    @Entry var trainingLaunchMark: AnyView?
+}
+
 struct TrainingCalendarMasthead: View {
+    @Environment(\.trainingLaunchMark) private var launchMark
     let showsMonth: Bool
     let toggle: () -> Void
 
     var body: some View {
         ViewThatFits(in: .horizontal) {
-            HStack { TrainingWordmark(width: 110); Spacer(minLength: 8); toggleButtons.fixedSize() }
-            VStack(alignment: .leading, spacing: 8) { TrainingWordmark(width: 110); toggleButtons }
+            HStack { brand; Spacer(minLength: 8); toggleButtons.fixedSize() }
+            VStack(alignment: .leading, spacing: 8) { brand; toggleButtons }
         }
+    }
+
+    private var brand: some View {
+        TrainingWordmark(width: 110)
+            .opacity(launchMark == nil ? 1 : 0)
+            .overlay(alignment: .leading) { launchMark }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Senda")
     }
 
     private var toggleButtons: some View {

@@ -130,7 +130,7 @@ public struct TrainingFocus: Codable, Equatable, Identifiable, Sendable {
     public let exerciseID: String
     public let rowID: UUID
     public let field: NumericField
-    public let keyboard: Bool
+    public var keyboard: Bool
     public init(id: UUID = UUID(), day: TrainingDay, exerciseID: String, rowID: UUID, field: NumericField, keyboard: Bool = true) {
         self.id = id; self.day = day; self.exerciseID = exerciseID; self.rowID = rowID; self.field = field; self.keyboard = keyboard
     }

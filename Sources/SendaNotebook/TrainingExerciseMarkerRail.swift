@@ -33,7 +33,9 @@ struct TrainingExerciseMarkerRail: View {
                     .font(.system(size: isExpanded ? 18 : 13, weight: .medium))
                     .foregroundStyle(isExpanded ? NotebookStyle.clay : NotebookStyle.quiet)
                     .background(NotebookStyle.ivory, in: Circle())
-                    .frame(width: tapTarget, height: tapTarget)
+                    .frame(width: 20)
+                    .padding(.trailing, 2)
+                    .frame(width: tapTarget, height: tapTarget, alignment: .trailing)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -64,7 +66,9 @@ struct TrainingExerciseMarkerRail: View {
         .frame(width: isExpanded ? 19 : 12)
         .background(NotebookStyle.ivory, in: Capsule())
         .overlay { Capsule().strokeBorder(NotebookStyle.rule.opacity(isExpanded ? 1 : 0.65)) }
-        .frame(width: tapTarget, height: height)
+        .frame(width: 20)
+        .padding(.trailing, 2)
+        .frame(width: tapTarget, height: height, alignment: .trailing)
         .contentShape(Rectangle())
         .onTapGesture(coordinateSpace: .local) { point in
             let top = (height - CGFloat(indices.count) * dotPitch) / 2

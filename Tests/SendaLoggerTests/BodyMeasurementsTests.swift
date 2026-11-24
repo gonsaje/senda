@@ -218,6 +218,52 @@ struct BodyMeasurementsTests {
         #expect(model.activity == DailyHealthActivity())
     }
 
+    @Test func workoutAndDraftRestoreAfterHealthSharingIsDenied() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let journal = directory.appendingPathComponent("journal.json")
+        let profile = directory.appendingPathComponent("profile.json")
+        let health = FixtureHealth()
+        health.writableMetrics = []
+        func open() throws -> TrainingNotebookModel {
+            try TrainingNotebookModel(repository: FileJournalRepository(url: journal),
+                profileRepository: FileProfileRepository(url: profile),
+                restoreStore: FileNotebookRestoreStore(journalURL: journal, profileURL: profile), health: health)
+        }
+        let model = try open()
+        await model.bodyMeasurements.enableMeasurementSharing()
+        #expect(!model.bodyMeasurements.sharesMeasurements && model.bodyMeasurements.sharingError != nil)
+        try model.bodyMeasurements.add([.weight: 70], on: today)
+        #expect(model.openToday() && model.addExercise("bench"))
+        let first = try #require(model.rows.first)
+        #expect(model.selectInput(first.id, field: .weight))
+        model.typeInput("135", focus: try #require(model.focus))
+        #expect(model.selectInput(first.id, field: .reps))
+        model.typeInput("8", focus: try #require(model.focus))
+        #expect(model.newSet(keyboard: true))
+        let draft = try #require(model.focus)
+        model.typeInput("137.", focus: draft)
+        let file = directory.appendingPathComponent("export.json")
+        try model.backupData().write(to: file)
+
+        // Make the current notebook distinct from its backup and save a real pre-restore copy.
+        model.typeInput("145", focus: draft)
+        let archive = try NotebookBackupCodec.decode(Data(contentsOf: file))
+        #expect(model.restoreBackup(archive))
+        let reopened = try open()
+        #expect(reopened.exercise?.id == "bench" && reopened.focus == draft)
+        #expect(reopened.inputText(for: draft) == "137.")
+        #expect(reopened.journal.batches.flatMap(\.values) == [SetValues(weight: 13_500, reps: 8)])
+        #expect(reopened.bodyMeasurements.readings(for: .weight).map(\.value) == [70])
+        #expect(!reopened.bodyMeasurements.sharesMeasurements && health.writes.isEmpty)
+        let previous = try #require(try await reopened.previousBackupArchive())
+        #expect(model.restoreBackup(previous))
+        #expect(try open().inputText(for: draft) == "145")
+        health.writableMetrics = [.weight]
+        await model.bodyMeasurements.enableMeasurementSharing()
+        #expect(model.bodyMeasurements.sharesMeasurements && health.sentValues == [70])
+    }
+
     @Test func sharingRetriesEditsAndDeletesAfterRelaunchAndHonorsMetricPermission() async throws {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: url) }
@@ -276,12 +322,13 @@ private final class FixtureHealth: BodyMeasurementsHealthSource {
     var writes: [MeasurementSharing.Change] = []
     var sentValues: [Double?] = []
     var failWrite = false
+    var writableMetrics: Set<BodyMetric> = [.weight]
 
     func activity(on day: Date) async throws -> DailyHealthActivity { totals }
     func addActivity(_ activity: DailyHealthActivity, date: Date, id: UUID) async throws {
         activityWrites.append(activity)
     }
-    func requestMeasurementSharing() async throws -> Set<BodyMetric> { [.weight] }
+    func requestMeasurementSharing() async throws -> Set<BodyMetric> { writableMetrics }
     func write(_ change: MeasurementSharing.Change, reading: BodyMeasurement?) async throws {
         if failWrite { throw CocoaError(.fileWriteUnknown) }
         writes.append(change)

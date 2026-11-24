@@ -17,8 +17,6 @@ struct SwipeableSetRow<Content: View>: View {
     let effort: String
     let includesDropStages: Bool
     let editEffort: () -> Void
-    let previousValues: String?
-    let useLastValues: () -> Void
     let delete: () -> Bool
     @ViewBuilder var content: () -> Content
     @State private var swipe = SetRowSwipeState()
@@ -29,17 +27,9 @@ struct SwipeableSetRow<Content: View>: View {
     private var animation: Animation? { reduceMotion ? nil : .easeOut(duration: 0.18) }
 
     var body: some View {
-        HStack(alignment: .top, spacing: SwipeableSetRowMetrics.menuSpacing) {
+        HStack(alignment: .top, spacing: 0) {
             content()
             Menu {
-                if let previousValues {
-                    Button(action: useLastValues) {
-                        Text("Use last values")
-                        Text(previousValues)
-                    }
-                    .accessibilityHint("Save the last set's weight and reps here")
-                    .accessibilityIdentifier("prefill-row-\(index)")
-                }
                 Button(effort, action: editEffort)
                     .accessibilityLabel("Set \(index), \(effort)")
                     .accessibilityHint("Edit optional reps left without changing weight, reps, or set type")
@@ -60,6 +50,7 @@ struct SwipeableSetRow<Content: View>: View {
             .contentShape(Rectangle())
             .accessibilityLabel("Set \(index) actions")
             .accessibilityIdentifier("set-\(index)-actions")
+            .padding(.trailing, SwipeableSetRowMetrics.menuSpacing)
         }
         .frame(minHeight: SwipeableSetRowMetrics.rowHeight)
         // Moving buttons must not also fire their tap action on release.

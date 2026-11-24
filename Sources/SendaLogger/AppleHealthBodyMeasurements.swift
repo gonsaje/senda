@@ -42,21 +42,24 @@ import SendaPersistence
         guard let interval = Calendar.current.dateInterval(of: .day, for: day) else {
             throw BodyMeasurementError.invalidValue
         }
-        let start = interval.start
-        let bounds = HKQuery.predicateForSamples(withStart: start, end: interval.end)
-        func total(_ type: HKQuantityType, unit: HKUnit) async throws -> Double? {
-            let query = HKStatisticsCollectionQueryDescriptor(predicate: .quantitySample(type: type, predicate: bounds),
-                options: .cumulativeSum, anchorDate: start, intervalComponents: DateComponents(day: 1))
-            do {
-                let days = try await query.result(for: store)
-                return days.statistics(for: start)?.sumQuantity()?.doubleValue(for: unit)
-            } catch let error as HKError where [.errorNoData, .errorAuthorizationDenied, .errorAuthorizationNotDetermined].contains(error.code) {
-                return nil
-            }
-        }
-        let steps = try await total(HKQuantityType(.stepCount), unit: .count())
-        let energy = try await total(HKQuantityType(.activeEnergyBurned), unit: .kilocalorie())
+        let steps = try await dailyTotal(.stepCount, unit: .count(), interval: interval)
+        let energy = try await dailyTotal(.activeEnergyBurned, unit: .kilocalorie(), interval: interval)
         return DailyHealthActivity(steps: steps, activeCalories: energy)
+    }
+
+    // Construct and execute the descriptor together, outside the UI actor.
+    nonisolated private func dailyTotal(_ identifier: HKQuantityTypeIdentifier, unit: HKUnit,
+                                        interval: DateInterval) async throws -> Double? {
+        let bounds = HKQuery.predicateForSamples(withStart: interval.start, end: interval.end)
+        let query = HKStatisticsCollectionQueryDescriptor(
+            predicate: .quantitySample(type: HKQuantityType(identifier), predicate: bounds),
+            options: .cumulativeSum, anchorDate: interval.start, intervalComponents: DateComponents(day: 1))
+        do {
+            let days = try await query.result(for: store)
+            return days.statistics(for: interval.start)?.sumQuantity()?.doubleValue(for: unit)
+        } catch let error as HKError where [.errorNoData, .errorAuthorizationDenied, .errorAuthorizationNotDetermined].contains(error.code) {
+            return nil
+        }
     }
 
     public func addActivity(_ activity: DailyHealthActivity, date: Date, id: UUID) async throws {

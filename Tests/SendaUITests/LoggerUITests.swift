@@ -316,6 +316,10 @@ final class LoggerUITests: XCTestCase {
         let pages = element("workout-exercise-pages", in: app)
         let add = app.buttons["add-exercise"]
         let overview = app.buttons["all-exercises"]
+        let row = element("set-row-1", in: app)
+        XCTAssertEqual(row.frame.minX - app.frame.minX, app.frame.maxX - row.frame.maxX, accuracy: 1)
+        let menu = element("set-1-actions", in: app)
+        XCTAssertLessThan(menu.frame.midX, pages.frame.minX)
         XCTAssertTrue(overview.isHittable)
         XCTAssertGreaterThan(pages.frame.midX, app.frame.midX)
         XCTAssertGreaterThanOrEqual(pages.frame.minY, overview.frame.maxY - 1)
@@ -1344,7 +1348,7 @@ final class LoggerUITests: XCTestCase {
     func testLargestTextWorkoutHeaderKeepsDatesAndArrowsReadable() {
         let app = launch(extra: ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"])
         let todayRow = reveal(todayRowID(), in: app)
-        XCTAssertTrue(todayRow.label.contains("Add workout"))
+        XCTAssertTrue(todayRow.label.contains("Start workout"))
         XCTAssertGreaterThanOrEqual(todayRow.frame.height, 44 - 0.01)
         attach("Today’s first workout row at the largest text size", app)
         todayRow.tap()
@@ -2096,7 +2100,7 @@ final class LoggerUITests: XCTestCase {
         let days = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "day-"))
         XCTAssertEqual(days.count, 7)
         for row in days.allElementsBoundByIndex {
-            XCTAssertTrue(row.label.contains("Add workout"), row.label)
+            XCTAssertTrue(row.label.contains(row.identifier == todayRowID() ? "Start workout" : "Add workout"), row.label)
         }
         XCTAssertFalse(app.buttons["try-demo"].exists)
         tap("dock-profile", in: app)
@@ -2483,11 +2487,14 @@ final class LoggerUITests: XCTestCase {
         tap("back-to-week", in: app)
         tap("dock-log", in: app)
         let today = element(todayRowID(), in: app)
-        XCTAssertTrue(today.label.contains("Add workout"))
+        XCTAssertTrue(today.label.contains("Start workout"))
         attach("Week with today’s date stamp", app)
         today.tap()
         add("Bench", id: "bench", in: app)
-        tap("row-1-weight", in: app); replace("31.", in: app); tap("input-done", in: app)
+        tap("row-1-weight", in: app)
+        replace("31.", in: app)
+        XCTAssertEqual(element("input-last-session", in: app).label, "Last time · 135 lb × 10")
+        tap("input-done", in: app)
         let day = workoutDate(in: app)
         let lastTime = app.buttons["last-reference"]
         XCTAssertEqual(lastTime.label, "Last time · 135 lb × 10")
@@ -2766,17 +2773,33 @@ final class LoggerUITests: XCTestCase {
         XCTAssertTrue(element("row-2-weight", in: app).exists)
         XCTAssertFalse(app.buttons["row-3-weight"].exists)
         tap("input-done", in: app)
-        tap("set-2-actions", in: app)
         tap("prefill-row-2", in: app)
         XCTAssertEqual(element("set-input", in: app).value as? String, "135")
         XCTAssertTrue(element("row-2-weight", in: app).label.contains("135 lb"))
         XCTAssertTrue(element("row-2-reps", in: app).label.contains("10 reps"))
         XCTAssertFalse(app.descendants(matching: .any).matching(identifier: "row-2-status").firstMatch.exists)
-        app.terminate(); app.launch()
-        XCTAssertTrue(element("row-2-weight", in: app).label.contains("135 lb"))
-        XCTAssertTrue(element("row-2-reps", in: app).label.contains("10 reps"))
-        tap("row-2-weight", in: app)
+        tap("row-2-reps", in: app)
+        replace("8", in: app)
         tap("input-done", in: app)
+        tap("new-set", in: app)
+        replace("137.", in: app)
+        XCUIDevice.shared.press(.home)
+        XCTAssertTrue(app.wait(for: .runningBackground, timeout: 3) || app.state == .runningBackgroundSuspended)
+        app.terminate()
+        app.launch()
+        XCTAssertEqual(selectedExercise(in: app).label, "Bench")
+        XCTAssertTrue(element("input-set-context", in: app).label.contains("Set 3"))
+        XCTAssertEqual(element("set-input", in: app).value as? String, "137.")
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 3))
+        tap("input-use-dial", in: app)
+        app.terminate()
+        app.launch()
+        XCTAssertEqual(element("set-input", in: app).value as? String, "137.")
+        XCTAssertTrue(element("weight-dial", in: app).isHittable)
+        XCTAssertFalse(app.keyboards.firstMatch.exists)
+        tap("input-done", in: app)
+        XCTAssertTrue(element("row-2-weight", in: app).label.contains("135 lb"))
+        XCTAssertTrue(element("row-2-reps", in: app).label.contains("8 reps"))
         XCTAssertFalse(element("row-2-weight", in: app).label.contains("Recorded"))
         XCTAssertFalse(app.descendants(matching: .any).matching(identifier: "row-2-status").firstMatch.exists)
         tap("back-to-week", in: app)
@@ -4463,7 +4486,7 @@ final class LoggerUITests: XCTestCase {
         attach("Push template preview", app)
         tap("back-to-workout-library", in: app)
         tap("dock-log", in: app)
-        XCTAssertTrue(element(today, in: app).label.contains("Add workout"))
+        XCTAssertTrue(element(today, in: app).label.contains("Start workout"))
         tap("previous-week", in: app)
         tap("dock-library", in: app)
         tap("workout-template-push", in: app)
@@ -4843,6 +4866,16 @@ final class LoggerUITests: XCTestCase {
         let target = element(id, in: app, file: file, line: line)
         let day = app.scrollViews["day-scroll"]
         let dock = app.descendants(matching: .any).matching(identifier: "app-dock").firstMatch
+        if id.hasPrefix("day-"), app.scrollViews["week-view"].exists, dock.exists {
+            let week = app.scrollViews["week-view"].frame
+            let bottom = min(week.maxY, dock.frame.minY) - 8
+            let origin = app.coordinate(withNormalizedOffset: .zero)
+            for _ in 0..<10 where target.frame.midY >= bottom {
+                let start = origin.withOffset(CGVector(dx: week.midX, dy: bottom))
+                start.press(forDuration: 0.05, thenDragTo: start.withOffset(
+                    CGVector(dx: 0, dy: -(bottom - week.minY) / 2)), withVelocity: .slow, thenHoldForDuration: 0.1)
+            }
+        }
         let controls = app.descendants(matching: .any).matching(identifier: "day-controls").firstMatch
         let inDay = day.descendants(matching: .any).matching(identifier: id).firstMatch.exists
         let inControls = controls.descendants(matching: .any).matching(identifier: id).firstMatch.exists

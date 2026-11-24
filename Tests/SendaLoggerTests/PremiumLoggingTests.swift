@@ -242,7 +242,7 @@ import SendaPersistence
         #expect(released == nil)
     }
 
-    @Test func backgroundSuspensionRetriesUnsavedInputThenFinishesTheCompleteSet() throws {
+    @Test func backgroundSuspensionRetriesUnsavedInputAndRestoresTheActiveField() throws {
         let store = PremiumFailureStore(), session = TrainingSession(repository: store)
         let m = try #require(session.notebook)
         try start(m)
@@ -252,9 +252,12 @@ import SendaPersistence
         #expect(m.rows[0].reps == "11")
         #expect(m.recordedValues(for: m.rows[0]) == SetValues(weight: 13_500, reps: 10))
         #expect(try store.loadSnapshot().journal == m.journal)
+        let focus = try #require(m.focus)
         store.reject = false
         session.suspend()
-        #expect(m.focus == nil && !m.canRetrySave)
+        #expect(m.focus == focus && !m.canRetrySave)
+        let reopened = try #require(TrainingSession(repository: store).notebook)
+        #expect(reopened.focus == focus && reopened.inputText(for: focus) == "11")
         #expect(m.summary(for: day).setCount == 1)
         #expect(m.journal.batches.first?.values == [SetValues(weight: 13_500, reps: 11)])
     }

@@ -91,6 +91,7 @@ struct TrainingDayView: View {
         let isFirstWorkout = !hasExercises && model.isFirstWorkout
         let showsPagingCue = model.exercise != nil && model.focus == nil && !showingSearch
         let showsExerciseMarkers = model.exercise != nil && !showingSearch
+        let last = model.lastReference
         return ScrollViewReader { scroll in
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
@@ -103,14 +104,13 @@ struct TrainingDayView: View {
                         TrainingExercisePicker(inline: model, close: { showingSearch = false },
                             browse: { query, multiple in open(.sheet(.catalog(query, multiple: multiple))) })
                     } else if let exercise = model.exercise {
-                        exercisePage(exercise)
+                        exercisePage(exercise, last: last)
                     } else {
                         TrainingEmptyWorkout(addExercise: { open(.addExercise) },
                                              chooseTemplate: { open(.sheet(.library)) })
                     }
                 }
-                .padding(.leading, 20)
-                .padding(.trailing, showsExerciseMarkers ? 44 : 20)
+                .padding(.horizontal, 20)
                 .padding(.top, 2).padding(.bottom, 20)
                 .frame(maxWidth: 560).frame(maxWidth: .infinity)
                 .onGeometryChange(for: VerticalEdge.Set.self) { geometry in
@@ -142,8 +142,6 @@ struct TrainingDayView: View {
                         isExpanded: isDraggingPage || markersRecentlyActive,
                         select: selectExercise, add: { open(.addExercise) })
                         .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { markerBounds = $0 }
-                        .frame(minWidth: 0, maxWidth: 560, alignment: .trailing)
-                        .frame(maxWidth: .infinity)
                 }
             }
             .task(id: markerActivity) {
@@ -182,7 +180,7 @@ struct TrainingDayView: View {
                             .padding(.bottom, model.focus == nil ? 12 : 0)
                     }
                     if let focus = model.focus {
-                        TrainingInputDock(model: model, focus: focus, weightEntry: $weightEntry,
+                        TrainingInputDock(model: model, focus: focus, last: last, weightEntry: $weightEntry,
                                           beginInteraction: { pendingNavigation = nil }, advanceSuperset: advanceSuperset).id(focus.id)
                     }
                     else if model.errorMessage == nil, let label = model.undoLabel {
@@ -465,7 +463,7 @@ struct TrainingDayView: View {
         }
     }
 
-    private func exercisePage(_ exercise: Exercise) -> some View {
+    private func exercisePage(_ exercise: Exercise, last: TrainingPerformanceReference?) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(exercise.displayName)
@@ -475,7 +473,7 @@ struct TrainingDayView: View {
                 TrainingExerciseTargets(exercise: exercise) { tab in
                     open(.sheet(.guide(exercise.id, tab)))
                 }
-                if let last = model.lastReference {
+                if let last {
                     TrainingLastTimeRow(summary: ProgressFormatting.set(last.values, exercise: exercise, unit: model.unit),
                         day: last.day, showSet: { pendingNavigation = nil; model.openReference(last) },
                         showHistory: { open(.sheet(.history(exercise.id))) })
@@ -486,8 +484,6 @@ struct TrainingDayView: View {
             .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { frame in
                 if model.exercise?.id == exercise.id { headerBounds = frame }
             }
-            .id(exercise.id)
-            .transition(pageTransition)
             VStack(alignment: .leading, spacing: 8) {
                 supersetStatus
                 TrainingSetRows(model: model, records: model.workoutPersonalRecords,
@@ -500,14 +496,15 @@ struct TrainingDayView: View {
                     TrainingNextWorkoutFeedback(model: model, day: day, exercise: exercise)
                 }
             }
-            .id("ledger-" + exercise.id)
-            .transition(pageTransition)
         }
         .padding(.top, 2)
+        .id(exercise.id)
+        .transition(pageTransition)
     }
 
     private var pageTransition: AnyTransition {
-        reduceMotion ? .identity : .push(from: pagingForward ? .bottom : .top)
+        reduceMotion ? .identity : .asymmetric(insertion: .move(edge: pagingForward ? .bottom : .top),
+                                               removal: .move(edge: pagingForward ? .top : .bottom))
     }
 
     private func registerMarkerActivity() {
@@ -517,7 +514,7 @@ struct TrainingDayView: View {
 
     private var pagingCue: some View {
         Button { turnPage(forward: true) } label: {
-            Label(nextExercise.map { "Next: " + $0.displayName } ?? "Swipe up to add exercise",
+            Label(nextExercise.map { "Next: " + $0.displayName } ?? "Add exercise",
                   systemImage: "chevron.up")
                 .font(.subheadline.weight(.medium))
                 .frame(maxWidth: .infinity, minHeight: 44).contentShape(Rectangle())
@@ -891,13 +888,6 @@ struct TrainingSetRows: View {
                         effort: TrainingSetDetailsText.effort(first.repsInReserve),
                         includesDropStages: entry.rows.count > 1,
                         editEffort: { presentDetails(first, index: index) },
-                        previousValues: previous.map { TrainingText.set($0.values, unit: first.unit) },
-                        useLastValues: {
-                            beginInteraction()
-                            if model.prefillSet(first.id) {
-                                TrainingAccessibility.announce("Last values saved to \(positionLabel(first).lowercased()).")
-                            }
-                        },
                         delete: { beginInteraction(); return model.deleteSet(first.id) }) {
             VStack(alignment: .leading, spacing: 0) {
                 if entry.isDropSet {
@@ -921,6 +911,22 @@ struct TrainingSetRows: View {
                 } else {
                     ordinaryRow(first, index: index)
                         .id(first.id).background { focusMeasurement(first) }
+                }
+                if let previous, let exercise = model.exercise {
+                    let values = ProgressFormatting.set(previous.values, exercise: exercise, unit: first.unit)
+                    Button {
+                        beginInteraction()
+                        if model.prefillSet(first.id) {
+                            TrainingAccessibility.announce("Set \(index) saved.")
+                        }
+                    } label: {
+                        Label("Log \(values)", systemImage: "arrow.uturn.down.right")
+                            .font(.subheadline.weight(.medium))
+                            .frame(minHeight: 44).contentShape(Rectangle())
+                    }
+                    .foregroundStyle(NotebookStyle.clay)
+                    .accessibilityHint("Use the previous set’s values for set \(index)")
+                    .accessibilityIdentifier("prefill-row-\(index)")
                 }
             }.frame(maxWidth: .infinity, alignment: .leading)
         }

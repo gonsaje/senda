@@ -1057,6 +1057,12 @@ public enum TrainingRowStatus: Equatable, Sendable { case empty, unfinished, rec
         guard focus?.id == token.id, let row = focusedRow else { return "" }
         return token.field == .weight ? row.weight : row.reps
     }
+    public func setInputKeyboard(_ visible: Bool, focus token: TrainingFocus) {
+        guard let focus, focus.id == token.id, focus.keyboard != visible, !canRetrySave else { return }
+        _ = commit(synchronizeInput: false) { state in
+            state.training?.focus?.keyboard = visible
+        }
+    }
     public var focusedRow: TrainingRow? {
         guard let focus else { return nil }
         return workspace.days[focus.day.rawValue]?.rows[focus.exerciseID]?.first { $0.id == focus.rowID }

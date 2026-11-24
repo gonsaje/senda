@@ -5,6 +5,7 @@ import SendaLogger
 struct TrainingInputDock: View {
     @Bindable var model: TrainingNotebookModel
     let focus: TrainingFocus
+    let last: TrainingPerformanceReference?
     @Binding var weightEntry: TrainingWeightEntrySettings
     var beginInteraction: () -> Void = {}
     var advanceSuperset: (UUID) -> Void
@@ -64,7 +65,7 @@ struct TrainingInputDock: View {
                     if !textSize.isAccessibilitySize { Spacer(minLength: 0) }
                     if focus.field == .weight {
                         if typing && !textSize.isAccessibilitySize {
-                            Button { typing = false } label: {
+                            Button(action: closeKeyboard) {
                                 Image(systemName: "keyboard.chevron.compact.down")
                                     .frame(width: 44, height: 44).contentShape(Rectangle())
                             }
@@ -180,20 +181,36 @@ struct TrainingInputDock: View {
             await Task.yield()
             if !Task.isCancelled { typing = focus.keyboard; editorFocused = true }
         }
+        .onChange(of: typing) { _, isTyping in
+            // Losing system focus while backgrounding should preserve the user's editor.
+            if isTyping { model.setInputKeyboard(true, focus: focus) }
+        }
+    }
+
+    private func closeKeyboard() {
+        typing = false
+        model.setInputKeyboard(false, focus: focus)
     }
 
     private var contextTitle: some View {
-        Text(textSize.isAccessibilitySize ? setContext : "\(model.exercise?.displayName ?? "") · \(setContext)")
-            .font(textSize.isAccessibilitySize ? .caption2 : .caption).foregroundStyle(NotebookStyle.quiet)
-            .fixedSize(horizontal: false, vertical: true)
-            .accessibilityIdentifier("input-set-context")
+        VStack(alignment: .leading, spacing: 1) {
+            Text(textSize.isAccessibilitySize ? setContext : "\(model.exercise?.displayName ?? "") · \(setContext)")
+                .accessibilityIdentifier("input-set-context")
+            if let last, let exercise = model.exercise {
+                Text("Last time · \(ProgressFormatting.set(last.values, exercise: exercise, unit: model.unit))")
+                    .monospacedDigit()
+                    .accessibilityIdentifier("input-last-session")
+            }
+        }
+        .font(.caption).foregroundStyle(NotebookStyle.quiet)
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     @ViewBuilder private var weightControlLabel: some View {
         if usesPlates {
             Button {
                 beginInteraction()
-                typing = false
+                closeKeyboard()
                 showsPlateCalculator = true
             } label: {
                 Label("Plate math", systemImage: "function")
@@ -223,7 +240,7 @@ struct TrainingInputDock: View {
         return Button {
             beginInteraction()
             weightEntry.usesPlates = plates
-            typing = false
+            closeKeyboard()
         } label: {
             Text(plates ? "Plates" : "Dial")
                 .font(.subheadline.weight(selected ? .semibold : .regular))
@@ -331,7 +348,7 @@ struct TrainingInputDock: View {
                 ? model.adjustPlate(plateSize, count: count, focus: focus)
                 : model.stepInput(increasing: increasing, focus: focus)
             if changed {
-                if focus.field == .weight { typing = false }
+                if focus.field == .weight { closeKeyboard() }
                 if model.errorMessage == nil { TrainingAccessibility.announce(inputAccessibilityValue) }
             }
         } label: {

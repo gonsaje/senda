@@ -161,7 +161,7 @@ struct TrainingWeekView: View {
                 let travel = slides ? rowsHeight : nil
                 ScrollView {
                     VStack(spacing: spacing) {
-                        weekCard(current: current, travel: travel)
+                        weekCard(current: current, travel: travel, allowsPaging: !scrolls || rowsHeight >= 54)
                         weekRows(current: current, availableHeight: rowsHeight, travel: travel, scrolls: scrolls)
                         if let error = model.errorMessage {
                             TrainingSaveError(model: model, message: error).trainingCalendarColumn()
@@ -193,7 +193,7 @@ struct TrainingWeekView: View {
     }
 
     @ViewBuilder
-    private func weekCard(current: TrainingDay, travel: CGFloat?) -> some View {
+    private func weekCard(current: TrainingDay, travel: CGFloat?, allowsPaging: Bool) -> some View {
         let card = TrainingWeekNavigation(model: model, today: today, first: current, week: model.weekDays,
             changeWeek: { settleWeek($0, animates: travel != nil) }, showMuscles: { showsMuscles = true })
             .trainingCalendarColumn()
@@ -201,15 +201,20 @@ struct TrainingWeekView: View {
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { cardHeight = $0 }
             .contentShape(Rectangle())
             .transaction { $0.animation = nil }
-        #if os(iOS)
-        if #available(iOS 18.0, *) {
-            card.gesture(weekPan(travel: travel, axis: .vertical))
+        // When a whole day row cannot fit beneath the card, swiping it must reveal the days.
+        if !allowsPaging {
+            card
         } else {
+            #if os(iOS)
+            if #available(iOS 18.0, *) {
+                card.gesture(weekPan(travel: travel, axis: .vertical))
+            } else {
+                card.highPriorityGesture(weekSwipe(travel: travel))
+            }
+            #else
             card.highPriorityGesture(weekSwipe(travel: travel))
+            #endif
         }
-        #else
-        card.highPriorityGesture(weekSwipe(travel: travel))
-        #endif
     }
 
     @ViewBuilder
@@ -315,7 +320,7 @@ struct TrainingWeekView: View {
             action = "\(exerciseCount) \(exerciseCount == 1 ? "exercise" : "exercises") planned"
             symbol = "list.bullet"
         } else {
-            action = "Add workout"
+            action = isToday ? "Start workout" : "Add workout"
             symbol = "plus"
         }
         let date = TrainingText.date(day, format: "EEEE, MMM d, yyyy")

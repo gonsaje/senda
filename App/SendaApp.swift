@@ -35,40 +35,39 @@ private struct JournalRootView: View {
     @Binding var showsLaunchIntro: Bool
     @AppStorage(NotebookAppearance.preferenceKey) private var appearance: NotebookAppearance = .system
     @Environment(\.scenePhase) private var scenePhase
+    @AppStorage("senda.nextLaunchTagline") private var nextTagline = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var textSize
+    @State private var launchTagline: LocalizedStringKey = "Trace your own path."
     @State private var session: TrainingSession?
     @State private var automaticBackup: NotebookAutomaticBackup?
     @State private var openingError: String?
 
     var body: some View {
-        ZStack {
-            content
-                .accessibilityHidden(showsLaunchIntro)
-                .allowsHitTesting(!showsLaunchIntro)
-            if showsLaunchIntro {
-                SendaLaunchIntro(profileName: session?.notebook?.profile.details.name,
-                                 isReady: session != nil || openingError != nil) {
-                    showsLaunchIntro = false
-                }
-                    .allowsHitTesting(false)
-                    .transition(.opacity)
-                    .zIndex(1)
+        content
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(NotebookStyle.ivory)
+            .foregroundStyle(NotebookStyle.ink)
+            .tint(NotebookStyle.clay)
+            .background { WindowAppearance(appearance: appearance).allowsHitTesting(false).accessibilityHidden(true) }
+            .task { if session == nil && openingError == nil { openJournal() } }
+            .task(id: session != nil) {
+                guard session != nil, showsLaunchIntro else { return }
+                // Only the calendar wordmark animates once the notebook has opened.
+                do { try await Task.sleep(for: .milliseconds(1400)) } catch { return }
+                withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) { showsLaunchIntro = false }
             }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(NotebookStyle.ivory)
-        .foregroundStyle(NotebookStyle.ink)
-        .tint(NotebookStyle.clay)
-        .background { WindowAppearance(appearance: appearance).allowsHitTesting(false).accessibilityHidden(true) }
-        .task { if session == nil && openingError == nil { openJournal() } }
-        .onChange(of: scenePhase) { _, phase in
-            if phase == .background { showsLaunchIntro = false }
-            if phase != .active { session?.suspend() }
-        }
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .background { showsLaunchIntro = false }
+                if phase != .active { session?.suspend() }
+            }
     }
 
     @ViewBuilder private var content: some View {
         if let session {
             TrainingSessionView(session: session, automaticBackup: automaticBackup)
+                .environment(\.trainingLaunchMark, showsLaunchIntro && !reduceMotion && !textSize.isAccessibilitySize
+                    ? AnyView(SendaLaunchIntro(tagline: launchTagline, compact: true)) : nil)
         } else if let openingError {
             VStack(alignment: .leading, spacing: 20) {
                 Text("Your journal couldn’t be opened.")
@@ -82,7 +81,12 @@ private struct JournalRootView: View {
             }
             .padding(30).frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
-            ProgressView("Opening journal…")
+            ZStack {
+                Color("LaunchPaper").ignoresSafeArea()
+                SendaLaunchIntro(tagline: launchTagline)
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Opening journal")
         }
     }
 
@@ -111,6 +115,15 @@ private struct JournalRootView: View {
                 automaticBackup = NotebookAutomaticBackup(
                     settingsURL: dataDirectory.appendingPathComponent("backup-settings.json")
                 )
+            }
+            if showsLaunchIntro, let notebook = session?.notebook, notebook.selectedDay == nil,
+               !reduceMotion && !textSize.isAccessibilitySize {
+                let lines = SendaLaunchIntro.taglines(for: notebook.profile.details.name)
+                let index = lines.indices.contains(nextTagline) ? nextTagline : 0
+                launchTagline = lines[index]
+                nextTagline = (index + 1) % lines.count
+            } else {
+                showsLaunchIntro = false
             }
             openingError = nil
         } catch { openingError = error.localizedDescription }

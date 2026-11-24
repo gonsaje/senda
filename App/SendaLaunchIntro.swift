@@ -2,127 +2,38 @@ import SwiftUI
 import SendaNotebook
 
 struct SendaLaunchIntro: View {
-    let profileName: String?
-    let isReady: Bool
-    let finish: () -> Void
-
-    @AppStorage("senda.nextLaunchTagline") private var nextTagline = 0
+    let tagline: LocalizedStringKey
+    var compact = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var activeTagline: Int?
-    @State private var hasShownTagline = false
     @State private var trailProgress: CGFloat = 0
-    @State private var showsTagline = false
-    @State private var showsWordmark = false
 
-    private static let brandTaglines: [LocalizedStringKey] = [
-        "Trace your own path.",
-        "Every rep, a step.",
-        "Your path. Your pace."
-    ]
-    private static let taglineFont = NotebookTypography.heading(18, relativeTo: .headline)
-
-    private var taglines: [LocalizedStringKey] {
-        guard let firstName else { return Self.brandTaglines }
-        return Self.brandTaglines + ["Welcome back, \(firstName)"]
-    }
-
-    private var taglineIndex: Int {
-        let index = activeTagline ?? nextTagline
-        return taglines.indices.contains(index) ? index : 0
-    }
-
-    private var canRevealWordmark: Bool { isReady && (reduceMotion || hasShownTagline) }
-    private var isShowingWordmark: Bool { reduceMotion || showsWordmark }
-    private var isShowingTagline: Bool { !reduceMotion && showsTagline }
-
-    private var firstName: String? {
-        guard let name = profileName, let firstWord = name.split(whereSeparator: \.isWhitespace).first else {
-            return nil
+    static func taglines(for profileName: String?) -> [LocalizedStringKey] {
+        var lines: [LocalizedStringKey] = ["Trace your own path.", "Every rep, a step.", "Your path. Your pace."]
+        if let name = profileName, let word = name.split(whereSeparator: \.isWhitespace).first {
+            let firstName = PersonNameComponentsFormatter().personNameComponents(from: name)?.givenName ?? String(word)
+            lines.append("Welcome back, \(firstName)")
         }
-        return PersonNameComponentsFormatter().personNameComponents(from: name)?.givenName ?? String(firstWord)
+        return lines
     }
 
     var body: some View {
-        let availableTaglines = taglines
-        VStack(spacing: 12) {
+        let layout = compact ? AnyLayout(HStackLayout(spacing: 5)) : AnyLayout(VStackLayout(spacing: 12))
+        layout {
             Image("LaunchTrail")
-                .resizable()
-                .scaledToFit()
+                .resizable().scaledToFit()
                 .mask(LaunchTrailReveal(progress: reduceMotion ? 1 : trailProgress))
-                .frame(width: 92, height: 80)
-                .accessibilityHidden(true)
-
-            ZStack {
-                ForEach(availableTaglines.indices, id: \.self) { index in
-                    let isVisible = isShowingTagline && index == taglineIndex
-                    Text(availableTaglines[index])
-                        .font(Self.taglineFont)
-                        .lineLimit(2, reservesSpace: true)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .opacity(isVisible ? 1 : 0)
-                        .accessibilityHidden(!isVisible)
-                        .accessibilityIdentifier("senda-launch-tagline")
-                }
-
-                Image("LaunchWordmark")
-                    .renderingMode(.template)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 116, height: 40)
-                    .opacity(isShowingWordmark ? 1 : 0)
-                    .accessibilityHidden(!isShowingWordmark)
-                    .accessibilityLabel("Senda")
-                    .accessibilityIdentifier("senda-launch-wordmark")
-            }
+                .frame(width: compact ? 25 : 92, height: compact ? 24 : 80)
+            Text(tagline)
+                .font(NotebookTypography.heading(compact ? 12 : 18, relativeTo: compact ? .caption : .headline))
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+                .multilineTextAlignment(compact ? .leading : .center)
         }
-        .multilineTextAlignment(.center)
         .foregroundStyle(NotebookStyle.ink)
-        .padding(.horizontal, 24)
-        .frame(maxWidth: 420)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color("LaunchPaper").ignoresSafeArea())
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("senda-launch-intro")
-        .onChange(of: isReady, initial: true) { _, ready in
-            // The persisted index may point to the greeting, so wait for the profile.
-            guard ready else { return }
-            let index = taglineIndex
-            activeTagline = index
-            nextTagline = (index + 1) % taglines.count
-        }
-        .task(id: reduceMotion) {
-            guard !reduceMotion, !hasShownTagline else { return }
-            withAnimation(.easeInOut(duration: 0.85)) { trailProgress = 1 }
-            do {
-                try await Task.sleep(for: .milliseconds(450))
-                withAnimation(.easeInOut(duration: 0.30)) { showsTagline = true }
-                try await Task.sleep(for: .milliseconds(950))
-                hasShownTagline = true
-            } catch { return }
-        }
-        .task(id: isShowingTagline) {
-            guard isShowingTagline else { return }
-            while !Task.isCancelled {
-                do { try await Task.sleep(for: .seconds(4)) }
-                catch { return }
-                withAnimation(.easeInOut(duration: 0.3)) {
-                    activeTagline = (taglineIndex + 1) % taglines.count
-                }
-            }
-        }
-        .task(id: canRevealWordmark) {
-            guard canRevealWordmark else { return }
-            do {
-                if reduceMotion {
-                    try await Task.sleep(for: .milliseconds(500))
-                } else {
-                    withAnimation(.easeOut(duration: 0.20)) { showsTagline = false }
-                    try await Task.sleep(for: .milliseconds(200))
-                    withAnimation(.easeInOut(duration: 0.32)) { showsWordmark = true }
-                    try await Task.sleep(for: .milliseconds(820))
-                }
-            } catch { return }
-            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.29)) { finish() }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+        .onAppear {
+            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.65)) { trailProgress = 1 }
         }
     }
 }

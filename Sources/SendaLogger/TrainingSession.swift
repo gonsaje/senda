@@ -93,10 +93,7 @@ import SendaPersistence
         if let recovery { _ = recovery.flushRecovery() }
         else if let notebook {
             guard !notebook.backupRecoveryRequired else { return }
-            // A lifecycle flush must replay a failed intended action before creating
-            // a new boundary transaction that would supersede its destination.
-            if notebook.canRetrySave && !notebook.flushRecovery() { return }
-            _ = notebook.finishEditing()
+            // Numeric edits already autosave. Keep the active row and field for the next launch.
             _ = notebook.flushRecovery()
         }
     }
